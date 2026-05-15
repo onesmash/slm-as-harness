@@ -48,6 +48,11 @@ Both sub-skills share the pure indexing logic in `scripts/lib_indexer.py` (token
 Ollama chat, semantic chunk building, file saving). Each platform has its own thin wrapper
 that adapts the shared library to platform-specific I/O conventions:
 
+`lib_indexer.py` saves the original raw output unchanged, but sends the model an
+index-only view where each document line is prefixed with `L<number>:`. Tool and
+command metadata are sent separately as context, not mixed into the document body,
+so model-produced `line_start` / `line_end` values map back to the saved raw file.
+
 | Script                            | Platform    | Role                                                                                                                                                            |
 |-----------------------------------|-------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `scripts/lib_indexer.py`          | Shared      | Pure indexing logic (imported by all wrappers)                                                                                                                  |
