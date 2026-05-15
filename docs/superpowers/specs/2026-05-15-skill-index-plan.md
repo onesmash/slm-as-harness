@@ -59,6 +59,15 @@ touch slm-as-harness/skills/skill-index/tests/test_index.py
 6. `write_card(source: str, name: str, description: str, skill_md_path: Path) -> Path`
    - 写 `CARDS_DIR / source / f"{name}.md"`，含 frontmatter + 描述正文
    - 自动 `mkdir -p` 父目录
+7. `git_refresh(target: Path) -> bool`
+   - 顺序跑：
+     ```python
+     subprocess.run(["git", "-C", str(target), "fetch", "--depth=1", "origin", "HEAD"], check=True)
+     subprocess.run(["git", "-C", str(target), "reset", "--hard", "FETCH_HEAD"], check=True)
+     ```
+   - 返回 `True` 成功；任一步抛 `CalledProcessError` → 捕获，stderr 打 `git refresh failed for {target}: {err}`，返回 `False`
+   - `target/.git` 不存在或 `target` 不是目录 → 同样返回 `False` + stderr 警告
+   - 不抛异常给上层 —— 调用方按布尔值决定是否跳过该 source
 
 **测试 `tests/test_lib_skill_index.py`：**
 
@@ -76,6 +85,9 @@ touch slm-as-harness/skills/skill-index/tests/test_index.py
 - `test_parse_skill_frontmatter_no_frontmatter_returns_none`
 - `test_parse_skill_frontmatter_multiline_description` — `description: >` + 三行
 - `test_write_card_creates_parent_dirs` — 用 tmp_path monkeypatch `CARDS_DIR`
+- `test_git_refresh_success` — tmp_path 内建一个 bare repo + working clone，远端补一个 commit，跑 `git_refresh(clone_path)`，断言 working clone HEAD == bare HEAD，返回 `True`
+- `test_git_refresh_no_dot_git_returns_false` — 传入一个普通目录（无 `.git/`），断言返回 `False` + stderr 含 warning
+- `test_git_refresh_network_error_returns_false` — 用一个根本不存在的 file:// 远端模拟 fetch 失败，断言返回 `False` 而非抛异常
 
 **完成标准：** `pytest tests/test_lib_skill_index.py -q` 全绿。
 
@@ -98,8 +110,10 @@ main(argv):
     REPOS_DIR.mkdir(parents=True, exist_ok=True)
     subprocess.run(["git", "clone", "--depth", "1", git_url, str(target)], check=True)
     print(f"added {name} → {target}")
-    print("next: /skill-index index")
+    print('next: run "/skill-index index" to (re)generate skill cards and refresh the qmd index')
 ```
+
+> **强制提示规则：** stdout 最后一行**必须**是 `next: run "/skill-index index" ...` 那一行。即使将来扩展 `add` 的输出格式，这个提示也不可省略 —— 用户不跑 index，新仓库不会出现在 search 结果里。
 
 **测试 `tests/test_add.py`：**
 
@@ -108,6 +122,7 @@ main(argv):
   - monkeypatch `REPOS_DIR` 到另一个 tmp_path
   - 跑 `main(["add.py", f"file://{fixture.git}"])`
   - 断言 `REPOS_DIR / "fixture" / "SKILL.md"` 存在
+- `test_add_prints_index_prompt` — capsys 抓 stdout，断言末行匹配 `'next: run "/skill-index index"'`（regex 或 endswith 均可）
 - `test_add_duplicate_fails` — 第二次 add 同 URL → exit 1
 - `test_add_bad_url_fails` — `file:///nonexistent` → exit 非零
 
@@ -124,12 +139,30 @@ main(argv):
     source_filter = argv[1] if len(argv) >= 2 else None
     ensure_qmd()
 
-    sources = [source_filter] if source_filter else
-              [p.name for p in REPOS_DIR.iterdir() if p.is_dir()]
+    in_scope = [source_filter] if source_filter else
+               [p.name for p in REPOS_DIR.iterdir() if p.is_dir()]
 
-    for source in sources:
+    # Phase 1: pull latest for each in-scope source
+    pull_results: dict[str, bool] = {}
+    for source in in_scope:
+        pull_results[source] = git_refresh(REPOS_DIR / source)
+
+    # Phase 2: source-level orphan cleanup
+    # (whole-source folders that exist under cards/ but no longer under repos/)
+    if CARDS_DIR.exists():
+        for src_card_dir in CARDS_DIR.iterdir():
+            if src_card_dir.is_dir() and not (REPOS_DIR / src_card_dir.name).is_dir():
+                shutil.rmtree(src_card_dir)
+                print(f"removed orphan source: {src_card_dir.name}")
+
+    # Phase 3 + 4: card regen + per-source orphan cleanup
+    for source in in_scope:
+        if not pull_results[source]:
+            print(f"{source}: SKIPPED (git refresh failed)", file=sys.stderr)
+            continue
         process_source(source)
 
+    # Phase 5: qmd sync
     sync_qmd_collection()
 
 process_source(source):
@@ -147,7 +180,7 @@ process_source(source):
         found_cards.add(card_path.name)
         counts[added if newly_created else updated] += 1
 
-    # orphan cleanup
+    # per-source card orphan cleanup
     src_cards_dir = CARDS_DIR / source
     if src_cards_dir.exists():
         for existing in src_cards_dir.glob("*.md"):
@@ -170,18 +203,21 @@ sync_qmd_collection():
 **测试 `tests/test_index.py`：**
 
 - `test_index_happy_path` —
-  - 用 tmp_path 搭一个 `REPOS_DIR/fake/skill-a/SKILL.md` + `skill-b/SKILL.md`，frontmatter 齐
+  - 用 tmp_path 搭一个 `REPOS_DIR/fake/skill-a/SKILL.md` + `skill-b/SKILL.md`，frontmatter 齐；`fake/` 是真 git repo（`git init` + commit）
   - monkeypatch `REPOS_DIR` / `CARDS_DIR`
-  - mock `run_qmd` 为 stub（避免依赖真实 qmd）
+  - mock `run_qmd` 为 stub；mock `git_refresh` 始终返回 `True`（避免真网络）
   - 跑 `main(["index.py"])`
   - 断言 `CARDS_DIR/fake/skill-a.md`、`skill-b.md` 存在；frontmatter 含 `source: fake` + `skill_md_path` 绝对路径
   - 断言 mock `run_qmd` 被调用顺序：`collection list` → `collection add ...`（首次）→ `update` → `embed`
 - `test_index_missing_frontmatter_skipped` — 一个 SKILL.md 缺 `description` → 跳过 + stderr 警告
-- `test_index_orphan_cleanup` — 预先放一个 `CARDS_DIR/fake/zombie.md`，跑 index 后该文件应被删
+- `test_index_per_source_orphan_cleanup` — 预先放一个 `CARDS_DIR/fake/zombie.md`，跑 index 后该文件应被删
 - `test_index_idempotent_second_run` — 第二次跑 `collection list` 已含 `skill-index`，不再调 `collection add`
 - `test_index_specific_source` — `main(["index.py", "fake"])` 只处理 `fake` 不动其他
+- **`test_index_source_level_orphan_cleanup`** — 预先建 `CARDS_DIR/ghost/x.md`，但 `REPOS_DIR/ghost/` 不存在；跑 index 后整个 `CARDS_DIR/ghost/` 应被 `rmtree`
+- **`test_index_git_refresh_failure_skips_source`** — mock `git_refresh` 对 `fake` 返回 `False`，对其他 source 返回 `True`；断言 `fake` 卡片**未**被刷新（即如果原本无卡片则仍无；如果原本有卡片则保留旧的），其他 source 正常处理；stderr 含 `SKIPPED`
+- **`test_index_pulls_existing_repo`**（集成，可选标 `@pytest.mark.slow`）— 真 bare repo 加新 commit 含新 SKILL.md，跑 index 后断言新卡片出现（验证 `git_refresh` + 卡片再生链路真打通）
 
-**完成标准：** 测试全绿；手测：真实仓库 + 真实 qmd。
+**完成标准：** 测试全绿；手测：真实仓库 + 真实 qmd；手测包含「上游推新 SKILL.md → index → search 命中」全链路。
 
 ---
 
@@ -256,7 +292,10 @@ main(argv):
 - [ ] `pytest skills/skill-index/tests/ -q` 全绿（单测 + 集成）
 - [ ] `qmd` 在干净机器上首跑能自动安装
 - [ ] `/skill-index add <git-url>` 能 clone 到 `~/.skill-index/repos/<name>/`，重复 add 报错不覆盖
-- [ ] `/skill-index index` 能为每个 SKILL.md 生成合成卡，孤儿卡片自动清理
+- [ ] `/skill-index add` 末行打印 `next: run "/skill-index index" ...` 提示
+- [ ] `/skill-index index` 能为每个 SKILL.md 生成合成卡，per-source 与 source-level 两层孤儿都被清理
+- [ ] `/skill-index index` 会先 `git fetch --depth=1 + reset --hard FETCH_HEAD`，上游变更能在再生卡片中体现
+- [ ] `/skill-index index` 某个 source 拉取失败时该 source 跳过、其他 source 继续，进程 exit 0 但摘要标失败
 - [ ] `/skill-index index` 首跑 bootstrap qmd 集合，二跑不重复 `collection add`
 - [ ] `/skill-index search "<query>"` 透传 qmd 输出含可点击链接
 - [ ] 所有 qmd 调用经由 `lib_skill_index.run_qmd`
