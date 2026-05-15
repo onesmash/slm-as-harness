@@ -8,6 +8,7 @@ and raw-result file saving. Zero platform-specific code.
 
 import json
 import os
+import re
 import hashlib
 import urllib.request
 import urllib.error
@@ -114,7 +115,8 @@ def write_result_file(
     """Save raw tool output to disk. Returns the file path."""
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    safe_tool = tool_name.replace("/", "_").replace(" ", "_")[:40]
+    # Strip filesystem-hostile chars (`:` from Cursor's `MCP:tool` names breaks Windows paths).
+    safe_tool = re.sub(r"[^A-Za-z0-9._-]", "_", tool_name)[:40]
     subdir = base_dir / (session_id or "unknown")
     subdir.mkdir(parents=True, exist_ok=True)
     path = subdir / f"{safe_tool}_{ts}_{content_hash}.txt"
