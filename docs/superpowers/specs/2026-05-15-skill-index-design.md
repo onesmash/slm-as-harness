@@ -71,9 +71,9 @@
 
 - `~/.skill-index/repos/` 目录列表 = 已克隆仓库的唯一真相
 - `~/.skill-index/available_skills/` 目录列表 = 应当被索引的技能卡的唯一真相
-- `~/.cache/qmd/index.sqlite` = qmd 索引的唯一真相
+- `~/.cache/qmd/index.sqlite` = qmd 已索引内容的派生缓存；由 qmd 自管理，不归本技能直接维护
 
-不维护额外 JSON 配置文件，避免三处状态同步漂移。
+不维护额外 JSON 配置文件，避免三处状态同步漂移。当 `available_skills/` 与 qmd 索引内容偏离时，跑 `index` 即重新对齐。
 
 ### 4.4 失败语义：fail-loud
 
@@ -173,8 +173,14 @@ def write_card(source: str, name: str, description: str, skill_md_path: Path) ->
    b. 对每个 `SKILL.md`：解析 frontmatter；缺 `name` 或 `description` → stderr 警告 + 跳过
    c. 写卡片到 `CARDS_DIR / source / <name>.md`
 4. 清理孤儿卡片：对比 `CARDS_DIR / source / *.md` 与本轮生成集合，删多余
-5. 若 `CARDS_DIR` 不在任何 qmd 集合下 → `qmd collection add --name skill-index --glob "<CARDS_DIR>/**/*.md"`；否则 `qmd collection refresh skill-index`
+5. 同步 qmd 集合：
+   a. 用 `qmd collection list` 检查是否已有名为 `skill-index` 的集合
+   b. 若无 → `qmd collection add <CARDS_DIR> --name skill-index --mask "**/*.md"`
+   c. 跑 `qmd update`（重扫文件系统，发现新增 / 删除 / 修改的 markdown）
+   d. 跑 `qmd embed`（为新增 / 变更的文档生成向量嵌入，确保 vsearch / query 能命中）
 6. 打印每个 source 的 `added/updated/removed/skipped` 计数
+
+> **实现先验证：** qmd 仍在早期迭代，CLI 子命令面可能变。实现前先跑 `qmd --help`、`qmd collection --help`、`qmd update --help`、`qmd embed --help` 确认子命令与 flag 真实形态，并把所有 qmd 调用收敛在 `lib_skill_index.py` 的 `run_qmd(*args)` 包装中（参见 §8）。
 
 #### `search.py <query>`
 
@@ -260,7 +266,7 @@ description: >
 
 ## 8. 风险与未决
 
-- **qmd 版本漂移：** qmd 还在早期开发，CLI 子命令命名可能变。`run_qmd` 包装层是唯一耦合点，将来若 qmd 改名只改一处。
+- **qmd 版本漂移：** qmd 还在早期开发，CLI 子命令命名可能变。所有 qmd 调用必须经由 `lib_skill_index.run_qmd(*args)` 单一包装函数，使外层逻辑用「意图」（如 `qmd_ensure_collection` / `qmd_reindex`）而非 CLI verb 表达；将来若 qmd 子命令改名，改一处即可。实现首日先跑 `qmd --help` 锁定当前真实子命令面，写到包装层注释里。
 - **首次安装的 npm 依赖：** 用户机器若无 Node.js，`ensure_qmd` 会失败。可接受 —— 报错明确即可，安装 Node 不在本技能职责内。
 - **大仓库 clone 时间：** 默认 `--depth 1`，几秒内完成；超大仓库由用户用 `cd repos/<name> && git fetch --unshallow` 补全。
 - **重名仓库：** 当前用最末 path segment 派生名字，跨源同名仓库会冲突。报错让用户决定（重命名目录或先删旧）。该决策可在后续版本演进，不阻塞首版。
