@@ -174,8 +174,8 @@ def write_card(source: str, name: str, description: str, skill_md_path: Path) ->
    c. 写卡片到 `CARDS_DIR / source / <name>.md`
 4. 清理孤儿卡片：对比 `CARDS_DIR / source / *.md` 与本轮生成集合，删多余
 5. 同步 qmd 集合：
-   a. 用 `qmd collection list` 检查是否已有名为 `skill-index` 的集合
-   b. 若无 → `qmd collection add <CARDS_DIR> --name skill-index --mask "**/*.md"`
+   a. 用 `qmd collection list` 检查是否已有名为 `skill-index` 的集合 —— 这是「集合是否已 bootstrap」的**唯一**判定来源，不在 `~/.skill-index/` 下落任何 sentinel 文件
+   b. 若无 → `qmd collection add <CARDS_DIR> --name skill-index --mask "**/*.md"`（仅首次跑；后续轮次靠 `qmd update` 同步增量，不重复 `add`）
    c. 跑 `qmd update`（重扫文件系统，发现新增 / 删除 / 修改的 markdown）
    d. 跑 `qmd embed`（为新增 / 变更的文档生成向量嵌入，确保 vsearch / query 能命中）
 6. 打印每个 source 的 `added/updated/removed/skipped` 计数
@@ -201,7 +201,7 @@ git@host:org/repo.git
         ▼
 ~/.skill-index/available_skills/<source>/<name>.md   (合成卡)
         │
-        │ qmd collection refresh
+        │ qmd update + qmd embed
         ▼
 ~/.cache/qmd/index.sqlite   (BM25 + 向量索引)
         │
