@@ -156,7 +156,7 @@ def write_result_file(
     """Save raw tool output to disk. Returns the file path."""
     content_hash = hashlib.sha256(content.encode()).hexdigest()[:8]
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    # Strip filesystem-hostile chars (`:` from Cursor's `MCP:tool` names breaks Windows paths).
+    # Strip filesystem-hostile chars so tool names with separators (`:`, `/`, `__`) don't break paths.
     safe_tool = re.sub(r"[^A-Za-z0-9._-]", "_", tool_name)[:40]
     subdir = base_dir / (session_id or "unknown")
     subdir.mkdir(parents=True, exist_ok=True)

@@ -2,14 +2,15 @@
 name: context-index-claudecode
 description: >
   Install the Context Index hook for Claude Code — a PostToolUse hook that saves
-  large tool outputs to disk, indexes them with a local small model (qwen3.5:4b via
-  Ollama), and injects a summary + chunk index as additionalContext so the agent
-  can later read specific chunks via `Read offset/limit` instead of re-running
-  commands or burning tokens re-quoting the raw blob.
+  large tool outputs to disk, indexes them with a local small model (qwen3.5:4b
+  via Ollama), and replaces the model's view of the output with a compact
+  summary + chunk index via `hookSpecificOutput.updatedToolOutput`. The agent
+  retrieves specific chunks later via `Read offset/limit` from the saved file
+  instead of re-running commands or burning tokens re-quoting the raw blob.
 
   Use this skill when the user is on Claude Code (the CLI from
-  code.claude.com) and wants to install the context-index hook, or when the main
-  context-index skill routes to this sub-skill for Claude Code setup.
+  code.claude.com) and wants to install the context-index hook, or when the
+  main context-index skill routes here.
 ---
 
 # Context Index Hook — Claude Code
@@ -42,9 +43,9 @@ that:
 2. If `tool_response` exceeds the token threshold (default: 2000 tokens ≈ 6000
    chars), saves the raw output to `~/.claude/tool-results/<session_id>/`.
 3. Calls a local `qwen3.5:4b` model via Ollama to produce a semantic chunk index.
-4. Returns the index via `hookSpecificOutput.additionalContext` so Claude sees a
-   compact summary + chunk table right after the raw tool output. The index
-   points at the saved file and exact line ranges for each chunk.
+4. Returns the index via `hookSpecificOutput.updatedToolOutput`, which **replaces**
+   the raw `tool_response` Claude sees with the compact summary + chunk table.
+   The index points at the saved file and exact line ranges for each chunk.
 5. On subsequent turns, the agent fetches just the chunks it needs via
    `Read path="<saved-file>" offset=<line_start> limit=<lines>` instead of
    re-running the command or re-quoting the raw blob.
@@ -52,24 +53,10 @@ that:
 **Fails open**: any error (Ollama down, model missing, timeout, malformed JSON)
 → wrapper exits 0 with empty stdout → original tool result passes through unchanged.
 
-### Important: how token savings actually accrue here
-
-Claude Code's `PostToolUse` hook cannot strip the raw `tool_response` from the
-turn in which it fires — `additionalContext` is *appended after* the tool result,
-not substituted for it. So on the **first** turn the agent still pays the full
-raw-output cost.
-
-The savings come on **follow-up turns**:
-
-- The agent now knows the output is saved at a specific path with a chunk index.
-- Instead of re-running the same command (e.g. running `ls`/`grep`/build twice),
-  the agent reads just the relevant chunk by line range.
-- Long sessions that would otherwise quote the same large blob across many
-  turns instead cite the saved file.
-
-If you want first-turn replacement, you're on the wrong platform — use the Codex
-sub-skill (`continue: false` strips the original) or the pi sub-skill (extension
-return value replaces the result).
+> **Note**: `updatedToolOutput` shipped in Claude Code v2.1.121 and is not
+> documented on the public hooks reference page yet (the doc still only lists
+> `additionalContext`). The mechanism is confirmed in the project changelog and
+> in closed feature issues #32105 / #36843.
 
 ---
 
@@ -157,7 +144,7 @@ echo '{
 }' | python3 ~/.claude/hooks/indexer_claudecode.py
 ```
 
-Expected: a JSON blob with `hookSpecificOutput.additionalContext` containing the
+Expected: a JSON blob with `hookSpecificOutput.updatedToolOutput` containing the
 chunk index. If you get empty output, that's pass-through — either the content
 was below threshold, the tool was skipped, or an error fell open. Check
 `~/.claude/tool-results/smoke-test/` for any saved files and `_hook_error.json`
@@ -250,8 +237,8 @@ Expected behavior:
 
 - The hook fires after the `Bash` call.
 - A file appears under `~/.claude/tool-results/<session_id>/Bash_<ts>_<hash>.txt`.
-- The agent sees both the raw output AND an injected `additionalContext` block
-  with the chunk index pointing at the saved file.
+- The agent sees ONLY the chunk index (raw output replaced via
+  `updatedToolOutput`).
 - If you then ask a follow-up question, the agent should read chunks via `Read
   offset/limit` from the saved file instead of re-running `find`.
 
@@ -290,7 +277,7 @@ Using `settings.json` `env` block (works without changing your shell):
 
 ## How the agent retrieves chunks
 
-When the agent sees `additionalContext` like:
+When the agent sees the replaced `tool_response` like:
 
 ```
 Output too large (~5400 tokens). Saved and indexed.
@@ -341,15 +328,17 @@ chunks are loaded as a structured tool call rather than shell parsing.
 - Re-pull: `ollama pull qwen3.5:4b`.
 - List available: `ollama list`.
 
-**Hook runs but agent still sees only raw output, no index:**
+**Hook runs but agent still sees raw output, not the index:**
 - The hook may have errored and failed open. Look in
   `~/.claude/tool-results/<session>/*_hook_error.json` for the captured error
   type and message.
 - Verify the wrapper produces stdout on a manual run (see Step 4 smoke test).
+- Check that Claude Code is v2.1.121 or newer — `updatedToolOutput` for
+  built-in tools was added in that release.
 
 **Agent re-runs commands instead of reading saved chunks:**
-- This is a prompting issue, not a hook issue. The `additionalContext` block
-  already tells the agent to prefer `Read offset/limit`; if it ignores that,
+- This is a prompting issue, not a hook issue. The replacement payload already
+  tells the agent to prefer `Read offset/limit`; if it ignores that,
   consider adding a permanent reminder in your project's `CLAUDE.md`:
   > "When you see an `Output too large` indexed block, fetch chunks via `Read
   > offset/limit` from the saved file path — never re-run the original command."

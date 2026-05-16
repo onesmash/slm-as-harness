@@ -7,12 +7,10 @@ Code hook response.
 
 Output strategy (per Claude Code hooks reference at code.claude.com/docs/en/hooks):
 - Below threshold or skip: exit 0, empty stdout → original tool result passes through.
-- Indexed: emit JSON with hookSpecificOutput.additionalContext so the index summary is
-  injected into Claude's context right after the raw tool output. Claude Code's
-  PostToolUse contract does not let a hook strip the raw tool_response from this
-  turn, so the savings come from follow-up turns: the agent reads chunks from the
-  saved file via `Read` with offset/limit instead of re-running the command or
-  re-pasting the raw blob.
+- Indexed: emit JSON with hookSpecificOutput.updatedToolOutput. The replacement payload
+  is the index summary + saved-file path + retrieval hint; the raw tool_response is
+  dropped from this turn's context. Follow-up turns retrieve chunks from the saved
+  file via `Read` with offset/limit.
 
 Fails open: any error → exit 0 with empty stdout (original result passes through).
 """
@@ -176,9 +174,8 @@ def main():
         print(json.dumps({
             "hookSpecificOutput": {
                 "hookEventName": "PostToolUse",
-                "additionalContext": msg,
+                "updatedToolOutput": msg,
             },
-            "suppressOutput": True,
         }))
 
     else:  # error
