@@ -41,9 +41,16 @@ SKIP_TOOLS = frozenset({
 })
 
 RETRIEVAL_HINT = (
-    "Use `Read` with offset=<line_start> limit=<line_end - line_start + 1> to fetch "
-    "specific chunks from the saved file. Avoid re-running the original command — it "
-    "is already saved at the path above."
+    "Default: trust the summary above. Fetch chunks only when you need a specific "
+    "symbol, field, value, or line that you can name in one phrase. "
+    "Then use `Read` with offset=<line_start> limit=<line_end - line_start + 1> on "
+    "the saved file, picking the MINIMUM chunks that answer your question — not "
+    "every chunk that looks relevant. "
+    "Reading the saved file with no offset/limit (i.e. the whole file) defeats the "
+    "purpose of the index and wastes the tokens that were just saved. If you find "
+    "yourself wanting more than ~50% of the chunks, the summary was insufficient: "
+    "re-query the original tool with a narrower scope instead of bulk-reading. "
+    "The result is already saved at the path above; do not re-run the original command."
 )
 
 

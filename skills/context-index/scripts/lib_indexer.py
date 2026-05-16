@@ -28,7 +28,7 @@ You are a document indexer. Given raw tool output with explicit line markers, sp
 
 Output format:
 {
-  "summary": "<overall 1-2 sentence summary>",
+  "summary": "<brief global overview, not a chunk recap>",
   "chunks": [
     { "id": 1, "topic": "<3-5 words>", "summary": "<what this chunk contains>", "line_start": 1, "line_end": 23 },
     ...
@@ -36,12 +36,15 @@ Output format:
 }
 
 Rules:
+- Top-level summary = one short sentence about the whole document's purpose/type and highest-level signal.
+- Top-level summary must not list chunks, repeat chunk topics, enumerate methods/results, or say "including/listing..." followed by chunk details.
+- Put retrieval details only in chunk summaries; the top-level summary is for orientation, not navigation.
 - Do not create one chunk per log line, JSON object, search hit, or repeated record
 - Prefer 3-8 coarse chunks when possible, but full line coverage with no gaps or overlaps is more important than the chunk count.
 - Chunk boundaries = semantic units (one command section, one result entry, one object)
 - topic = 3-5 words max
-- summary = what the chunk contains, not a paraphrase
-- summary should name the dominant content type and the key signal the agent would need for retrieval, not just say the document contains logs or repeated records
+- chunk summary = what the chunk contains, not a paraphrase
+- chunk summary should name the dominant content type and the key signal the agent would need for retrieval, not just say the document contains logs or repeated records
 - A line can belong to exactly one chunk; never duplicate or overlap line ranges even if content has multiple meanings.
 - Input lines are prefixed as L<number>:; these prefixes are line markers, not document content
 - line_start and line_end = exact L<number> values, covering the entire document with no gaps and no overlaps
