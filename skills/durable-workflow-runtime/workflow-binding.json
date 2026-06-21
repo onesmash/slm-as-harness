@@ -1,0 +1,71 @@
+{
+  "default_workflow_id": "demo_prompt_loop",
+  "workflows": [
+    {
+      "workflow_id": "demo_prompt_loop",
+      "flow_description": "demo",
+      "start_input_schema": {
+        "task_input": {
+          "goal": "string"
+        },
+        "context": {
+          "repo_root": "string"
+        },
+        "constraints": {
+          "max_steps": "integer?"
+        }
+      }
+    },
+    {
+      "workflow_id": "academic_research_pipeline",
+      "flow_description": "academic research pipeline",
+      "start_input_schema": {
+        "task_input": {
+          "research_goal": "string",
+          "workflow_scope": "string?",
+          "entry_stage": "string?",
+          "preferred_modes": "object?",
+          "paper_type": "string?",
+          "target_venue": "string?",
+          "citation_format": "string?"
+        },
+        "context": {
+          "repo_root": "string",
+          "source_materials_path": "string?",
+          "paper_path": "string?",
+          "material_passport_path": "string?",
+          "output_dir": "string?"
+        },
+        "constraints": {
+          "max_steps": "integer?",
+          "require_user_checkpoints": "boolean?",
+          "enable_claim_audit": "boolean?",
+          "allow_format_render": "boolean?",
+          "max_revision_loops": "integer?"
+        }
+      }
+    },
+    {
+      "workflow_id": "ios_ai_assisted_development_flow",
+      "flow_description": "Run the iOS Client AI-assisted development path from brainstorming through OpenSpec artifacts, implementation, merged-final review, and Code KB feedback, with knowledge-base available as supporting context throughout.",
+      "start_input_schema": {
+        "task_input": {
+          "goal": "string",
+          "preferred_change_name": "string?",
+          "mr_url": "string?",
+          "kb_scope": "string?"
+        },
+        "context": {
+          "repo_root": "string",
+          "source_doc_url": "string?",
+          "source_skill_url": "string?",
+          "openspec_source_url": "string?"
+        },
+        "constraints": {
+          "max_steps": "integer?",
+          "require_user_approval": "boolean?"
+        }
+      }
+    }
+  ]
+}

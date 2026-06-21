@@ -1,0 +1,220 @@
+{
+  "schema_version": 1,
+  "workflow_id": "ios_ai_assisted_development_flow",
+  "description": "Run the iOS Client AI-assisted development path from brainstorming through OpenSpec artifacts, implementation, merged-final review, and Code KB feedback, with knowledge-base available as supporting context throughout.",
+  "start_input_schema": {
+    "task_input": {
+      "goal": "string",
+      "preferred_change_name": "string?",
+      "mr_url": "string?",
+      "kb_scope": "string?"
+    },
+    "context": {
+      "repo_root": "string",
+      "source_doc_url": "string?",
+      "source_skill_url": "string?",
+      "openspec_source_url": "string?"
+    },
+    "constraints": {
+      "max_steps": "integer?",
+      "require_user_approval": "boolean?"
+    }
+  },
+  "dependencies": [
+    {
+      "id": "brainstorming",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/common/skills/brainstorming?ref_type=heads",
+      "purpose": "Run the pre-implementation requirement clarification and design approval gate."
+    },
+    {
+      "id": "openspec",
+      "type": "cli",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "purpose": "Create, inspect, and apply durable OpenSpec change artifacts.",
+      "command": "openspec"
+    },
+    {
+      "id": "openspec-propose",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "purpose": "Create proposal, design/spec, and task artifacts for a new OpenSpec change."
+    },
+    {
+      "id": "openspec-explore",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "purpose": "Refine OpenSpec artifacts before implementation when design ambiguity remains."
+    },
+    {
+      "id": "openspec-apply-change",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "purpose": "Implement the selected OpenSpec tasks and report verification evidence."
+    },
+    {
+      "id": "xcodebuildmcp-cli",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:xcodebuildmcp-cli",
+      "purpose": "Run iOS build, test, run, debug, log, and UI automation verification through XcodeBuildMCP with controlled DerivedData path handling."
+    },
+    {
+      "id": "manipulate-xcodeproj",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:manipulate-xcodeproj",
+      "purpose": "Edit Xcode project, pbxproj, target membership, build settings, and asset catalog surfaces through XcodeProjectCLI."
+    },
+    {
+      "id": "agentic-release-qa",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:agentic-release-qa",
+      "purpose": "Run change-aware release QA after implementation verification and before merged-final review."
+    },
+    {
+      "id": "pixel-diff",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:pixel-diff",
+      "purpose": "Compare approved design, reference screenshot, or baseline image artifacts against runtime screenshots during release QA."
+    },
+    {
+      "id": "ios-gitlab-merged-mr-review",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:ios-gitlab-merged-mr-review",
+      "purpose": "Review the merged-final iOS GitLab MR state before final delivery."
+    },
+    {
+      "id": "code-kb-workflow",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:code-kb-workflow",
+      "purpose": "Read context and write or QA durable knowledge-base feedback after delivery."
+    },
+    {
+      "id": "software-design-philosophy",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:software-design-philosophy",
+      "purpose": "Evaluate development-perspective spec quality for design decisions, impact scope, and implementation readiness."
+    }
+  ],
+  "installed": [
+    {
+      "id": "brainstorming",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/common/skills/brainstorming?ref_type=heads",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "openspec",
+      "type": "cli",
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "openspec-propose",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "openspec-explore",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "openspec-apply-change",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "xcodebuildmcp-cli",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:xcodebuildmcp-cli",
+      "recorded_at": "2026-06-08T05:14:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "manipulate-xcodeproj",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:manipulate-xcodeproj",
+      "recorded_at": "2026-06-08T05:27:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "agentic-release-qa",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:agentic-release-qa",
+      "recorded_at": "2026-06-08T02:48:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "pixel-diff",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:pixel-diff",
+      "recorded_at": "2026-06-08T05:36:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "ios-gitlab-merged-mr-review",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:ios-gitlab-merged-mr-review",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "code-kb-workflow",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:code-kb-workflow",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "software-design-philosophy",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:software-design-philosophy",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    }
+  ]
+}

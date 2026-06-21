@@ -1,0 +1,23 @@
+{
+  "skill_name": "durable-workflow-runtime",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "/durable-workflow-runtime ios_goals implement a menu item, then start the workflow without creating any files in the repo root",
+      "expected_output": "The agent allocates the start request and response under .durable-workflow-runtime/host-io/ by using scripts/host_io.py before calling bridge.py start.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Resume the current durable workflow run after a yielded step; preserve run_id and step_id and store the observation safely",
+      "expected_output": "The agent uses scripts/host_io.py observation-path and response-path for run-scoped files, then calls bridge.py resume with matching run_id and observation.run_id.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Debug why bridge.py start fails when I pass /tmp/start-request.json as the request file",
+      "expected_output": "The agent explains that bridge.py rejects normal host I/O outside .durable-workflow-runtime/host-io/ and only recommends --allow-unsafe-host-io-paths for explicit transport debugging.",
+      "files": []
+    }
+  ]
+}

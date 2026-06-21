@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "workflow_id": "demo_prompt_loop",
+  "description": "Minimal demo workflow with no external dependency gate.",
+  "start_input_schema": {
+    "task_input": {
+      "goal": "string"
+    },
+    "context": {
+      "repo_root": "string"
+    },
+    "constraints": {
+      "max_steps": "integer?"
+    }
+  },
+  "dependencies": [],
+  "installed": []
+}

@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "workflow_id": "academic_research_pipeline",
+  "description": "Academic Research Skills durable workflow dependency manifest for preflight gating.",
+  "start_input_schema": {
+    "task_input": {
+      "research_goal": "string",
+      "workflow_scope": "string?",
+      "entry_stage": "string?",
+      "preferred_modes": "object?",
+      "paper_type": "string?",
+      "target_venue": "string?",
+      "citation_format": "string?"
+    },
+    "context": {
+      "repo_root": "string",
+      "source_materials_path": "string?",
+      "paper_path": "string?",
+      "material_passport_path": "string?",
+      "output_dir": "string?"
+    },
+    "constraints": {
+      "max_steps": "integer?",
+      "require_user_checkpoints": "boolean?",
+      "enable_claim_audit": "boolean?",
+      "allow_format_render": "boolean?",
+      "max_revision_loops": "integer?"
+    }
+  },
+  "dependencies": [
+    {
+      "id": "academic-pipeline",
+      "type": "skill",
+      "required": true,
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/academic-pipeline",
+      "purpose": "Project-scoped ARS orchestrator skill for stage routing, integrity gates, Material Passport, and process summary."
+    },
+    {
+      "id": "deep-research",
+      "type": "skill",
+      "required": true,
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/deep-research",
+      "purpose": "Project-scoped ARS research skill for Stage 1 research, literature review, systematic review, and fact checking."
+    },
+    {
+      "id": "academic-paper",
+      "type": "skill",
+      "required": true,
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/academic-paper",
+      "purpose": "Project-scoped ARS paper writing skill for drafting, revision, citation checks, formatting, and disclosure."
+    },
+    {
+      "id": "academic-paper-reviewer",
+      "type": "skill",
+      "required": true,
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/academic-paper-reviewer",
+      "purpose": "Project-scoped ARS reviewer skill for Stage 3 review and Stage 3' re-review."
+    }
+  ],
+  "installed": [
+    {
+      "id": "academic-pipeline",
+      "type": "skill",
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/academic-pipeline",
+      "recorded_at": "2026-06-04T16:16:09Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "deep-research",
+      "type": "skill",
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/deep-research",
+      "recorded_at": "2026-06-04T16:16:09Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "academic-paper",
+      "type": "skill",
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/academic-paper",
+      "recorded_at": "2026-06-04T16:16:09Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "academic-paper-reviewer",
+      "type": "skill",
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/academic-paper-reviewer",
+      "recorded_at": "2026-06-04T16:16:10Z",
+      "recorded_by": "bridge.py preflight"
+    }
+  ]
+}
