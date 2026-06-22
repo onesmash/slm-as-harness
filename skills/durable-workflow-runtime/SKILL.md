@@ -1,10 +1,14 @@
 ---
 name: durable-workflow-runtime
 description: |
-  Load when the user explicitly asks for `durable-workflow-runtime`, or when
-  implementing or debugging this skill's bundled durable workflow wrapper with
-  `start/resume`, workflow branching, retries, blocked handling, bridge
-  payloads, or explicit workflow selection.
+  Load when the user explicitly asks for `durable-workflow-runtime`, invokes a
+  durable workflow shortcut, or when implementing or debugging this skill's
+  bundled durable workflow wrapper with `start/resume`, workflow branching,
+  retries, blocked handling, bridge payloads, or explicit workflow selection.
+  When triggered, operate through the bridge protocol instead of free-form
+  chat: do not infer workflow steps from static docs, do not execute business
+  stages before `bridge.py start` returns `yield` or `done`, and treat the
+  runtime response as the only authority for the current step.
 ---
 
 # Durable Workflow Runtime
@@ -58,16 +62,26 @@ emits `succeeded`.
 
 ## Default reading boundary
 
-- Stay on the public wrapper surface first:
-  `workflow-binding.json`, `scripts/bridge.py`, `references/bridge-cli-spec.md`,
-  `references/host-loop.md`, and `references/observation-format.md`.
-- Do not inspect workflow internals such as `contract.py`, `policy.py`,
-  `state.py`, `verifiers.py`, `graphbuilder_runtime.py`, or workflow prompt
-  assets unless the task is explicitly about authoring or debugging those
-  internals.
-- Treat verifier logic as runtime-owned implementation detail by default. The
-  host agent normally does not need to read it to execute or resume a workflow
-  correctly.
+Read only this whitelist before `bridge.py start` succeeds:
+
+- `workflow-binding.json`
+- `scripts/bridge.py`
+- `references/bridge-cli-spec.md`
+- `references/host-loop.md`
+- `references/observation-format.md`
+- `references/index.md` only when you need the concrete skill-root layout
+- `references/workflow-selection-spec.md` only when choosing a published
+  `workflow_id`
+
+Do not read anything under `workflow-runtime/workflows/` before start for
+normal execution, including workflow-specific `references/flowchart.md`,
+`contract.py`, `policy.py`, `state.py`, `verifiers.py`,
+`graphbuilder_runtime.py`, or workflow prompt assets. Those are allowed only
+when the task is explicitly about authoring or debugging workflow internals.
+
+Treat verifier logic and workflow business references as runtime-owned
+implementation detail by default. The host agent normally does not need them to
+execute or resume a workflow correctly.
 
 ## Keep the layers separate
 

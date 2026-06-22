@@ -1,12 +1,10 @@
 {
   "workflow_id": "ios_ai_assisted_development_flow",
-  "flow_description": "Run the iOS Client AI-assisted development path from brainstorming through OpenSpec artifacts, implementation, merged-final review, and Code KB feedback, with knowledge-base available as supporting context throughout.",
+  "flow_description": "Run the iOS Client AI-assisted development path from brainstorming through OpenSpec artifacts, implementation, and pre-merge code review, with knowledge-base available as supporting context throughout.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
-      "preferred_change_name": "string?",
-      "mr_url": "string?",
-      "kb_scope": "string?"
+      "preferred_change_name": "string?"
     },
     "context": {
       "repo_root": "string",
@@ -26,7 +24,7 @@
       "recovery_return_node": null,
       "intent": "clarify_and_approve_design",
       "expected_artifact": "clarified requirements, approved brainstorming design document, and design document path",
-      "prompt": "/brainstorming {{workflow_goal}} in {{repo_root}}; use knowledge-base as supporting context, complete clarification and approval, write the approved design under docs/superpowers/specs/, and complete the required spec review loop.",
+      "prompt": "/brainstorming {{goal}} in {{repo_root}}; use knowledge-base as supporting context, complete clarification and approval, write the approved design under docs/superpowers/specs/, and complete the required spec review loop.",
       "prompt_sections": {
         "stage_goal": "Turn the user's iOS Client development goal into clarified requirements and an approved design before OpenSpec or implementation work begins.",
         "context": [
@@ -95,13 +93,15 @@
           "operations": [
             "requirements clarification",
             "design approval gate",
-            "design artifact preparation"
+            "design artifact preparation",
+            "multi-perspective spec review orchestration"
           ],
           "file_patterns": [
             "docs/superpowers/specs/*.md"
           ],
           "usage_notes": [
-            "Primary owner for the pre-implementation approval gate."
+            "Primary owner for the pre-implementation approval gate.",
+            "Owns the required development, design, and testing spec review loop before the stage completes."
           ]
         },
         {
@@ -161,6 +161,16 @@
           "kind": "boolean"
         },
         {
+          "state_key": "design_comparison_source",
+          "output_key": "design_comparison_source",
+          "kind": "string"
+        },
+        {
+          "state_key": "runtime_visual_comparison_scope",
+          "output_key": "runtime_visual_comparison_scope",
+          "kind": "string"
+        },
+        {
           "state_key": "spec_review_findings_summary",
           "output_key": "spec_review_findings_summary",
           "kind": "string"
@@ -177,6 +187,8 @@
         "approved_design_summary",
         "approved_design_path",
         "ui_surface_affected",
+        "design_comparison_source",
+        "runtime_visual_comparison_scope",
         "spec_review_findings_summary",
         "open_questions"
       ],
@@ -356,7 +368,8 @@
       "done_when": [
         "The OpenSpec change directory exists.",
         "Proposal, design/spec, and tasks artifacts are identified.",
-        "The change is apply-ready or the missing formalization inputs are reported."
+        "The change artifacts are formalized and the current apply-readiness is reported.",
+        "Artifact completeness is explicit enough to know whether proposal, design/spec, and tasks are all present."
       ],
       "output_schema": {
         "change_name": "string",
@@ -470,13 +483,75 @@
         },
         {
           "output_key": "apply_ready",
-          "operator": "is_true",
-          "value": null,
-          "message": "OpenSpec change must be apply-ready before implementation."
+          "operator": "one_of",
+          "value": [
+            true,
+            false
+          ],
+          "message": "OpenSpec proposal must report whether the change is currently apply-ready."
         }
       ],
-      "verifier_templates": [],
-      "custom_verifier_requirements": []
+      "verifier_templates": [
+        {
+          "id": "created_artifacts_minimum_surface",
+          "template": "min_count",
+          "output_key": "created_artifacts",
+          "message": "OpenSpec proposal must report at least proposal, tasks, and one design/spec artifact.",
+          "min_count": 3
+        },
+        {
+          "id": "change_path_repo_policy",
+          "template": "repo_path_policy",
+          "output_key": "change_path",
+          "message": "change_path must point inside openspec/changes/.",
+          "required_prefix": "openspec/changes/",
+          "forbidden_prefixes": []
+        },
+        {
+          "id": "proposal_path_repo_policy",
+          "template": "repo_path_policy",
+          "output_key": "proposal_path",
+          "message": "proposal_path must point to an OpenSpec proposal markdown file under openspec/changes/.",
+          "required_prefix": "openspec/changes/",
+          "forbidden_prefixes": [],
+          "required_suffix": "proposal.md"
+        },
+        {
+          "id": "tasks_path_repo_policy",
+          "template": "repo_path_policy",
+          "output_key": "tasks_path",
+          "message": "tasks_path must point to an OpenSpec tasks markdown file under openspec/changes/.",
+          "required_prefix": "openspec/changes/",
+          "forbidden_prefixes": [],
+          "required_suffix": "tasks.md"
+        }
+      ],
+      "custom_verifier_requirements": [
+        {
+          "id": "artifact_completeness",
+          "description": "OpenSpec proposal output must prove that proposal, tasks, and at least one durable design/spec artifact were created and reported consistently.",
+          "signals": [
+            "created_artifacts",
+            "proposal_path",
+            "tasks_path",
+            "openspec_design_path",
+            "spec_paths"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "tests"
+          ],
+          "hint_pseudocode": [
+            "Require created_artifacts to mention proposal and tasks artifacts.",
+            "Require either openspec_design_path or spec_paths to provide at least one design/spec artifact path.",
+            "Reject outputs where created_artifacts omits the durable design/spec surface even if raw files exist."
+          ],
+          "test_intent": [
+            "Reject outputs that only report proposal/tasks and omit any design/spec artifact.",
+            "Accept outputs that report proposal, tasks, and at least one design/spec artifact consistently."
+          ]
+        }
+      ]
     },
     {
       "step_id": "refine_change_with_openspec",
@@ -496,7 +571,8 @@
           "Empty unresolved_questions[] is valid ONLY if the user explicitly confirmed no open issues after discussion.",
           "Do not treat structured_output field requirements as a checklist to fill without conversation.",
           "Do not choose the next workflow stage; runtime policy owns routing.",
-          "Do not implement code or modify OpenSpec artifacts during this stage."
+          "Do not implement application code during this stage.",
+          "If refinement changes are needed, update only the relevant OpenSpec artifacts and summarize what changed."
         ],
         "blocked_conditions": [
           "Block if you have not had at least one conversational exchange with the user about the artifacts before completing this stage.",
@@ -511,11 +587,14 @@
       "done_when": [
         "At least one exploratory conversation turn has occurred with the user.",
         "Risks, ambiguities, and open questions have been surfaced and discussed.",
+        "The conversation evidence is summarized instead of jumping straight to structured output.",
         "Unresolved questions are documented (even if empty, with user confirmation).",
         "The change is confirmed ready for apply after conversation."
       ],
       "output_schema": {
         "refinement_summary": "string",
+        "user_discussion_summary": "string",
+        "discussion_turn_count": "integer",
         "changed_artifacts": "string[]",
         "unresolved_questions": "string[]",
         "ready_for_apply": "boolean"
@@ -562,14 +641,26 @@
           "kind": "string"
         },
         {
+          "state_key": "refinement_user_discussion_summary",
+          "output_key": "user_discussion_summary",
+          "kind": "string"
+        },
+        {
           "state_key": "changed_artifacts",
           "output_key": "changed_artifacts",
+          "kind": "list"
+        },
+        {
+          "state_key": "unresolved_questions",
+          "output_key": "unresolved_questions",
           "kind": "list"
         }
       ],
       "template_context_keys": [
         "refinement_summary",
-        "changed_artifacts"
+        "refinement_user_discussion_summary",
+        "changed_artifacts",
+        "unresolved_questions"
       ],
       "repair_conditions": [],
       "transitions": [
@@ -589,10 +680,40 @@
           "operator": "truthy",
           "value": null,
           "message": "OpenSpec refinement must return a non-empty refinement summary."
+        },
+        {
+          "output_key": "user_discussion_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "OpenSpec refinement must summarize the actual user discussion before it can continue."
         }
       ],
       "verifier_templates": [],
-      "custom_verifier_requirements": []
+      "custom_verifier_requirements": [
+        {
+          "id": "talk_first_conversation_evidence",
+          "description": "OpenSpec refinement must prove that at least one real conversational exchange happened before the stage claimed readiness.",
+          "signals": [
+            "user_discussion_summary",
+            "discussion_turn_count",
+            "unresolved_questions",
+            "ready_for_apply"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "tests"
+          ],
+          "hint_pseudocode": [
+            "Reject if discussion_turn_count is less than 1.",
+            "Reject if user_discussion_summary is missing or looks empty after trimming.",
+            "If unresolved_questions is empty and ready_for_apply is true, still require concrete conversation evidence instead of accepting a checklist-only output."
+          ],
+          "test_intent": [
+            "Reject outputs that claim ready_for_apply without any discussion turn evidence.",
+            "Accept outputs that record a user discussion summary and a positive discussion_turn_count."
+          ]
+        }
+      ]
     },
     {
       "step_id": "approve_refine",
@@ -606,6 +727,7 @@
         "context": [
           "Refinement summary: {{refinement_summary}}",
           "Changed artifacts: {{changed_artifacts}}",
+          "Unresolved questions: {{unresolved_questions}}",
           "Change name: {{change_name}}",
           "Change path: {{change_path}}"
         ],
@@ -615,13 +737,13 @@
           "This is purely a user confirmation gate."
         ],
         "blocked_conditions": [
-          "Block if the user explicitly rejects the refinement results.",
-          "Block if the user asks for additional refinement before proceeding."
+          "Block if the user's response is ambiguous about whether implementation may proceed or another refinement pass is required.",
+          "Block if required refinement context is missing and the user cannot meaningfully approve or redirect the change."
         ]
       },
       "done_when": [
         "The user has reviewed the refinement summary.",
-        "The user has explicitly approved or rejected proceeding to implementation."
+        "The user has explicitly approved implementation or requested another refinement pass."
       ],
       "output_schema": {
         "user_approved": "boolean",
@@ -649,6 +771,7 @@
       "template_context_keys": [
         "refinement_summary",
         "changed_artifacts",
+        "unresolved_questions",
         "refinement_user_approved",
         "refinement_user_feedback"
       ],
@@ -672,15 +795,33 @@
         }
       ],
       "outcome_routes": [],
-      "verifier_rules": [
+      "verifier_rules": [],
+      "verifier_templates": [
         {
-          "output_key": "user_approved",
-          "operator": "is_true",
-          "value": null,
-          "message": "User must explicitly approve before proceeding."
+          "id": "approved_clears_additional_refinement",
+          "template": "conditional_equals",
+          "output_key": "additional_refinement_needed",
+          "message": "If user_approved is true, additional_refinement_needed must be false.",
+          "when": {
+            "output_key": "user_approved",
+            "operator": "is_true",
+            "value": null
+          },
+          "expected_value": false
+        },
+        {
+          "id": "rejected_requires_additional_refinement",
+          "template": "conditional_equals",
+          "output_key": "additional_refinement_needed",
+          "message": "If user_approved is false, additional_refinement_needed must be true.",
+          "when": {
+            "output_key": "user_approved",
+            "operator": "is_false",
+            "value": null
+          },
+          "expected_value": true
         }
       ],
-      "verifier_templates": [],
       "custom_verifier_requirements": []
     },
     {
@@ -691,19 +832,22 @@
       "expected_artifact": "completed OpenSpec task implementation with verification evidence",
       "prompt": "/openspec-apply-change {{change_name}}",
       "prompt_sections": {
-        "stage_goal": "Execute the pending OpenSpec tasks and leave the change ready for merged-final review.",
+        "stage_goal": "Execute the pending OpenSpec tasks and leave the change ready for pre-merge code review.",
         "context": [
           "Change name: {{change_name}}",
           "Change path: {{change_path}}",
           "Proposal path: {{proposal_path}}",
           "OpenSpec design path: {{openspec_design_path}}",
           "Tasks path: {{tasks_path}}",
-          "Refinement summary: {{refinement_summary}}"
+          "Refinement summary: {{refinement_summary}}",
+          "Refinement discussion summary: {{refinement_user_discussion_summary}}"
         ],
         "boundaries": [
           "Keep edits scoped to the OpenSpec tasks.",
           "Do not mark tasks complete until the corresponding implementation work is done.",
-          "Do not commit, push, or create an MR unless the user separately asks for it."
+          "If implementation exposes an OpenSpec or design issue, return enough structured detail to route back into refinement instead of improvising around the spec gap.",
+          "Do not commit, push, or create an MR unless the user separately asks for it.",
+          "Leave the change in a state that can be inspected by the later pre-merge code review using the local diff, branch state, and recorded verification evidence."
         ],
         "blocked_conditions": [
           "Block if a task is ambiguous.",
@@ -724,7 +868,9 @@
         "remaining_tasks": "string[]",
         "verification_commands": "string[]",
         "verification_passed": "boolean",
-        "open_issues": "string[]"
+        "open_issues": "string[]",
+        "openspec_updates_required": "boolean?",
+        "openspec_update_summary": "string?"
       },
       "failure_schema": {
         "blocked_reason": "string?",
@@ -841,21 +987,34 @@
         "open_issues"
       ],
       "repair_conditions": [],
-      "transitions": [],
-      "outcome_routes": [],
-      "verifier_rules": [
+      "transitions": [
         {
-          "output_key": "tasks_completed",
+          "output_key": "openspec_updates_required",
           "operator": "is_true",
           "value": null,
-          "message": "Implementation must report all selected OpenSpec tasks complete."
+          "next_node": "refine_change_with_openspec",
+          "branch_kind": "retry",
+          "reason": "Implementation revealed an OpenSpec or design issue that must be refined before execution can continue."
+        },
+        {
+          "output_key": "tasks_completed",
+          "operator": "is_false",
+          "value": null,
+          "next_node": "execute_implementation",
+          "branch_kind": "retry",
+          "reason": "Implementation reported unfinished tasks and must continue execution before release QA."
         },
         {
           "output_key": "verification_passed",
-          "operator": "is_true",
+          "operator": "is_false",
           "value": null,
-          "message": "Implementation verification must pass before review."
-        },
+          "next_node": "execute_implementation",
+          "branch_kind": "retry",
+          "reason": "Implementation verification did not pass yet and must be resolved before release QA."
+        }
+      ],
+      "outcome_routes": [],
+      "verifier_rules": [
         {
           "output_key": "changed_files",
           "operator": "non_empty",
@@ -869,8 +1028,58 @@
           "message": "Implementation must report at least one verification command."
         }
       ],
-      "verifier_templates": [],
-      "custom_verifier_requirements": []
+      "verifier_templates": [
+        {
+          "id": "openspec_update_requires_summary",
+          "template": "conditional_required",
+          "output_key": "openspec_update_summary",
+          "message": "If openspec_updates_required is true, openspec_update_summary must explain the spec gap.",
+          "when": {
+            "output_key": "openspec_updates_required",
+            "operator": "is_true",
+            "value": null
+          },
+          "required_key": "openspec_update_summary"
+        },
+        {
+          "id": "openspec_update_clears_tasks_completed",
+          "template": "conditional_equals",
+          "output_key": "tasks_completed",
+          "message": "If openspec_updates_required is true, tasks_completed must be false.",
+          "when": {
+            "output_key": "openspec_updates_required",
+            "operator": "is_true",
+            "value": null
+          },
+          "expected_value": false
+        }
+      ],
+      "custom_verifier_requirements": [
+        {
+          "id": "completed_tasks_consistency",
+          "description": "Implementation success output must not claim tasks are complete while still listing remaining tasks.",
+          "signals": [
+            "tasks_completed",
+            "remaining_tasks",
+            "completed_tasks",
+            "openspec_updates_required"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "tests"
+          ],
+          "hint_pseudocode": [
+            "If tasks_completed is true, require remaining_tasks to be empty.",
+            "If tasks_completed is false and openspec_updates_required is not true, require remaining_tasks to be non-empty so the retry reason is concrete.",
+            "If verification_passed is false and openspec_updates_required is not true, reject the output so plain failing implementation cannot continue."
+          ],
+          "test_intent": [
+            "Reject outputs that set tasks_completed=true while still listing remaining_tasks.",
+            "Reject unfinished implementation outputs that provide neither a remaining task list nor an OpenSpec refinement reason.",
+            "Reject implementation outputs that fail verification without explicitly routing back for OpenSpec updates."
+          ]
+        }
+      ]
     },
     {
       "step_id": "run_agentic_release_qa",
@@ -880,7 +1089,7 @@
       "expected_artifact": "change-aware release QA verdict with executed checks, blocked checks, and risk-based next steps",
       "prompt": "/agentic-release-qa run a change-aware release QA pass for {{change_name}} in {{repo_root}} using changed files {{changed_files}}, implementation evidence {{implementation_summary}}, and verification commands {{verification_commands}}.",
       "prompt_sections": {
-        "stage_goal": "Run a release QA pass after implementation verification and before final merged-state review so regressions are caught before delivery closes.",
+        "stage_goal": "Run a release QA pass after implementation verification and before pre-merge code review so regressions are caught before delivery closes.",
         "context": [
           "Change name: {{change_name}}",
           "Repository root: {{repo_root}}",
@@ -888,14 +1097,17 @@
           "Implementation summary: {{implementation_summary}}",
           "Verification commands: {{verification_commands}}",
           "Open issues: {{open_issues}}",
-          "MR URL: {{mr_url}}"
+          "UI surface affected: {{ui_surface_affected}}",
+          "Design comparison source: {{design_comparison_source}}",
+          "Runtime visual comparison scope: {{runtime_visual_comparison_scope}}"
         ],
         "boundaries": [
           "Start from the actual changed files and implementation evidence instead of producing a generic release checklist.",
           "Separate executed QA evidence from blocked or recommended checks.",
           "Do not claim runtime, device, integration, or performance checks passed unless they were actually executed.",
           "Do not stress production systems or require destructive QA data without explicit user approval.",
-          "Normalize release_qa_verdict to one of: ship, ship_with_risks, do_not_ship, blocked."
+          "Normalize release_qa_verdict to one of: ship, ship_with_risks, do_not_ship, blocked.",
+          "If ui_surface_affected is true and both design_comparison_source and runtime_visual_comparison_scope are available, include an explicit visual comparison pass and report the executed or blocked visual diff evidence."
         ],
         "blocked_conditions": [
           "Block if required QA environment, device, credentials, build artifact, or baseline data is missing and the missing input cannot be safely inferred.",
@@ -936,7 +1148,7 @@
             "**/*"
           ],
           "usage_notes": [
-            "Primary owner for the post-implementation release QA gate before final merged-state review."
+            "Primary owner for the post-implementation release QA gate before pre-merge code review."
           ]
         },
         {
@@ -1019,7 +1231,7 @@
           "value": "do_not_ship",
           "next_node": "execute_implementation",
           "branch_kind": "retry",
-          "reason": "Release QA found a blocking regression or risk that must be fixed before final review."
+          "reason": "Release QA found a blocking regression or risk that must be fixed before pre-merge code review."
         }
       ],
       "outcome_routes": [],
@@ -1096,22 +1308,59 @@
             "value": "ship_with_risks"
           },
           "required_key": "release_qa_executed_checks"
+        },
+        {
+          "id": "ship_with_risks_release_qa_requires_blocked_checks",
+          "template": "conditional_required",
+          "output_key": "release_qa_blocked_checks",
+          "message": "If release_qa_verdict is ship_with_risks, release_qa_blocked_checks must identify the residual risk scope.",
+          "when": {
+            "output_key": "release_qa_verdict",
+            "operator": "equals",
+            "value": "ship_with_risks"
+          },
+          "required_key": "release_qa_blocked_checks"
         }
       ],
-      "custom_verifier_requirements": []
+      "custom_verifier_requirements": [
+        {
+          "id": "ui_visual_qa_evidence",
+          "description": "When the workflow state says a UI surface changed and visual comparison inputs are available, release QA must report executed or blocked visual comparison evidence explicitly.",
+          "signals": [
+            "state.ui_surface_affected",
+            "state.design_comparison_source",
+            "state.runtime_visual_comparison_scope",
+            "release_qa_executed_checks",
+            "release_qa_blocked_checks",
+            "release_qa_artifacts"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "tests"
+          ],
+          "hint_pseudocode": [
+            "Read ui_surface_affected, design_comparison_source, and runtime_visual_comparison_scope from persisted state.",
+            "Only enforce this requirement when all three values indicate visual QA should have been attempted.",
+            "Require executed_checks, blocked_checks, or artifacts to mention a visual diff, screenshot comparison, or design comparison pass."
+          ],
+          "test_intent": [
+            "Reject UI-impacting release QA output that omits all visual comparison evidence despite having comparison inputs.",
+            "Accept UI-impacting release QA output when visual comparison evidence appears in executed checks, blocked checks, or artifacts."
+          ]
+        }
+      ]
     },
     {
-      "step_id": "request_final_code_review",
+      "step_id": "request_pre_merge_code_review",
       "stage_kind": "main",
       "recovery_return_node": null,
-      "intent": "review_merged_final_state",
-      "expected_artifact": "merged-final review findings and merge-safety decision",
-      "prompt": "/ios-gitlab-merged-mr-review review {{mr_url}} for {{change_name}} using changed files {{changed_files}}, implementation evidence {{implementation_summary}}, and release QA verdict {{release_qa_verdict}}.",
+      "intent": "request_pre_merge_code_review",
+      "expected_artifact": "pre-merge code review findings and merge-readiness decision for the current local diff",
+      "prompt": "/requesting-code-review request a pre-merge code review for {{change_name}} using changed files {{changed_files}}, implementation evidence {{implementation_summary}}, verification commands {{verification_commands}}, and release QA verdict {{release_qa_verdict}}. Review the current local git diff or branch state before merge, derive the review snapshot from available git history, and return findings plus a merge-readiness decision.",
       "prompt_sections": {
-        "stage_goal": "Review the final merged MR state, or block until an MR URL/snapshot is available, after implementation and release QA have completed.",
+        "stage_goal": "Review the current local diff or branch state after implementation and release QA, before merge or MR creation, and return a merge-readiness decision.",
         "context": [
           "Change name: {{change_name}}",
-          "MR URL: {{mr_url}}",
           "Changed files: {{changed_files}}",
           "Implementation summary: {{implementation_summary}}",
           "Verification commands: {{verification_commands}}",
@@ -1120,18 +1369,21 @@
           "Release QA executed checks: {{release_qa_executed_checks}}",
           "Release QA blocked checks: {{release_qa_blocked_checks}}",
           "Release QA risk next steps: {{release_qa_risk_next_steps}}",
+          "Supplemental review standard: apply ios-best-practices to the touched iOS files for memory management, threading, concurrency, UIKit or SwiftUI usage, architecture, security, and regression-sensitive patterns.",
           "Open issues: {{open_issues}}"
         ],
         "boundaries": [
           "Prioritize findings, regressions, risky behavior changes, and missing tests.",
           "Consider release QA risks and blocked checks when judging merge safety.",
+          "Use ios-best-practices as an explicit iOS review lens for Swift, Objective-C, UIKit, SwiftUI, memory, concurrency, security, and architecture concerns in the changed files.",
           "If release_qa_verdict is ship_with_risks, explicitly assess each release_qa_blocked_checks item and carry unresolved QA risks into the merge-safety decision.",
-          "Use merged-final state when an MR URL and merge snapshot are available.",
-          "If no MR URL or review snapshot is available, block and request the missing review handle."
+          "Prefer reviewing the current local git diff or branch state instead of requiring a published MR.",
+          "If findings exist, group them by severity and make the severity obvious in the returned finding strings.",
+          "If a suitable git review range or snapshot cannot be determined because external review inputs are missing, block and request the missing review input."
         ],
         "blocked_conditions": [
-          "Block if no MR URL, merge commit, or equivalent review snapshot is available.",
-          "Block if GitLab access is unavailable."
+          "Block if no usable git diff, base SHA, head SHA, branch snapshot, or equivalent review range can be determined because a required review input is missing.",
+          "Fail instead of blocking when the repository state is corrupted, unreadable, or the review tooling errors after the review range is known."
         ]
       },
       "done_when": [
@@ -1154,10 +1406,11 @@
       },
       "skill_routing": [
         {
-          "skill": "ios-gitlab-merged-mr-review",
+          "skill": "requesting-code-review",
           "operations": [
-            "MR metadata intake",
-            "merged-final file review",
+            "local diff review preparation",
+            "base/head SHA selection",
+            "pre-merge file review",
             "review finding synthesis"
           ],
           "file_patterns": [
@@ -1165,10 +1418,11 @@
             "**/*.mm",
             "**/*.h",
             "**/*.swift",
-            "**/*.plist"
+            "**/*.plist",
+            ".git/**"
           ],
           "usage_notes": [
-            "Primary owner for the final code quality gate."
+            "Primary owner for the pre-merge code quality gate before MR creation or merge."
           ]
         },
         {
@@ -1182,6 +1436,25 @@
           ],
           "usage_notes": [
             "Supporting context layer for existing terminology and workflow docs."
+          ]
+        },
+        {
+          "skill": "ios-best-practices",
+          "operations": [
+            "iOS-specific review standard lookup",
+            "Swift and Objective-C review heuristics",
+            "memory, threading, concurrency, and UIKit or SwiftUI review guidance",
+            "architecture and security review guidance"
+          ],
+          "file_patterns": [
+            "**/*.m",
+            "**/*.mm",
+            "**/*.h",
+            "**/*.swift",
+            "**/*.plist"
+          ],
+          "usage_notes": [
+            "Supporting iOS review lens for evaluating changed files against Zoom iOS client best practices and regression patterns."
           ]
         }
       ],
@@ -1205,20 +1478,26 @@
           "state_key": "review_summary",
           "output_key": "review_summary",
           "kind": "string"
+        },
+        {
+          "state_key": "missing_review_inputs",
+          "output_key": "missing_review_inputs",
+          "kind": "list"
         }
       ],
       "template_context_keys": [
         "review_status",
         "reviewed_snapshot",
         "review_findings",
-        "review_summary"
+        "review_summary",
+        "missing_review_inputs"
       ],
       "repair_conditions": [
         {
           "output_key": "review_status",
           "operator": "equals",
           "value": "blocked",
-          "reason": "Merged-final review reported a blocked status and needs the missing review input.",
+          "reason": "Pre-merge code review reported a blocked status and needs the missing review input.",
           "next_node": "request_unblocking_input",
           "branch_kind": "repair"
         }
@@ -1230,7 +1509,7 @@
           "value": null,
           "next_node": "execute_implementation",
           "branch_kind": "retry",
-          "reason": "Merged-final review requested implementation changes."
+          "reason": "Pre-merge code review requested implementation changes."
         }
       ],
       "outcome_routes": [],
@@ -1278,6 +1557,18 @@
           "expected_value": false
         },
         {
+          "id": "approved_status_clears_missing_review_inputs",
+          "template": "conditional_equals",
+          "output_key": "missing_review_inputs",
+          "message": "If review_status is approved, missing_review_inputs must be empty.",
+          "when": {
+            "output_key": "review_status",
+            "operator": "equals",
+            "value": "approved"
+          },
+          "expected_value": []
+        },
+        {
           "id": "changes_requested_requires_findings",
           "template": "conditional_required",
           "output_key": "findings",
@@ -1288,149 +1579,280 @@
             "value": "changes_requested"
           },
           "required_key": "findings"
+        },
+        {
+          "id": "blocked_status_clears_changes_requested",
+          "template": "conditional_equals",
+          "output_key": "changes_requested",
+          "message": "If review_status is blocked, changes_requested must be false.",
+          "when": {
+            "output_key": "review_status",
+            "operator": "equals",
+            "value": "blocked"
+          },
+          "expected_value": false
+        },
+        {
+          "id": "blocked_status_requires_missing_review_inputs",
+          "template": "conditional_required",
+          "output_key": "missing_review_inputs",
+          "message": "If review_status is blocked, missing_review_inputs must be non-empty.",
+          "when": {
+            "output_key": "review_status",
+            "operator": "equals",
+            "value": "blocked"
+          },
+          "required_key": "missing_review_inputs"
         }
       ],
-      "custom_verifier_requirements": []
+      "custom_verifier_requirements": [
+        {
+          "id": "findings_include_severity_grouping",
+          "description": "Non-empty review findings must make severity explicit so the workflow can distinguish major merge blockers from lower-risk notes.",
+          "signals": [
+            "review_status",
+            "findings"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "tests"
+          ],
+          "hint_pseudocode": [
+            "Skip the requirement when findings is empty.",
+            "Require each finding string to begin with or clearly include a recognized severity marker such as critical, high, medium, low, major, or minor."
+          ],
+          "test_intent": [
+            "Reject change-requested findings that omit any severity marker.",
+            "Accept findings that carry an explicit severity prefix."
+          ]
+        }
+      ]
     },
     {
-      "step_id": "write_code_kb_feedback",
+      "step_id": "verify_completion",
       "stage_kind": "main",
       "recovery_return_node": null,
-      "intent": "write_knowledge_base_feedback",
-      "expected_artifact": "knowledge-base page/backlog/QA feedback updates for the completed change",
-      "prompt": "/code-kb-workflow run the smallest necessary Stage 3 or Stage 4 feedback update for {{change_name}} using implementation summary {{implementation_summary}} and review summary {{review_summary}}.",
+      "intent": "verify_completion_before_final_delivery",
+      "expected_artifact": "fresh completion verification evidence proving the workflow is ready to claim success",
+      "prompt": "/verification-before-completion verify {{change_name}} before final delivery using verification commands {{verification_commands}}, release QA verdict {{release_qa_verdict}}, review status {{review_status}}, reviewed snapshot {{reviewed_snapshot}}, review findings {{review_findings}}, open issues {{open_issues}}, and changed files {{changed_files}}.",
       "prompt_sections": {
-        "stage_goal": "Preserve reusable learning from the completed change by updating Code KB surfaces or explicitly recording why no KB update is needed.",
+        "stage_goal": "Run a final evidence-before-claims verification pass after pre-merge review and before the workflow summarizes completion.",
         "context": [
           "Change name: {{change_name}}",
-          "KB scope: {{kb_scope}}",
           "Changed files: {{changed_files}}",
           "Implementation summary: {{implementation_summary}}",
+          "Verification commands: {{verification_commands}}",
           "Release QA verdict: {{release_qa_verdict}}",
           "Release QA summary: {{release_qa_summary}}",
+          "Release QA executed checks: {{release_qa_executed_checks}}",
+          "Release QA blocked checks: {{release_qa_blocked_checks}}",
           "Release QA risk next steps: {{release_qa_risk_next_steps}}",
           "Review status: {{review_status}}",
+          "Reviewed snapshot: {{reviewed_snapshot}}",
+          "Review findings: {{review_findings}}",
           "Review summary: {{review_summary}}",
-          "Review findings: {{review_findings}}"
+          "Open issues: {{open_issues}}"
         ],
         "boundaries": [
-          "Do not rewrite the whole knowledge-base unless the selected change truly requires it.",
-          "Keep knowledge-base updates English-only where repo rules require it.",
-          "If the change has no durable documentation value, return a skipped reason instead of inventing page updates."
+          "Do not claim the workflow is complete without fresh verification evidence gathered in this stage.",
+          "Use the recorded verification commands, release QA results, and review findings as inputs, but re-check or freshly validate the evidence before approving completion.",
+          "If release_qa_verdict is ship_with_risks, either resolve each residual QA risk with fresh evidence in this stage or return a non-passing result.",
+          "If final verification finds missing evidence, unresolved risks, or failing checks, return a non-passing result instead of softening the outcome.",
+          "Do not commit, push, create a PR, or imply merge readiness beyond the evidence produced here."
         ],
         "blocked_conditions": [
-          "Block if the knowledge-base target or update scope cannot be determined.",
-          "Block if required formatting checks cannot be run after page updates."
+          "Block if there is no concrete verification command, artifact, or review snapshot that can prove the completion claim.",
+          "Block if the environment cannot run or inspect the required final verification evidence."
         ]
       },
       "done_when": [
-        "Knowledge-base updates are listed, or a skipped reason is provided.",
-        "Backlog or QA feedback changes are summarized when applicable.",
-        "Formatting or hygiene checks are reported when page updates were written."
+        "Fresh completion verification evidence is recorded.",
+        "Verification clearly reports whether completion can be claimed.",
+        "Remaining risks or missing verification inputs are listed when verification does not pass."
       ],
       "output_schema": {
-        "kb_updated": "boolean",
-        "updated_pages": "string[]",
-        "backlog_updates": "string[]",
-        "qa_feedback_path": "string?",
-        "kb_checks": "string[]",
-        "skipped_reason": "string?"
+        "verification_passed": "boolean",
+        "verification_summary": "string",
+        "verification_evidence": "string[]",
+        "remaining_risks": "string[]",
+        "missing_verification_inputs": "string[]",
+        "release_qa_risks_resolved": "boolean?",
+        "release_qa_risk_resolution_summary": "string?"
       },
       "failure_schema": {
         "blocked_reason": "string?",
         "error_message": "string?",
-        "missing_inputs": "string[]?",
-        "failed_commands": "string[]?"
+        "missing_inputs": "string[]?"
       },
       "skill_routing": [
         {
-          "skill": "code-kb-workflow",
+          "skill": "verification-before-completion",
           "operations": [
-            "Stage 3 page refresh",
-            "Stage 4 QA feedback",
-            "backlog and llms.txt alignment"
+            "fresh completion verification",
+            "verification evidence review",
+            "final delivery claim gate"
           ],
           "file_patterns": [
-            "knowledge-base/**/*.md",
-            "knowledge-base/llms.txt",
-            "knowledge-base/_meta/*.md"
+            "**/*.m",
+            "**/*.mm",
+            "**/*.h",
+            "**/*.swift",
+            "**/*.plist",
+            ".git/**"
           ],
           "usage_notes": [
-            "Primary owner for durable knowledge feedback after implementation and review."
+            "Primary owner for the final evidence-before-claims gate after review and before the workflow can summarize completion."
+          ]
+        },
+        {
+          "skill": "code-kb-workflow",
+          "operations": [
+            "knowledge-base context lookup"
+          ],
+          "file_patterns": [
+            "knowledge-base/llms.txt",
+            "knowledge-base/**/*.md"
+          ],
+          "usage_notes": [
+            "Supporting context layer for durable terminology, prior workflow documentation, and related verification guidance."
           ]
         }
       ],
       "state_updates": [
         {
-          "state_key": "kb_updated",
-          "output_key": "kb_updated",
+          "state_key": "completion_verification_passed",
+          "output_key": "verification_passed",
           "kind": "boolean"
         },
         {
-          "state_key": "updated_pages",
-          "output_key": "updated_pages",
-          "kind": "list"
-        },
-        {
-          "state_key": "qa_feedback_path",
-          "output_key": "qa_feedback_path",
+          "state_key": "completion_verification_summary",
+          "output_key": "verification_summary",
           "kind": "string"
         },
         {
-          "state_key": "kb_checks",
-          "output_key": "kb_checks",
+          "state_key": "completion_verification_evidence",
+          "output_key": "verification_evidence",
           "kind": "list"
+        },
+        {
+          "state_key": "completion_remaining_risks",
+          "output_key": "remaining_risks",
+          "kind": "list"
+        },
+        {
+          "state_key": "completion_missing_verification_inputs",
+          "output_key": "missing_verification_inputs",
+          "kind": "list"
+        },
+        {
+          "state_key": "completion_release_qa_risks_resolved",
+          "output_key": "release_qa_risks_resolved",
+          "kind": "boolean"
+        },
+        {
+          "state_key": "completion_release_qa_risk_resolution_summary",
+          "output_key": "release_qa_risk_resolution_summary",
+          "kind": "string"
         }
       ],
       "template_context_keys": [
-        "kb_updated",
-        "updated_pages",
-        "qa_feedback_path",
-        "kb_checks"
+        "completion_verification_passed",
+        "completion_verification_summary",
+        "completion_verification_evidence",
+        "completion_remaining_risks",
+        "completion_missing_verification_inputs",
+        "completion_release_qa_risks_resolved",
+        "completion_release_qa_risk_resolution_summary"
       ],
-      "repair_conditions": [],
-      "transitions": [],
+      "repair_conditions": [
+        {
+          "output_key": "missing_verification_inputs",
+          "operator": "non_empty",
+          "value": null,
+          "reason": "Final completion verification is blocked on missing verification inputs or external evidence.",
+          "next_node": "request_unblocking_input",
+          "branch_kind": "repair"
+        }
+      ],
+      "transitions": [
+        {
+          "output_key": "verification_passed",
+          "operator": "is_false",
+          "value": null,
+          "next_node": "execute_implementation",
+          "branch_kind": "retry",
+          "reason": "Final completion verification found remaining implementation or verification risks that must be resolved before the workflow can claim completion."
+        }
+      ],
       "outcome_routes": [],
-      "verifier_rules": [],
+      "verifier_rules": [
+        {
+          "output_key": "verification_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "Completion verification must summarize the evidence and outcome."
+        },
+        {
+          "output_key": "verification_evidence",
+          "operator": "non_empty",
+          "value": null,
+          "message": "Completion verification must record at least one fresh evidence item."
+        }
+      ],
       "verifier_templates": [
         {
-          "id": "skip_requires_reason",
+          "id": "failed_verification_requires_risks_or_missing_inputs",
           "template": "conditional_required",
-          "output_key": "skipped_reason",
-          "message": "If kb_updated is false, skipped_reason is required.",
+          "output_key": "remaining_risks",
+          "message": "If verification_passed is false, remaining_risks must be non-empty.",
           "when": {
-            "output_key": "kb_updated",
+            "output_key": "verification_passed",
             "operator": "is_false",
             "value": null
           },
-          "required_key": "skipped_reason"
+          "required_key": "remaining_risks"
         },
         {
-          "id": "kb_update_requires_pages",
+          "id": "resolved_release_qa_risks_require_summary",
           "template": "conditional_required",
-          "output_key": "updated_pages",
-          "message": "If kb_updated is true, updated_pages must be non-empty.",
+          "output_key": "release_qa_risk_resolution_summary",
+          "message": "If release_qa_risks_resolved is true, release_qa_risk_resolution_summary must explain the fresh evidence.",
           "when": {
-            "output_key": "kb_updated",
+            "output_key": "release_qa_risks_resolved",
             "operator": "is_true",
             "value": null
           },
-          "required_key": "updated_pages"
-        },
-        {
-          "id": "kb_update_requires_checks",
-          "template": "conditional_required",
-          "output_key": "kb_checks",
-          "message": "If kb_updated is true, kb_checks must report formatting or hygiene checks.",
-          "when": {
-            "output_key": "kb_updated",
-            "operator": "is_true",
-            "value": null
-          },
-          "required_key": "kb_checks"
+          "required_key": "release_qa_risk_resolution_summary"
         }
       ],
-      "custom_verifier_requirements": []
+      "custom_verifier_requirements": [
+        {
+          "id": "ship_with_risks_requires_resolution_before_pass",
+          "description": "If persisted release QA ended in ship_with_risks, final completion verification may pass only after those residual risks are explicitly resolved with fresh evidence.",
+          "signals": [
+            "state.release_qa_verdict",
+            "state.release_qa_blocked_checks",
+            "verification_passed",
+            "verification_evidence",
+            "remaining_risks",
+            "release_qa_risks_resolved",
+            "release_qa_risk_resolution_summary"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "tests"
+          ],
+          "hint_pseudocode": [
+            "Read release_qa_verdict and release_qa_blocked_checks from persisted state.",
+            "If release_qa_verdict is ship_with_risks and verification_passed is true, require release_qa_risks_resolved to be true, a non-empty release_qa_risk_resolution_summary, and fresh verification evidence that resolves the prior risk.",
+            "If release_qa_verdict is ship_with_risks and verification_passed is false, require remaining_risks or missing_verification_inputs to carry the residual risk forward."
+          ],
+          "test_intent": [
+            "Reject passing completion output that ignores prior ship_with_risks residual QA risk.",
+            "Accept passing completion output only when it explicitly resolves the prior residual QA risk with fresh evidence."
+          ]
+        }
+      ]
     }
   ],
   "shared_repair_helpers": {
@@ -1522,7 +1944,7 @@
     }
   },
   "final_step_id": "finalize_delivery_summary",
-  "final_prompt": "Prepare the final iOS Client AI-assisted development delivery summary. Include the approved design, OpenSpec change artifacts, implementation evidence, release QA verdict {{release_qa_verdict}}, release QA summary {{release_qa_summary}}, release QA executed checks {{release_qa_executed_checks}}, release QA blocked checks {{release_qa_blocked_checks}}, release QA risk next steps {{release_qa_risk_next_steps}}, review decision, knowledge-base feedback, remaining risks, and tests or checks run.",
+  "final_prompt": "Prepare the final iOS Client AI-assisted development delivery summary using approved design summary {{approved_design_summary}}, approved design path {{approved_design_path}}, proposal path {{proposal_path}}, OpenSpec design path {{openspec_design_path}}, tasks path {{tasks_path}}, spec paths {{spec_paths}}, implementation summary {{implementation_summary}}, changed files {{changed_files}}, verification commands {{verification_commands}}, release QA verdict {{release_qa_verdict}}, release QA summary {{release_qa_summary}}, release QA executed checks {{release_qa_executed_checks}}, release QA blocked checks {{release_qa_blocked_checks}}, release QA risk next steps {{release_qa_risk_next_steps}}, release QA artifacts {{release_qa_artifacts}}, review status {{review_status}}, reviewed snapshot {{reviewed_snapshot}}, review summary {{review_summary}}, review findings {{review_findings}}, completion verification passed {{completion_verification_passed}}, completion verification summary {{completion_verification_summary}}, completion verification evidence {{completion_verification_evidence}}, completion verification missing inputs {{completion_missing_verification_inputs}}, completion remaining risks {{completion_remaining_risks}}, release QA risks resolved {{completion_release_qa_risks_resolved}}, release QA risk resolution summary {{completion_release_qa_risk_resolution_summary}}, open issues {{open_issues}}, and remaining risks.",
   "dependencies": [
     {
       "id": "brainstorming",
@@ -1530,7 +1952,8 @@
       "required": true,
       "scope": "either",
       "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/common/skills/brainstorming?ref_type=heads",
-      "purpose": "Run the pre-implementation requirement clarification and design approval gate."
+      "purpose": "Run the pre-implementation requirement clarification and design approval gate.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill brainstorming -g -y --agent claude-code cursor codex"
     },
     {
       "id": "openspec",
@@ -1571,7 +1994,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:xcodebuildmcp-cli",
-      "purpose": "Run iOS build, test, run, debug, log, and UI automation verification through XcodeBuildMCP with controlled DerivedData path handling."
+      "purpose": "Run iOS build, test, run, debug, log, and UI automation verification through XcodeBuildMCP with controlled DerivedData path handling.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill xcodebuildmcp-cli -g -y --agent claude-code cursor codex"
     },
     {
       "id": "manipulate-xcodeproj",
@@ -1579,7 +2003,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:manipulate-xcodeproj",
-      "purpose": "Edit Xcode project, pbxproj, target membership, build settings, and asset catalog surfaces through XcodeProjectCLI."
+      "purpose": "Edit Xcode project, pbxproj, target membership, build settings, and asset catalog surfaces through XcodeProjectCLI.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill manipulate-xcodeproj -g -y --agent claude-code cursor codex"
     },
     {
       "id": "agentic-release-qa",
@@ -1587,23 +2012,42 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:agentic-release-qa",
-      "purpose": "Run change-aware release QA after implementation verification and before merged-final review."
+      "purpose": "Run change-aware release QA after implementation verification and before pre-merge code review.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill agentic-release-qa -g -y --agent claude-code cursor codex"
     },
     {
       "id": "pixel-diff",
       "type": "skill",
-      "required": true,
+      "required": false,
       "scope": "either",
       "source": "skill-catalog:pixel-diff",
-      "purpose": "Compare approved design, reference screenshot, or baseline image artifacts against runtime screenshots during release QA."
+      "purpose": "Compare approved design, reference screenshot, or baseline image artifacts against runtime screenshots during release QA.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill pixel-diff -g -y --agent claude-code cursor codex"
     },
     {
-      "id": "ios-gitlab-merged-mr-review",
+      "id": "requesting-code-review",
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "skill-catalog:ios-gitlab-merged-mr-review",
-      "purpose": "Review the merged-final iOS GitLab MR state before final delivery."
+      "source": "https://github.com/obra/superpowers/tree/main/skills/requesting-code-review",
+      "purpose": "Run a pre-merge code review on the current local diff or branch state before final delivery."
+    },
+    {
+      "id": "verification-before-completion",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/verification-before-completion",
+      "purpose": "Collect fresh verification evidence and block completion claims until the workflow can prove it is done."
+    },
+    {
+      "id": "ios-best-practices",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:ios-best-practices",
+      "purpose": "Apply Zoom iOS client review standards for memory, threading, concurrency, architecture, security, and UI-layer correctness during pre-merge review.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill ios-best-practices -g -y --agent claude-code cursor codex"
     },
     {
       "id": "code-kb-workflow",
@@ -1611,7 +2055,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:code-kb-workflow",
-      "purpose": "Read context and write or QA durable knowledge-base feedback after delivery."
+      "purpose": "Read durable knowledge-base context during brainstorming, OpenSpec, implementation, and review stages.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill code-kb-workflow -g -y --agent claude-code cursor codex"
     },
     {
       "id": "software-design-philosophy",
@@ -1619,7 +2064,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:software-design-philosophy",
-      "purpose": "Evaluate development-perspective spec quality for design decisions, impact scope, and implementation readiness."
+      "purpose": "Evaluate development-perspective spec quality for design decisions, impact scope, and implementation readiness.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill software-design-philosophy -g -y --agent claude-code cursor codex"
     }
   ],
   "installed": [
@@ -1696,11 +2142,27 @@
       "recorded_by": "workflow-creator"
     },
     {
-      "id": "ios-gitlab-merged-mr-review",
+      "id": "requesting-code-review",
       "type": "skill",
       "scope": "either",
-      "source": "skill-catalog:ios-gitlab-merged-mr-review",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/requesting-code-review",
       "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "verification-before-completion",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/verification-before-completion",
+      "recorded_at": "2026-06-22T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "ios-best-practices",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:ios-best-practices",
+      "recorded_at": "2026-06-22T00:00:00Z",
       "recorded_by": "workflow-creator"
     },
     {
@@ -1959,6 +2421,48 @@
       "expected_branch_kind": "retry"
     },
     {
+      "name": "refinement_rejects_missing_conversation_evidence",
+      "type": "verifier",
+      "step_id": "refine_change_with_openspec",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Refinement skipped the talk-first discussion and jumped to output.",
+        "structured_output": {
+          "refinement_summary": "Need to confirm API ownership.",
+          "user_discussion_summary": "",
+          "discussion_turn_count": 0,
+          "changed_artifacts": [],
+          "unresolved_questions": [
+            "Who owns the bridge contract?"
+          ],
+          "ready_for_apply": false
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "refinement_accepts_recorded_conversation_evidence",
+      "type": "verifier",
+      "step_id": "refine_change_with_openspec",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Refinement discussed risks with the user before finishing.",
+        "structured_output": {
+          "refinement_summary": "Confirmed API ownership and narrowed the apply scope.",
+          "user_discussion_summary": "Discussed API ownership, rollout boundaries, and whether the bridge contract needed a compatibility note.",
+          "discussion_turn_count": 2,
+          "changed_artifacts": [
+            "openspec/changes/example-change/design.md"
+          ],
+          "unresolved_questions": [],
+          "ready_for_apply": true
+        }
+      },
+      "expected_passed": true,
+      "state": null
+    },
+    {
       "name": "implementation_rejects_failed_verification",
       "type": "verifier",
       "step_id": "execute_implementation",
@@ -2040,6 +2544,68 @@
       "state": null,
       "expected_next_node": "run_agentic_release_qa",
       "expected_branch_kind": "continue"
+    },
+    {
+      "name": "implementation_design_issue_routes_back_to_refinement",
+      "type": "transition",
+      "current_step_id": "execute_implementation",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Implementation found a spec gap that requires refinement.",
+        "structured_output": {
+          "tasks_completed": false,
+          "implementation_summary": "Started implementation, but discovered the OpenSpec task does not define the fallback UI state clearly enough.",
+          "changed_files": [
+            "Zoom/Classes/Example.mm"
+          ],
+          "completed_tasks": [],
+          "remaining_tasks": [
+            "Clarify fallback UI state in the OpenSpec design before finishing implementation."
+          ],
+          "verification_commands": [
+            "unit-test => not-run"
+          ],
+          "verification_passed": false,
+          "open_issues": [
+            "OpenSpec design does not define the fallback UI state."
+          ],
+          "openspec_updates_required": true,
+          "openspec_update_summary": "The approved design and OpenSpec tasks need a fallback UI state clarification before implementation can continue safely."
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "refine_change_with_openspec",
+      "expected_branch_kind": "retry"
+    },
+    {
+      "name": "implementation_rejects_completed_with_remaining_tasks",
+      "type": "verifier",
+      "step_id": "execute_implementation",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Implementation claimed completion while still listing remaining tasks.",
+        "structured_output": {
+          "tasks_completed": true,
+          "implementation_summary": "Implemented most tasks.",
+          "changed_files": [
+            "Zoom/Classes/Example.mm"
+          ],
+          "completed_tasks": [
+            "Task 1"
+          ],
+          "remaining_tasks": [
+            "Task 2"
+          ],
+          "verification_commands": [
+            "unit-test => passed"
+          ],
+          "verification_passed": true,
+          "open_issues": []
+        }
+      },
+      "expected_passed": false,
+      "state": null
     },
     {
       "name": "release_qa_rejects_unknown_verdict",
@@ -2140,19 +2706,19 @@
       },
       "verifier_result": null,
       "state": null,
-      "expected_next_node": "request_final_code_review",
+      "expected_next_node": "request_pre_merge_code_review",
       "expected_branch_kind": "continue"
     },
     {
       "name": "review_changes_requested_routes_to_implementation",
       "type": "transition",
-      "current_step_id": "request_final_code_review",
+      "current_step_id": "request_pre_merge_code_review",
       "observation": {
         "status": "succeeded",
         "summary": "Review found a regression.",
         "structured_output": {
           "review_status": "changes_requested",
-          "reviewed_snapshot": "merge_commit_sha:abc123",
+          "reviewed_snapshot": "base_sha:abc123..head_sha:def456",
           "findings": [
             "major | Zoom/Classes/Example.mm | Missing lifecycle guard. | Add lifecycle guard before shipping."
           ],
@@ -2169,18 +2735,18 @@
     {
       "name": "review_blocked_routes_to_unblocking",
       "type": "transition",
-      "current_step_id": "request_final_code_review",
+      "current_step_id": "request_pre_merge_code_review",
       "observation": {
         "status": "succeeded",
-        "summary": "Review could not run because MR URL is missing.",
+        "summary": "Review could not run because the git review base is missing.",
         "structured_output": {
           "review_status": "blocked",
           "reviewed_snapshot": "missing",
           "findings": [],
-          "review_summary": "Missing MR URL.",
+          "review_summary": "Missing review base.",
           "changes_requested": false,
           "missing_review_inputs": [
-            "mr_url"
+            "base_sha"
           ]
         }
       },
@@ -2192,13 +2758,13 @@
     {
       "name": "review_changes_requested_requires_findings",
       "type": "verifier",
-      "step_id": "request_final_code_review",
+      "step_id": "request_pre_merge_code_review",
       "observation": {
         "status": "succeeded",
         "summary": "Review requested changes without findings.",
         "structured_output": {
           "review_status": "changes_requested",
-          "reviewed_snapshot": "merge_commit_sha:abc123",
+          "reviewed_snapshot": "base_sha:abc123..head_sha:def456",
           "findings": [],
           "review_summary": "Changes requested.",
           "changes_requested": true,
@@ -2211,13 +2777,13 @@
     {
       "name": "review_approved_requires_changes_flag_false",
       "type": "verifier",
-      "step_id": "request_final_code_review",
+      "step_id": "request_pre_merge_code_review",
       "observation": {
         "status": "succeeded",
         "summary": "Review approved with inconsistent flag.",
         "structured_output": {
           "review_status": "approved",
-          "reviewed_snapshot": "merge_commit_sha:abc123",
+          "reviewed_snapshot": "base_sha:abc123..head_sha:def456",
           "findings": [],
           "review_summary": "Approved.",
           "changes_requested": true,
@@ -2228,35 +2794,20 @@
       "state": null
     },
     {
-      "name": "code_kb_skip_requires_reason",
+      "name": "review_approved_rejects_missing_review_inputs",
       "type": "verifier",
-      "step_id": "write_code_kb_feedback",
+      "step_id": "request_pre_merge_code_review",
       "observation": {
         "status": "succeeded",
-        "summary": "KB update skipped without reason.",
+        "summary": "Review approved while still reporting missing inputs.",
         "structured_output": {
-          "kb_updated": false,
-          "updated_pages": [],
-          "backlog_updates": [],
-          "kb_checks": []
-        }
-      },
-      "expected_passed": false,
-      "state": null
-    },
-    {
-      "name": "code_kb_update_requires_pages",
-      "type": "verifier",
-      "step_id": "write_code_kb_feedback",
-      "observation": {
-        "status": "succeeded",
-        "summary": "KB update reported without page list.",
-        "structured_output": {
-          "kb_updated": true,
-          "updated_pages": [],
-          "backlog_updates": [],
-          "kb_checks": [
-            "check_page_format.py => passed"
+          "review_status": "approved",
+          "reviewed_snapshot": "base_sha:abc123..head_sha:def456",
+          "findings": [],
+          "review_summary": "Approved.",
+          "changes_requested": false,
+          "missing_review_inputs": [
+            "base_sha"
           ]
         }
       },
@@ -2264,19 +2815,40 @@
       "state": null
     },
     {
-      "name": "code_kb_update_requires_checks",
+      "name": "review_blocked_requires_missing_review_inputs",
       "type": "verifier",
-      "step_id": "write_code_kb_feedback",
+      "step_id": "request_pre_merge_code_review",
       "observation": {
         "status": "succeeded",
-        "summary": "KB update reported without checks.",
+        "summary": "Review blocked without identifying any missing input.",
         "structured_output": {
-          "kb_updated": true,
-          "updated_pages": [
-            "knowledge-base/workflows/ai-assisted-development-flow.md"
+          "review_status": "blocked",
+          "reviewed_snapshot": "missing",
+          "findings": [],
+          "review_summary": "Review could not run.",
+          "changes_requested": false,
+          "missing_review_inputs": []
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "review_rejects_findings_without_severity",
+      "type": "verifier",
+      "step_id": "request_pre_merge_code_review",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Review returned findings but did not label their severity.",
+        "structured_output": {
+          "review_status": "changes_requested",
+          "reviewed_snapshot": "base_sha:abc123..head_sha:def456",
+          "findings": [
+            "Zoom/Classes/Example.mm | Missing lifecycle guard. | Add lifecycle guard before shipping."
           ],
-          "backlog_updates": [],
-          "kb_checks": []
+          "review_summary": "Changes requested.",
+          "changes_requested": true,
+          "missing_review_inputs": []
         }
       },
       "expected_passed": false,
@@ -2305,56 +2877,38 @@
       "state": null
     },
     {
-      "name": "code_kb_update_accepts_pages_and_checks",
+      "name": "propose_rejects_missing_design_or_spec_artifact",
       "type": "verifier",
-      "step_id": "write_code_kb_feedback",
+      "step_id": "propose_openspec_change",
       "observation": {
         "status": "succeeded",
-        "summary": "KB update reported pages and checks.",
+        "summary": "OpenSpec proposal omitted any durable design or spec artifact.",
         "structured_output": {
-          "kb_updated": true,
-          "updated_pages": [
-            "knowledge-base/workflows/ai-assisted-development-flow.md"
+          "change_name": "ios-ai-assisted-development-flow",
+          "change_path": "openspec/changes/example-change",
+          "proposal_path": "openspec/changes/example-change/proposal.md",
+          "tasks_path": "openspec/changes/example-change/tasks.md",
+          "spec_paths": [],
+          "created_artifacts": [
+            "proposal.md",
+            "tasks.md"
           ],
-          "backlog_updates": [
-            "Updated backlog row for AI-assisted development flow."
-          ],
-          "kb_checks": [
-            "check_page_format.py => passed"
-          ]
+          "apply_ready": true
         }
       },
-      "expected_passed": true,
+      "expected_passed": false,
       "state": null
     },
     {
-      "name": "code_kb_skip_accepts_reason",
-      "type": "verifier",
-      "step_id": "write_code_kb_feedback",
-      "observation": {
-        "status": "succeeded",
-        "summary": "KB update skipped with reason.",
-        "structured_output": {
-          "kb_updated": false,
-          "updated_pages": [],
-          "backlog_updates": [],
-          "kb_checks": [],
-          "skipped_reason": "Change has no durable knowledge-base update."
-        }
-      },
-      "expected_passed": true,
-      "state": null
-    },
-    {
-      "name": "review_approved_routes_to_kb_feedback",
+      "name": "review_approved_completes_workflow",
       "type": "transition",
-      "current_step_id": "request_final_code_review",
+      "current_step_id": "request_pre_merge_code_review",
       "observation": {
         "status": "succeeded",
         "summary": "Review approved final state.",
         "structured_output": {
           "review_status": "approved",
-          "reviewed_snapshot": "merge_commit_sha:abc123",
+          "reviewed_snapshot": "base_sha:abc123..head_sha:def456",
           "findings": [],
           "review_summary": "No findings.",
           "changes_requested": false,
@@ -2363,28 +2917,129 @@
       },
       "verifier_result": null,
       "state": null,
-      "expected_next_node": "write_code_kb_feedback",
+      "expected_next_node": "verify_completion",
       "expected_branch_kind": "continue"
     },
     {
-      "name": "kb_feedback_success_completes_workflow",
+      "name": "completion_verification_failed_routes_to_implementation",
       "type": "transition",
-      "current_step_id": "write_code_kb_feedback",
+      "current_step_id": "verify_completion",
       "observation": {
         "status": "succeeded",
-        "summary": "KB feedback finished.",
+        "summary": "Final verification found incomplete evidence.",
         "structured_output": {
-          "kb_updated": false,
-          "updated_pages": [],
-          "backlog_updates": [],
-          "kb_checks": [],
-          "skipped_reason": "No durable KB update needed."
+          "verification_passed": false,
+          "verification_summary": "Final verification failed because release notes and one verification rerun are missing.",
+          "verification_evidence": [
+            "unit-test rerun missing",
+            "release QA evidence reviewed"
+          ],
+          "remaining_risks": [
+            "Need one fresh test rerun before claiming completion."
+          ],
+          "missing_verification_inputs": []
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "execute_implementation",
+      "expected_branch_kind": "retry"
+    },
+    {
+      "name": "completion_verification_requires_evidence",
+      "type": "verifier",
+      "step_id": "verify_completion",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Final verification passed without recording evidence.",
+        "structured_output": {
+          "verification_passed": true,
+          "verification_summary": "Verified.",
+          "verification_evidence": [],
+          "remaining_risks": [],
+          "missing_verification_inputs": []
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "completion_verification_success_completes_workflow",
+      "type": "transition",
+      "current_step_id": "verify_completion",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Final verification gathered enough evidence to claim completion.",
+        "structured_output": {
+          "verification_passed": true,
+          "verification_summary": "Fresh tests, release QA review, and pre-merge review evidence all support completion.",
+          "verification_evidence": [
+            "Re-ran final verification command suite successfully.",
+            "Reviewed release QA verdict and blocked checks.",
+            "Confirmed pre-merge review status approved."
+          ],
+          "remaining_risks": [],
+          "missing_verification_inputs": []
         }
       },
       "verifier_result": null,
       "state": null,
       "expected_next_node": "finalize_delivery_summary",
       "expected_branch_kind": "complete"
+    },
+    {
+      "name": "completion_verification_rejects_unresolved_ship_with_risks",
+      "type": "verifier",
+      "step_id": "verify_completion",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Final verification tried to pass without resolving prior release QA residual risks.",
+        "structured_output": {
+          "verification_passed": true,
+          "verification_summary": "Fresh verification passed, but the prior residual QA risk was not revisited explicitly.",
+          "verification_evidence": [
+            "Re-ran final verification command suite successfully."
+          ],
+          "remaining_risks": [],
+          "missing_verification_inputs": [],
+          "release_qa_risks_resolved": false
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "release_qa_verdict": "ship_with_risks",
+        "release_qa_blocked_checks": [
+          "Full device matrix was not available."
+        ]
+      }
+    },
+    {
+      "name": "completion_verification_accepts_resolved_ship_with_risks",
+      "type": "verifier",
+      "step_id": "verify_completion",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Final verification resolved the prior release QA residual risk with fresh evidence.",
+        "structured_output": {
+          "verification_passed": true,
+          "verification_summary": "Fresh verification reran the previously blocked visual and device checks and resolved the residual release QA risk.",
+          "verification_evidence": [
+            "Re-ran final verification command suite successfully.",
+            "Executed the previously blocked device-matrix spot check and visual comparison."
+          ],
+          "remaining_risks": [],
+          "missing_verification_inputs": [],
+          "release_qa_risks_resolved": true,
+          "release_qa_risk_resolution_summary": "Resolved the prior ship_with_risks release QA hold by rerunning the blocked visual and device checks with fresh evidence."
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "release_qa_verdict": "ship_with_risks",
+        "release_qa_blocked_checks": [
+          "Full device matrix was not available."
+        ]
+      }
     },
     {
       "name": "brainstorming_rejects_non_spec_doc_path",
@@ -2450,7 +3105,7 @@
             "Full device matrix was not available."
           ],
           "release_qa_risk_next_steps": [
-            "Review residual device-matrix risk during final MR review."
+            "Review residual device-matrix risk during pre-merge code review."
           ],
           "release_qa_artifacts": []
         }
@@ -2480,6 +3135,134 @@
       "state": null
     },
     {
+      "name": "release_qa_rejects_blocked_without_blocked_checks",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA reported blocked without listing blocked checks.",
+        "structured_output": {
+          "release_qa_verdict": "blocked",
+          "release_qa_summary": "QA environment is unavailable.",
+          "release_qa_executed_checks": [
+            "Reviewed changed files."
+          ],
+          "release_qa_blocked_checks": [],
+          "release_qa_risk_next_steps": [
+            "Provide the missing QA environment."
+          ],
+          "release_qa_artifacts": []
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "release_qa_rejects_do_not_ship_without_next_steps",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA reported do_not_ship without remediation next steps.",
+        "structured_output": {
+          "release_qa_verdict": "do_not_ship",
+          "release_qa_summary": "A blocking regression was found.",
+          "release_qa_executed_checks": [
+            "Ran a targeted regression scenario."
+          ],
+          "release_qa_blocked_checks": [],
+          "release_qa_risk_next_steps": [],
+          "release_qa_artifacts": []
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "release_qa_rejects_ship_with_risks_without_executed_checks",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA reported ship_with_risks without executed checks.",
+        "structured_output": {
+          "release_qa_verdict": "ship_with_risks",
+          "release_qa_summary": "Residual non-blocking risk remains.",
+          "release_qa_executed_checks": [],
+          "release_qa_blocked_checks": [
+            "Full device matrix was not available."
+          ],
+          "release_qa_risk_next_steps": [
+            "Review residual risk during pre-merge review."
+          ],
+          "release_qa_artifacts": []
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "release_qa_rejects_ui_change_without_visual_evidence",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA skipped explicit visual comparison evidence for a UI change.",
+        "structured_output": {
+          "release_qa_verdict": "ship_with_risks",
+          "release_qa_summary": "Release QA ran targeted checks but omitted the visual comparison evidence.",
+          "release_qa_executed_checks": [
+            "Ran targeted regression scenario for the changed flow."
+          ],
+          "release_qa_blocked_checks": [
+            "Full device matrix was not available."
+          ],
+          "release_qa_risk_next_steps": [
+            "Resolve the missing visual comparison evidence before delivery."
+          ],
+          "release_qa_artifacts": []
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "ui_surface_affected": true,
+        "design_comparison_source": "Figma frame: MeetingToolbar/Updated",
+        "runtime_visual_comparison_scope": "Meeting toolbar visible in the active-call screen"
+      }
+    },
+    {
+      "name": "release_qa_accepts_ui_change_with_visual_evidence",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA included the visual comparison evidence for a UI change.",
+        "structured_output": {
+          "release_qa_verdict": "ship_with_risks",
+          "release_qa_summary": "Release QA found one non-blocking residual risk after visual comparison.",
+          "release_qa_executed_checks": [
+            "Ran targeted regression scenario for the changed flow.",
+            "Compared the approved Figma frame against the runtime toolbar screenshot with pixel diff."
+          ],
+          "release_qa_blocked_checks": [
+            "Full device matrix was not available."
+          ],
+          "release_qa_risk_next_steps": [
+            "Review the residual device-matrix risk during pre-merge review."
+          ],
+          "release_qa_artifacts": [
+            "artifacts/pixel-diff/meeting-toolbar-diff.png"
+          ]
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "ui_surface_affected": true,
+        "design_comparison_source": "Figma frame: MeetingToolbar/Updated",
+        "runtime_visual_comparison_scope": "Meeting toolbar visible in the active-call screen"
+      }
+    },
+    {
       "name": "release_qa_ship_with_risks_routes_to_final_review",
       "type": "transition",
       "current_step_id": "run_agentic_release_qa",
@@ -2496,14 +3279,14 @@
             "Full device matrix was not available."
           ],
           "release_qa_risk_next_steps": [
-            "Review residual device-matrix risk during final MR review."
+            "Review residual device-matrix risk during pre-merge code review."
           ],
           "release_qa_artifacts": []
         }
       },
       "verifier_result": null,
       "state": null,
-      "expected_next_node": "request_final_code_review",
+      "expected_next_node": "request_pre_merge_code_review",
       "expected_branch_kind": "continue"
     },
     {
@@ -2565,6 +3348,38 @@
       "expected_branch_kind": "continue"
     },
     {
+      "name": "approve_refine_rejects_approved_with_additional_refinement",
+      "type": "verifier",
+      "step_id": "approve_refine",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Approval output was internally inconsistent.",
+        "structured_output": {
+          "user_approved": true,
+          "user_feedback": "Proceed.",
+          "additional_refinement_needed": true
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "approve_refine_rejects_rejection_without_refinement_request",
+      "type": "verifier",
+      "step_id": "approve_refine",
+      "observation": {
+        "status": "succeeded",
+        "summary": "User did not approve but no refinement request was recorded.",
+        "structured_output": {
+          "user_approved": false,
+          "user_feedback": "Not ready yet.",
+          "additional_refinement_needed": false
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
       "name": "approve_refine_rejected_retries_refinement",
       "type": "transition",
       "current_step_id": "approve_refine",
@@ -2581,6 +3396,52 @@
       "state": null,
       "expected_next_node": "refine_change_with_openspec",
       "expected_branch_kind": "retry"
+    },
+    {
+      "name": "completion_verification_missing_inputs_route_to_unblocking",
+      "type": "transition",
+      "current_step_id": "verify_completion",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Final verification is blocked on missing evidence inputs.",
+        "structured_output": {
+          "verification_passed": false,
+          "verification_summary": "Need one more external verification artifact before completion can be claimed.",
+          "verification_evidence": [
+            "Reviewed existing release QA and review evidence."
+          ],
+          "remaining_risks": [
+            "Completion evidence is incomplete."
+          ],
+          "missing_verification_inputs": [
+            "final device screenshot"
+          ]
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "request_unblocking_input",
+      "expected_branch_kind": "repair"
+    },
+    {
+      "name": "completion_verification_rejects_failed_without_remaining_risks",
+      "type": "verifier",
+      "step_id": "verify_completion",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Final verification failed without listing remaining risks.",
+        "structured_output": {
+          "verification_passed": false,
+          "verification_summary": "Verification is still incomplete.",
+          "verification_evidence": [
+            "Reviewed prior evidence."
+          ],
+          "remaining_risks": [],
+          "missing_verification_inputs": []
+        }
+      },
+      "expected_passed": false,
+      "state": null
     }
   ]
 }

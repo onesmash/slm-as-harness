@@ -9,7 +9,8 @@ Stage Boundaries:
 - Empty unresolved_questions[] is valid ONLY if the user explicitly confirmed no open issues after discussion.
 - Do not treat structured_output field requirements as a checklist to fill without conversation.
 - Do not choose the next workflow stage; runtime policy owns routing.
-- Do not implement code or modify OpenSpec artifacts during this stage.
+- Do not implement application code during this stage.
+- If refinement changes are needed, update only the relevant OpenSpec artifacts and summarize what changed.
 
 Blocked Conditions:
 

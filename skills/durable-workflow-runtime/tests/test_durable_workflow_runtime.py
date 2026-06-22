@@ -69,6 +69,11 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             for path in sorted((RUNTIME_ROOT / "workflows").glob("*/manifest.json"))
             if path.exists()
         }
+        self._lockfile_backups = {
+            path: path.read_text(encoding="utf-8")
+            for path in sorted((RUNTIME_ROOT / "workflows").glob("*/.workflow-lock.json"))
+            if path.exists()
+        }
         self._project_skill_backups: dict[Path, str | None] = {}
         self._hidden_project_skill_dirs: list[tuple[Path, Path]] = []
         self._write_binding_config(
@@ -135,6 +140,11 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
         for path, text in self._manifest_backups.items():
             path.write_text(text, encoding="utf-8")
+        for path in sorted((RUNTIME_ROOT / "workflows").glob("*/.workflow-lock.json")):
+            if path not in self._lockfile_backups:
+                path.unlink(missing_ok=True)
+        for path, text in self._lockfile_backups.items():
+            path.write_text(text, encoding="utf-8")
 
         for path, text in self._project_skill_backups.items():
             if text is None:
@@ -181,6 +191,9 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
     def _workflow_manifest_path(self, workflow_id: str) -> Path:
         return RUNTIME_ROOT / "workflows" / workflow_id / "manifest.json"
+
+    def _workflow_lockfile_path(self, workflow_id: str) -> Path:
+        return RUNTIME_ROOT / "workflows" / workflow_id / ".workflow-lock.json"
 
     def _contract_start_input_schema(self, workflow_id: str) -> dict:
         from runtime.module_loader import load_workflow_modules
@@ -243,6 +256,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             "description": "Registered test workflow.",
             "start_input_schema": package_manifest["start_input_schema"],
             "dependencies": [],
+        }
+        workflow_lock = {
+            "schema_version": 1,
+            "workflow_id": workflow_id,
             "installed": [],
         }
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -258,6 +275,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             archive.writestr(
                 "workflow/manifest.json",
                 json.dumps(workflow_manifest, ensure_ascii=False, indent=2) + "\n",
+            )
+            archive.writestr(
+                "workflow/.workflow-lock.json",
+                json.dumps(workflow_lock, ensure_ascii=False, indent=2) + "\n",
             )
             archive.writestr("workflow/contract.py", "WORKFLOW_ID = 'registered_test'\n")
             archive.writestr("workflow/prompts/collect_context.md", "Collect context.\n")
@@ -2275,6 +2296,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn("package-manifest.json", names)
         self.assertIn("binding-entry.json", names)
         self.assertIn("workflow/manifest.json", names)
+        self.assertIn("workflow/.workflow-lock.json", names)
         self.assertIn("workflow/contract.py", names)
         self.assertIn("workflow/prompts/collect_context.md", names)
         self.assertFalse(any("__pycache__" in name for name in names))
@@ -2350,6 +2372,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(payload["workflow_id"], "registered_demo")
             self.assertFalse(payload["replaced_existing"])
             self.assertTrue((workflows_root / "registered_demo" / "manifest.json").exists())
+            self.assertTrue((workflows_root / "registered_demo" / ".workflow-lock.json").exists())
             self.assertTrue(
                 (workflows_root / "registered_demo" / "prompts" / "collect_context.md").exists()
             )
@@ -2672,6 +2695,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             ).resolve()
             self.assertTrue((workflow_dir / "contract.py").exists())
             self.assertTrue((workflow_dir / "manifest.json").exists())
+            self.assertTrue((workflow_dir / ".workflow-lock.json").exists())
             self.assertTrue((workflow_dir / "spec.json").exists())
             self.assertEqual(payload["shortcut_skill_name"], "workflow:paper_review_flow")
             self.assertEqual(payload["shortcut_skill_file"], str(shortcut_skill_path))
@@ -2684,6 +2708,9 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             shortcut_skill_text = shortcut_skill_path.read_text(encoding="utf-8")
             manifest_payload = json.loads(
                 (workflow_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+            lockfile_payload = json.loads(
+                (workflow_dir / ".workflow-lock.json").read_text(encoding="utf-8")
             )
             spec_blueprint = json.loads((workflow_dir / "spec.json").read_text(encoding="utf-8"))
             binding_payload = json.loads(
@@ -2707,6 +2734,8 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertNotIn("<user_prompt>", shortcut_skill_text)
             self.assertNotIn("# Workflow Shortcut", shortcut_skill_text)
             self.assertEqual(manifest_payload["workflow_id"], "paper_review_flow")
+            self.assertEqual(lockfile_payload["workflow_id"], "paper_review_flow")
+            self.assertEqual(lockfile_payload["installed"], [])
             self.assertEqual(spec_blueprint["workflow_id"], "paper_review_flow")
             self.assertEqual(spec_blueprint["stages"], [])
             self.assertEqual(spec_blueprint["final_step_id"], "finalize_summary")
@@ -2824,11 +2853,14 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             manifest_payload = json.loads(
                 (workflow_dir / "manifest.json").read_text(encoding="utf-8")
             )
+            lockfile_payload = json.loads(
+                (workflow_dir / ".workflow-lock.json").read_text(encoding="utf-8")
+            )
             spec_payload = json.loads((workflow_dir / "spec.json").read_text(encoding="utf-8"))
             contract_text = (workflow_dir / "contract.py").read_text(encoding="utf-8")
 
             dependency_ids = [item["id"] for item in manifest_payload["dependencies"]]
-            installed_ids = [item["id"] for item in manifest_payload["installed"]]
+            installed_ids = [item["id"] for item in lockfile_payload["installed"]]
             self.assertEqual(dependency_ids, ["example-skill-suite"])
             self.assertEqual(installed_ids, ["example-skill-suite"])
             self.assertEqual(

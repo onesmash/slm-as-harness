@@ -1,4 +1,4 @@
-/brainstorming {{workflow_goal}} in {{repo_root}}; use knowledge-base as supporting context, complete clarification and approval, write the approved design under docs/superpowers/specs/, and complete the required spec review loop.
+/brainstorming {{goal}} in {{repo_root}}; use knowledge-base as supporting context, complete clarification and approval, write the approved design under docs/superpowers/specs/, and complete the required spec review loop.
 
 Stage Context:
 

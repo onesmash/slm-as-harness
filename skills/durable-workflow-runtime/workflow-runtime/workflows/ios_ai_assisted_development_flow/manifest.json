@@ -1,13 +1,11 @@
 {
   "schema_version": 1,
   "workflow_id": "ios_ai_assisted_development_flow",
-  "description": "Run the iOS Client AI-assisted development path from brainstorming through OpenSpec artifacts, implementation, merged-final review, and Code KB feedback, with knowledge-base available as supporting context throughout.",
+  "description": "Run the iOS Client AI-assisted development path from brainstorming through OpenSpec artifacts, implementation, and pre-merge code review, with knowledge-base available as supporting context throughout.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
-      "preferred_change_name": "string?",
-      "mr_url": "string?",
-      "kb_scope": "string?"
+      "preferred_change_name": "string?"
     },
     "context": {
       "repo_root": "string",
@@ -27,7 +25,8 @@
       "required": true,
       "scope": "either",
       "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/common/skills/brainstorming?ref_type=heads",
-      "purpose": "Run the pre-implementation requirement clarification and design approval gate."
+      "purpose": "Run the pre-implementation requirement clarification and design approval gate.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill brainstorming -g -y --agent claude-code cursor codex"
     },
     {
       "id": "openspec",
@@ -68,7 +67,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:xcodebuildmcp-cli",
-      "purpose": "Run iOS build, test, run, debug, log, and UI automation verification through XcodeBuildMCP with controlled DerivedData path handling."
+      "purpose": "Run iOS build, test, run, debug, log, and UI automation verification through XcodeBuildMCP with controlled DerivedData path handling.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill xcodebuildmcp-cli -g -y --agent claude-code cursor codex"
     },
     {
       "id": "manipulate-xcodeproj",
@@ -76,7 +76,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:manipulate-xcodeproj",
-      "purpose": "Edit Xcode project, pbxproj, target membership, build settings, and asset catalog surfaces through XcodeProjectCLI."
+      "purpose": "Edit Xcode project, pbxproj, target membership, build settings, and asset catalog surfaces through XcodeProjectCLI.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill manipulate-xcodeproj -g -y --agent claude-code cursor codex"
     },
     {
       "id": "agentic-release-qa",
@@ -84,23 +85,42 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:agentic-release-qa",
-      "purpose": "Run change-aware release QA after implementation verification and before merged-final review."
+      "purpose": "Run change-aware release QA after implementation verification and before pre-merge code review.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill agentic-release-qa -g -y --agent claude-code cursor codex"
     },
     {
       "id": "pixel-diff",
       "type": "skill",
-      "required": true,
+      "required": false,
       "scope": "either",
       "source": "skill-catalog:pixel-diff",
-      "purpose": "Compare approved design, reference screenshot, or baseline image artifacts against runtime screenshots during release QA."
+      "purpose": "Compare approved design, reference screenshot, or baseline image artifacts against runtime screenshots during release QA.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill pixel-diff -g -y --agent claude-code cursor codex"
     },
     {
-      "id": "ios-gitlab-merged-mr-review",
+      "id": "requesting-code-review",
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "skill-catalog:ios-gitlab-merged-mr-review",
-      "purpose": "Review the merged-final iOS GitLab MR state before final delivery."
+      "source": "https://github.com/obra/superpowers/tree/main/skills/requesting-code-review",
+      "purpose": "Run a pre-merge code review on the current local diff or branch state before final delivery."
+    },
+    {
+      "id": "verification-before-completion",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/verification-before-completion",
+      "purpose": "Collect fresh verification evidence and block completion claims until the workflow can prove it is done."
+    },
+    {
+      "id": "ios-best-practices",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:ios-best-practices",
+      "purpose": "Apply Zoom iOS client review standards for memory, threading, concurrency, architecture, security, and UI-layer correctness during pre-merge review.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill ios-best-practices -g -y --agent claude-code cursor codex"
     },
     {
       "id": "code-kb-workflow",
@@ -108,7 +128,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:code-kb-workflow",
-      "purpose": "Read context and write or QA durable knowledge-base feedback after delivery."
+      "purpose": "Read durable knowledge-base context during brainstorming, OpenSpec, implementation, and review stages.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill code-kb-workflow -g -y --agent claude-code cursor codex"
     },
     {
       "id": "software-design-philosophy",
@@ -116,105 +137,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:software-design-philosophy",
-      "purpose": "Evaluate development-perspective spec quality for design decisions, impact scope, and implementation readiness."
-    }
-  ],
-  "installed": [
-    {
-      "id": "brainstorming",
-      "type": "skill",
-      "scope": "either",
-      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/common/skills/brainstorming?ref_type=heads",
-      "recorded_at": "2026-06-06T11:09:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "openspec",
-      "type": "cli",
-      "scope": "either",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-06T11:09:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "openspec-propose",
-      "type": "skill",
-      "scope": "either",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-06T11:09:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "openspec-explore",
-      "type": "skill",
-      "scope": "either",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-06T11:09:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "openspec-apply-change",
-      "type": "skill",
-      "scope": "either",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-06T11:09:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "xcodebuildmcp-cli",
-      "type": "skill",
-      "scope": "either",
-      "source": "skill-catalog:xcodebuildmcp-cli",
-      "recorded_at": "2026-06-08T05:14:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "manipulate-xcodeproj",
-      "type": "skill",
-      "scope": "either",
-      "source": "skill-catalog:manipulate-xcodeproj",
-      "recorded_at": "2026-06-08T05:27:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "agentic-release-qa",
-      "type": "skill",
-      "scope": "either",
-      "source": "skill-catalog:agentic-release-qa",
-      "recorded_at": "2026-06-08T02:48:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "pixel-diff",
-      "type": "skill",
-      "scope": "either",
-      "source": "skill-catalog:pixel-diff",
-      "recorded_at": "2026-06-08T05:36:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "ios-gitlab-merged-mr-review",
-      "type": "skill",
-      "scope": "either",
-      "source": "skill-catalog:ios-gitlab-merged-mr-review",
-      "recorded_at": "2026-06-06T11:09:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "code-kb-workflow",
-      "type": "skill",
-      "scope": "either",
-      "source": "skill-catalog:code-kb-workflow",
-      "recorded_at": "2026-06-06T11:09:00Z",
-      "recorded_by": "workflow-creator"
-    },
-    {
-      "id": "software-design-philosophy",
-      "type": "skill",
-      "scope": "either",
-      "source": "skill-catalog:software-design-philosophy",
-      "recorded_at": "2026-06-06T11:09:00Z",
-      "recorded_by": "workflow-creator"
+      "purpose": "Evaluate development-perspective spec quality for design decisions, impact scope, and implementation readiness.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill software-design-philosophy -g -y --agent claude-code cursor codex"
     }
   ]
 }

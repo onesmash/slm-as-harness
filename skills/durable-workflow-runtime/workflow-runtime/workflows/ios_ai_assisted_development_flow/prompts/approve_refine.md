@@ -4,6 +4,7 @@ Stage Context:
 
 - Refinement summary: {{refinement_summary}}
 - Changed artifacts: {{changed_artifacts}}
+- Unresolved questions: {{unresolved_questions}}
 - Change name: {{change_name}}
 - Change path: {{change_path}}
 
@@ -15,5 +16,5 @@ Stage Boundaries:
 
 Blocked Conditions:
 
-- Block if the user explicitly rejects the refinement results.
-- Block if the user asks for additional refinement before proceeding.
+- Block if the user's response is ambiguous about whether implementation may proceed or another refinement pass is required.
+- Block if required refinement context is missing and the user cannot meaningfully approve or redirect the change.

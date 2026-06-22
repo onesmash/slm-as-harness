@@ -13,9 +13,88 @@ the right workflow.
 - `approve_refine`
 - `execute_implementation`
 - `run_agentic_release_qa`
-- `request_final_code_review`
-- `write_code_kb_feedback`
+- `request_pre_merge_code_review`
+- `verify_completion`
 
+## Declared Custom Verifier Requirements
+
+### `propose_openspec_change`
+
+- `artifact_completeness`: OpenSpec proposal output must prove that proposal, tasks, and at least one durable design/spec artifact were created and reported consistently.
+  Signals: `created_artifacts`, `proposal_path`, `tasks_path`, `openspec_design_path`, `spec_paths`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Require created_artifacts to mention proposal and tasks artifacts.
+    - Require either openspec_design_path or spec_paths to provide at least one design/spec artifact path.
+    - Reject outputs where created_artifacts omits the durable design/spec surface even if raw files exist.
+  Test intent:
+    - Reject outputs that only report proposal/tasks and omit any design/spec artifact.
+    - Accept outputs that report proposal, tasks, and at least one design/spec artifact consistently.
+
+### `refine_change_with_openspec`
+
+- `talk_first_conversation_evidence`: OpenSpec refinement must prove that at least one real conversational exchange happened before the stage claimed readiness.
+  Signals: `user_discussion_summary`, `discussion_turn_count`, `unresolved_questions`, `ready_for_apply`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Reject if discussion_turn_count is less than 1.
+    - Reject if user_discussion_summary is missing or looks empty after trimming.
+    - If unresolved_questions is empty and ready_for_apply is true, still require concrete conversation evidence instead of accepting a checklist-only output.
+  Test intent:
+    - Reject outputs that claim ready_for_apply without any discussion turn evidence.
+    - Accept outputs that record a user discussion summary and a positive discussion_turn_count.
+
+### `execute_implementation`
+
+- `completed_tasks_consistency`: Implementation success output must not claim tasks are complete while still listing remaining tasks.
+  Signals: `tasks_completed`, `remaining_tasks`, `completed_tasks`, `openspec_updates_required`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - If tasks_completed is true, require remaining_tasks to be empty.
+    - If tasks_completed is false and openspec_updates_required is not true, require remaining_tasks to be non-empty so the retry reason is concrete.
+    - If verification_passed is false and openspec_updates_required is not true, reject the output so plain failing implementation cannot continue.
+  Test intent:
+    - Reject outputs that set tasks_completed=true while still listing remaining_tasks.
+    - Reject unfinished implementation outputs that provide neither a remaining task list nor an OpenSpec refinement reason.
+    - Reject implementation outputs that fail verification without explicitly routing back for OpenSpec updates.
+
+### `run_agentic_release_qa`
+
+- `ui_visual_qa_evidence`: When the workflow state says a UI surface changed and visual comparison inputs are available, release QA must report executed or blocked visual comparison evidence explicitly.
+  Signals: `state.ui_surface_affected`, `state.design_comparison_source`, `state.runtime_visual_comparison_scope`, `release_qa_executed_checks`, `release_qa_blocked_checks`, `release_qa_artifacts`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Read ui_surface_affected, design_comparison_source, and runtime_visual_comparison_scope from persisted state.
+    - Only enforce this requirement when all three values indicate visual QA should have been attempted.
+    - Require executed_checks, blocked_checks, or artifacts to mention a visual diff, screenshot comparison, or design comparison pass.
+  Test intent:
+    - Reject UI-impacting release QA output that omits all visual comparison evidence despite having comparison inputs.
+    - Accept UI-impacting release QA output when visual comparison evidence appears in executed checks, blocked checks, or artifacts.
+
+### `request_pre_merge_code_review`
+
+- `findings_include_severity_grouping`: Non-empty review findings must make severity explicit so the workflow can distinguish major merge blockers from lower-risk notes.
+  Signals: `review_status`, `findings`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Skip the requirement when findings is empty.
+    - Require each finding string to begin with or clearly include a recognized severity marker such as critical, high, medium, low, major, or minor.
+  Test intent:
+    - Reject change-requested findings that omit any severity marker.
+    - Accept findings that carry an explicit severity prefix.
+
+### `verify_completion`
+
+- `ship_with_risks_requires_resolution_before_pass`: If persisted release QA ended in ship_with_risks, final completion verification may pass only after those residual risks are explicitly resolved with fresh evidence.
+  Signals: `state.release_qa_verdict`, `state.release_qa_blocked_checks`, `verification_passed`, `verification_evidence`, `remaining_risks`, `release_qa_risks_resolved`, `release_qa_risk_resolution_summary`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Read release_qa_verdict and release_qa_blocked_checks from persisted state.
+    - If release_qa_verdict is ship_with_risks and verification_passed is true, require release_qa_risks_resolved to be true, a non-empty release_qa_risk_resolution_summary, and fresh verification evidence that resolves the prior risk.
+    - If release_qa_verdict is ship_with_risks and verification_passed is false, require remaining_risks or missing_verification_inputs to carry the residual risk forward.
+  Test intent:
+    - Reject passing completion output that ignores prior ship_with_risks residual QA risk.
+    - Accept passing completion output only when it explicitly resolves the prior residual QA risk with fresh evidence.
 
 
 ## What The Script Generated

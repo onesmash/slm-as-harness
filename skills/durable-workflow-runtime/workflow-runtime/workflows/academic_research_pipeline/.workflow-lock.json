@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "workflow_id": "academic_research_pipeline",
+  "installed": [
+    {
+      "id": "academic-pipeline",
+      "type": "skill",
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/academic-pipeline",
+      "recorded_at": "2026-06-04T16:16:09Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "deep-research",
+      "type": "skill",
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/deep-research",
+      "recorded_at": "2026-06-04T16:16:09Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "academic-paper",
+      "type": "skill",
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/academic-paper",
+      "recorded_at": "2026-06-04T16:16:09Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "academic-paper-reviewer",
+      "type": "skill",
+      "scope": "project",
+      "source": "https://github.com/Imbad0202/academic-research-skills/tree/main/academic-paper-reviewer",
+      "recorded_at": "2026-06-04T16:16:10Z",
+      "recorded_by": "bridge.py preflight"
+    }
+  ]
+}

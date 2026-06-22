@@ -47,13 +47,11 @@
     },
     {
       "workflow_id": "ios_ai_assisted_development_flow",
-      "flow_description": "Run the iOS Client AI-assisted development path from brainstorming through OpenSpec artifacts, implementation, merged-final review, and Code KB feedback, with knowledge-base available as supporting context throughout.",
+      "flow_description": "Run the iOS Client AI-assisted development path from brainstorming through OpenSpec artifacts, implementation, and pre-merge code review, with knowledge-base available as supporting context throughout.",
       "start_input_schema": {
         "task_input": {
           "goal": "string",
-          "preferred_change_name": "string?",
-          "mr_url": "string?",
-          "kb_scope": "string?"
+          "preferred_change_name": "string?"
         },
         "context": {
           "repo_root": "string",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
-from workflows.common.policies import condition_matches
+from workflows.common.policies import condition_matches, max_steps_exceeded_decision
 
 
 MAIN_STAGE_IDS = ('run_brainstorming',
@@ -11,8 +11,8 @@ MAIN_STAGE_IDS = ('run_brainstorming',
  'approve_refine',
  'execute_implementation',
  'run_agentic_release_qa',
- 'request_final_code_review',
- 'write_code_kb_feedback')
+ 'request_pre_merge_code_review',
+ 'verify_completion')
 REPAIR_STAGE_IDS = (
     "request_unblocking_input",
     "repair_and_resume",
@@ -34,6 +34,8 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     approved_design_summary: str | None = None
     approved_design_path: str | None = None
     ui_surface_affected: bool | None = None
+    design_comparison_source: str | None = None
+    runtime_visual_comparison_scope: str | None = None
     spec_review_findings_summary: str | None = None
     open_questions: list = field(default_factory=list)
     change_name: str | None = None
@@ -43,7 +45,9 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     tasks_path: str | None = None
     spec_paths: list = field(default_factory=list)
     refinement_summary: str | None = None
+    refinement_user_discussion_summary: str | None = None
     changed_artifacts: list = field(default_factory=list)
+    unresolved_questions: list = field(default_factory=list)
     refinement_user_approved: bool | None = None
     refinement_user_feedback: str | None = None
     implementation_summary: str | None = None
@@ -60,10 +64,14 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     reviewed_snapshot: str | None = None
     review_findings: list = field(default_factory=list)
     review_summary: str | None = None
-    kb_updated: bool | None = None
-    updated_pages: list = field(default_factory=list)
-    qa_feedback_path: str | None = None
-    kb_checks: list = field(default_factory=list)
+    missing_review_inputs: list = field(default_factory=list)
+    completion_verification_passed: bool | None = None
+    completion_verification_summary: str | None = None
+    completion_verification_evidence: list = field(default_factory=list)
+    completion_remaining_risks: list = field(default_factory=list)
+    completion_missing_verification_inputs: list = field(default_factory=list)
+    completion_release_qa_risks_resolved: bool | None = None
+    completion_release_qa_risk_resolution_summary: str | None = None
     artifacts_by_stage: dict[str, list[dict]] = field(default_factory=dict)
     repair_context: dict[str, object] = field(default_factory=dict)
 
@@ -106,6 +114,8 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         approved_design_summary=payload.get('approved_design_summary'),
         approved_design_path=payload.get('approved_design_path'),
         ui_surface_affected=payload.get('ui_surface_affected'),
+        design_comparison_source=payload.get('design_comparison_source'),
+        runtime_visual_comparison_scope=payload.get('runtime_visual_comparison_scope'),
         spec_review_findings_summary=payload.get('spec_review_findings_summary'),
         open_questions=list(payload.get('open_questions') or []),
         change_name=payload.get('change_name'),
@@ -115,7 +125,9 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         tasks_path=payload.get('tasks_path'),
         spec_paths=list(payload.get('spec_paths') or []),
         refinement_summary=payload.get('refinement_summary'),
+        refinement_user_discussion_summary=payload.get('refinement_user_discussion_summary'),
         changed_artifacts=list(payload.get('changed_artifacts') or []),
+        unresolved_questions=list(payload.get('unresolved_questions') or []),
         refinement_user_approved=payload.get('refinement_user_approved'),
         refinement_user_feedback=payload.get('refinement_user_feedback'),
         implementation_summary=payload.get('implementation_summary'),
@@ -132,10 +144,14 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         reviewed_snapshot=payload.get('reviewed_snapshot'),
         review_findings=list(payload.get('review_findings') or []),
         review_summary=payload.get('review_summary'),
-        kb_updated=payload.get('kb_updated'),
-        updated_pages=list(payload.get('updated_pages') or []),
-        qa_feedback_path=payload.get('qa_feedback_path'),
-        kb_checks=list(payload.get('kb_checks') or []),
+        missing_review_inputs=list(payload.get('missing_review_inputs') or []),
+        completion_verification_passed=payload.get('completion_verification_passed'),
+        completion_verification_summary=payload.get('completion_verification_summary'),
+        completion_verification_evidence=list(payload.get('completion_verification_evidence') or []),
+        completion_remaining_risks=list(payload.get('completion_remaining_risks') or []),
+        completion_missing_verification_inputs=list(payload.get('completion_missing_verification_inputs') or []),
+        completion_release_qa_risks_resolved=payload.get('completion_release_qa_risks_resolved'),
+        completion_release_qa_risk_resolution_summary=payload.get('completion_release_qa_risk_resolution_summary'),
         artifacts_by_stage=dict(payload.get("artifacts_by_stage") or {}),
         repair_context=dict(payload.get("repair_context") or {}),
     )
@@ -159,6 +175,8 @@ def record_observation(
                 state.approved_design_summary = structured_output.get('approved_design_summary')
                 state.approved_design_path = structured_output.get('approved_design_path')
                 state.ui_surface_affected = structured_output.get('ui_surface_affected')
+                state.design_comparison_source = structured_output.get('design_comparison_source')
+                state.runtime_visual_comparison_scope = structured_output.get('runtime_visual_comparison_scope')
                 state.spec_review_findings_summary = structured_output.get('spec_review_findings_summary')
                 state.open_questions = _list_value(structured_output.get('open_questions'))
             elif current_step_id == 'propose_openspec_change':
@@ -170,7 +188,9 @@ def record_observation(
                 state.spec_paths = _list_value(structured_output.get('spec_paths'))
             elif current_step_id == 'refine_change_with_openspec':
                 state.refinement_summary = structured_output.get('refinement_summary')
+                state.refinement_user_discussion_summary = structured_output.get('user_discussion_summary')
                 state.changed_artifacts = _list_value(structured_output.get('changed_artifacts'))
+                state.unresolved_questions = _list_value(structured_output.get('unresolved_questions'))
             elif current_step_id == 'approve_refine':
                 state.refinement_user_approved = structured_output.get('user_approved')
                 state.refinement_user_feedback = structured_output.get('user_feedback')
@@ -186,18 +206,41 @@ def record_observation(
                 state.release_qa_blocked_checks = _list_value(structured_output.get('release_qa_blocked_checks'))
                 state.release_qa_risk_next_steps = _list_value(structured_output.get('release_qa_risk_next_steps'))
                 state.release_qa_artifacts = _list_value(structured_output.get('release_qa_artifacts'))
-            elif current_step_id == 'request_final_code_review':
+            elif current_step_id == 'request_pre_merge_code_review':
                 state.review_status = structured_output.get('review_status')
                 state.reviewed_snapshot = structured_output.get('reviewed_snapshot')
                 state.review_findings = _list_value(structured_output.get('findings'))
                 state.review_summary = structured_output.get('review_summary')
-            elif current_step_id == 'write_code_kb_feedback':
-                state.kb_updated = structured_output.get('kb_updated')
-                state.updated_pages = _list_value(structured_output.get('updated_pages'))
-                state.qa_feedback_path = structured_output.get('qa_feedback_path')
-                state.kb_checks = _list_value(structured_output.get('kb_checks'))
+                state.missing_review_inputs = _list_value(structured_output.get('missing_review_inputs'))
+            elif current_step_id == 'verify_completion':
+                state.completion_verification_passed = structured_output.get('verification_passed')
+                state.completion_verification_summary = structured_output.get('verification_summary')
+                state.completion_verification_evidence = _list_value(structured_output.get('verification_evidence'))
+                state.completion_remaining_risks = _list_value(structured_output.get('remaining_risks'))
+                state.completion_missing_verification_inputs = _list_value(structured_output.get('missing_verification_inputs'))
+                state.completion_release_qa_risks_resolved = structured_output.get('release_qa_risks_resolved')
+                state.completion_release_qa_risk_resolution_summary = structured_output.get('release_qa_risk_resolution_summary')
             else:
                 pass
+
+    max_steps_decision = max_steps_exceeded_decision(
+        current_step_id=current_step_id,
+        state=serialize_state(state),
+    )
+    if max_steps_decision is not None:
+        return_stage_id = determine_return_stage_id(
+            current_step_id=current_step_id,
+            existing_return_stage_id=state.return_stage_id,
+        )
+        state.return_stage_id = return_stage_id
+        state.repair_context = _build_repair_context(
+            current_step_id=current_step_id,
+            return_stage_id=return_stage_id,
+            repair_reason=max_steps_decision.reason,
+            observation=observation,
+            output=structured_output if isinstance(structured_output, dict) else {},
+        )
+        return
 
     repair_reason = determine_repair_reason(
         current_step_id=current_step_id,
@@ -252,9 +295,12 @@ def determine_repair_reason(
         if current_step_id == 'run_agentic_release_qa':
             if condition_matches(structured_output.get('release_qa_verdict'), 'equals', 'blocked'):
                 return 'Release QA was blocked and needs missing QA environment, artifact, credential, device, or baseline input.'
-        elif current_step_id == 'request_final_code_review':
+        elif current_step_id == 'request_pre_merge_code_review':
             if condition_matches(structured_output.get('review_status'), 'equals', 'blocked'):
-                return 'Merged-final review reported a blocked status and needs the missing review input.'
+                return 'Pre-merge code review reported a blocked status and needs the missing review input.'
+        elif current_step_id == 'verify_completion':
+            if condition_matches(structured_output.get('missing_verification_inputs'), 'non_empty', None):
+                return 'Final completion verification is blocked on missing verification inputs or external evidence.'
         else:
             pass
     return None

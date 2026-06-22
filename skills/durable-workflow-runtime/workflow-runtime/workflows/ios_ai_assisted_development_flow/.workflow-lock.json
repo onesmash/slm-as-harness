@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "workflow_id": "ios_ai_assisted_development_flow",
+  "installed": [
+    {
+      "id": "brainstorming",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/common/skills/brainstorming?ref_type=heads",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "openspec",
+      "type": "cli",
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "openspec-propose",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "openspec-explore",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "openspec-apply-change",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "xcodebuildmcp-cli",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:xcodebuildmcp-cli",
+      "recorded_at": "2026-06-08T05:14:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "manipulate-xcodeproj",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:manipulate-xcodeproj",
+      "recorded_at": "2026-06-08T05:27:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "agentic-release-qa",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:agentic-release-qa",
+      "recorded_at": "2026-06-08T02:48:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "pixel-diff",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:pixel-diff",
+      "recorded_at": "2026-06-08T05:36:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "requesting-code-review",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/requesting-code-review",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "verification-before-completion",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/verification-before-completion",
+      "recorded_at": "2026-06-22T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "ios-best-practices",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:ios-best-practices",
+      "recorded_at": "2026-06-22T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "code-kb-workflow",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:code-kb-workflow",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "software-design-philosophy",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:software-design-philosophy",
+      "recorded_at": "2026-06-06T11:09:00Z",
+      "recorded_by": "workflow-creator"
+    }
+  ]
+}

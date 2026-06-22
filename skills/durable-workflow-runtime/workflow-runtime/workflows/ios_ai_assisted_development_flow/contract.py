@@ -4,7 +4,7 @@ from workflows.common.contracts import (SkillRoute, SkillUseWhen, StepContract, 
 WORKFLOW_ID = 'ios_ai_assisted_development_flow'
 
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
-    task_input_schema={'goal': 'string', 'preferred_change_name': 'string?', 'mr_url': 'string?', 'kb_scope': 'string?'},
+    task_input_schema={'goal': 'string', 'preferred_change_name': 'string?'},
     context_schema={'repo_root': 'string',
  'source_doc_url': 'string?',
  'source_skill_url': 'string?',
@@ -15,10 +15,14 @@ WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
 RUN_BRAINSTORMING_ROUTE_1 = SkillRoute(
     skill='brainstorming',
     use_when=SkillUseWhen(
-        operations=['requirements clarification', 'design approval gate', 'design artifact preparation'],
+        operations=['requirements clarification',
+ 'design approval gate',
+ 'design artifact preparation',
+ 'multi-perspective spec review orchestration'],
         file_patterns=['docs/superpowers/specs/*.md'],
     ),
-    usage_notes=['Primary owner for the pre-implementation approval gate.'],
+    usage_notes=['Primary owner for the pre-implementation approval gate.',
+ 'Owns the required development, design, and testing spec review loop before the stage completes.'],
 )
 
 RUN_BRAINSTORMING_ROUTE_2 = SkillRoute(
@@ -102,7 +106,9 @@ PROPOSE_OPENSPEC_CHANGE_ROUTE_2 = SkillRoute(
 PROPOSE_OPENSPEC_CHANGE = StepContract(
     done_when=['The OpenSpec change directory exists.',
  'Proposal, design/spec, and tasks artifacts are identified.',
- 'The change is apply-ready or the missing formalization inputs are reported.'],
+ 'The change artifacts are formalized and the current apply-readiness is reported.',
+ 'Artifact completeness is explicit enough to know whether proposal, design/spec, and tasks are '
+ 'all present.'],
     output_schema={'change_name': 'string',
  'change_path': 'string',
  'proposal_path': 'string',
@@ -145,9 +151,12 @@ REFINE_CHANGE_WITH_OPENSPEC_ROUTE_2 = SkillRoute(
 REFINE_CHANGE_WITH_OPENSPEC = StepContract(
     done_when=['At least one exploratory conversation turn has occurred with the user.',
  'Risks, ambiguities, and open questions have been surfaced and discussed.',
+ 'The conversation evidence is summarized instead of jumping straight to structured output.',
  'Unresolved questions are documented (even if empty, with user confirmation).',
  'The change is confirmed ready for apply after conversation.'],
     output_schema={'refinement_summary': 'string',
+ 'user_discussion_summary': 'string',
+ 'discussion_turn_count': 'integer',
  'changed_artifacts': 'string[]',
  'unresolved_questions': 'string[]',
  'ready_for_apply': 'boolean'},
@@ -166,7 +175,7 @@ REFINE_CHANGE_WITH_OPENSPEC = StepContract(
 
 APPROVE_REFINE = StepContract(
     done_when=['The user has reviewed the refinement summary.',
- 'The user has explicitly approved or rejected proceeding to implementation.'],
+ 'The user has explicitly approved implementation or requested another refinement pass.'],
     output_schema={'user_approved': 'boolean', 'user_feedback': 'string?', 'additional_refinement_needed': 'boolean'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
     verifier=StepVerifier(
@@ -243,7 +252,9 @@ EXECUTE_IMPLEMENTATION = StepContract(
  'remaining_tasks': 'string[]',
  'verification_commands': 'string[]',
  'verification_passed': 'boolean',
- 'open_issues': 'string[]'},
+ 'open_issues': 'string[]',
+ 'openspec_updates_required': 'boolean?',
+ 'openspec_update_summary': 'string?'},
     failure_schema={'blocked_reason': 'string?',
  'error_message': 'string?',
  'missing_inputs': 'string[]?',
@@ -267,7 +278,7 @@ RUN_AGENTIC_RELEASE_QA_ROUTE_1 = SkillRoute(
  'release verdict synthesis'],
         file_patterns=['**/*'],
     ),
-    usage_notes=['Primary owner for the post-implementation release QA gate before final merged-state review.'],
+    usage_notes=['Primary owner for the post-implementation release QA gate before pre-merge code review.'],
 )
 
 RUN_AGENTIC_RELEASE_QA_ROUTE_2 = SkillRoute(
@@ -312,16 +323,19 @@ RUN_AGENTIC_RELEASE_QA = StepContract(
     ),
 )
 
-REQUEST_FINAL_CODE_REVIEW_ROUTE_1 = SkillRoute(
-    skill='ios-gitlab-merged-mr-review',
+REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_1 = SkillRoute(
+    skill='requesting-code-review',
     use_when=SkillUseWhen(
-        operations=['MR metadata intake', 'merged-final file review', 'review finding synthesis'],
-        file_patterns=['**/*.m', '**/*.mm', '**/*.h', '**/*.swift', '**/*.plist'],
+        operations=['local diff review preparation',
+ 'base/head SHA selection',
+ 'pre-merge file review',
+ 'review finding synthesis'],
+        file_patterns=['**/*.m', '**/*.mm', '**/*.h', '**/*.swift', '**/*.plist', '.git/**'],
     ),
-    usage_notes=['Primary owner for the final code quality gate.'],
+    usage_notes=['Primary owner for the pre-merge code quality gate before MR creation or merge.'],
 )
 
-REQUEST_FINAL_CODE_REVIEW_ROUTE_2 = SkillRoute(
+REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_2 = SkillRoute(
     skill='code-kb-workflow',
     use_when=SkillUseWhen(
         operations=['knowledge-base context lookup'],
@@ -330,7 +344,20 @@ REQUEST_FINAL_CODE_REVIEW_ROUTE_2 = SkillRoute(
     usage_notes=['Supporting context layer for existing terminology and workflow docs.'],
 )
 
-REQUEST_FINAL_CODE_REVIEW = StepContract(
+REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_3 = SkillRoute(
+    skill='ios-best-practices',
+    use_when=SkillUseWhen(
+        operations=['iOS-specific review standard lookup',
+ 'Swift and Objective-C review heuristics',
+ 'memory, threading, concurrency, and UIKit or SwiftUI review guidance',
+ 'architecture and security review guidance'],
+        file_patterns=['**/*.m', '**/*.mm', '**/*.h', '**/*.swift', '**/*.plist'],
+    ),
+    usage_notes=['Supporting iOS review lens for evaluating changed files against Zoom iOS client best practices '
+ 'and regression patterns.'],
+)
+
+REQUEST_PRE_MERGE_CODE_REVIEW = StepContract(
     done_when=['Review snapshot is identified.',
  'Findings are grouped by severity or explicitly reported as none.',
  'The review status is approved, changes_requested, or blocked.'],
@@ -341,42 +368,51 @@ REQUEST_FINAL_CODE_REVIEW = StepContract(
  'changes_requested': 'boolean',
  'missing_review_inputs': 'string[]'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
-    skill_routing=[REQUEST_FINAL_CODE_REVIEW_ROUTE_1, REQUEST_FINAL_CODE_REVIEW_ROUTE_2],
+    skill_routing=[REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_1, REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_2, REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_3],
     verifier=StepVerifier(
         kind="python_callable",
-        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_request_final_code_review",
+        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_request_pre_merge_code_review",
         timeout_seconds=15,
         run_on_status=["succeeded"],
     ),
 )
 
-WRITE_CODE_KB_FEEDBACK_ROUTE_1 = SkillRoute(
-    skill='code-kb-workflow',
+VERIFY_COMPLETION_ROUTE_1 = SkillRoute(
+    skill='verification-before-completion',
     use_when=SkillUseWhen(
-        operations=['Stage 3 page refresh', 'Stage 4 QA feedback', 'backlog and llms.txt alignment'],
-        file_patterns=['knowledge-base/**/*.md', 'knowledge-base/llms.txt', 'knowledge-base/_meta/*.md'],
+        operations=['fresh completion verification', 'verification evidence review', 'final delivery claim gate'],
+        file_patterns=['**/*.m', '**/*.mm', '**/*.h', '**/*.swift', '**/*.plist', '.git/**'],
     ),
-    usage_notes=['Primary owner for durable knowledge feedback after implementation and review.'],
+    usage_notes=['Primary owner for the final evidence-before-claims gate after review and before the workflow can '
+ 'summarize completion.'],
 )
 
-WRITE_CODE_KB_FEEDBACK = StepContract(
-    done_when=['Knowledge-base updates are listed, or a skipped reason is provided.',
- 'Backlog or QA feedback changes are summarized when applicable.',
- 'Formatting or hygiene checks are reported when page updates were written.'],
-    output_schema={'kb_updated': 'boolean',
- 'updated_pages': 'string[]',
- 'backlog_updates': 'string[]',
- 'qa_feedback_path': 'string?',
- 'kb_checks': 'string[]',
- 'skipped_reason': 'string?'},
-    failure_schema={'blocked_reason': 'string?',
- 'error_message': 'string?',
- 'missing_inputs': 'string[]?',
- 'failed_commands': 'string[]?'},
-    skill_routing=[WRITE_CODE_KB_FEEDBACK_ROUTE_1],
+VERIFY_COMPLETION_ROUTE_2 = SkillRoute(
+    skill='code-kb-workflow',
+    use_when=SkillUseWhen(
+        operations=['knowledge-base context lookup'],
+        file_patterns=['knowledge-base/llms.txt', 'knowledge-base/**/*.md'],
+    ),
+    usage_notes=['Supporting context layer for durable terminology, prior workflow documentation, and related '
+ 'verification guidance.'],
+)
+
+VERIFY_COMPLETION = StepContract(
+    done_when=['Fresh completion verification evidence is recorded.',
+ 'Verification clearly reports whether completion can be claimed.',
+ 'Remaining risks or missing verification inputs are listed when verification does not pass.'],
+    output_schema={'verification_passed': 'boolean',
+ 'verification_summary': 'string',
+ 'verification_evidence': 'string[]',
+ 'remaining_risks': 'string[]',
+ 'missing_verification_inputs': 'string[]',
+ 'release_qa_risks_resolved': 'boolean?',
+ 'release_qa_risk_resolution_summary': 'string?'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[VERIFY_COMPLETION_ROUTE_1, VERIFY_COMPLETION_ROUTE_2],
     verifier=StepVerifier(
         kind="python_callable",
-        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_write_code_kb_feedback",
+        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_verify_completion",
         timeout_seconds=15,
         run_on_status=["succeeded"],
     ),
@@ -403,8 +439,8 @@ STEP_CONTRACTS = {
     "approve_refine": APPROVE_REFINE,
     "execute_implementation": EXECUTE_IMPLEMENTATION,
     "run_agentic_release_qa": RUN_AGENTIC_RELEASE_QA,
-    "request_final_code_review": REQUEST_FINAL_CODE_REVIEW,
-    "write_code_kb_feedback": WRITE_CODE_KB_FEEDBACK,
+    "request_pre_merge_code_review": REQUEST_PRE_MERGE_CODE_REVIEW,
+    "verify_completion": VERIFY_COMPLETION,
     "request_unblocking_input": REQUEST_UNBLOCKING_INPUT,
     "repair_and_resume": REPAIR_AND_RESUME,
 }

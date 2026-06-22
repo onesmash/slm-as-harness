@@ -210,6 +210,10 @@ def create_workflow_scaffold(
         description=description,
         start_input_schema=start_input_schema,
         dependencies=workflow_spec["dependencies"],
+    )
+    _write_workflow_lockfile(
+        temp_workflow_dir / ".workflow-lock.json",
+        workflow_id=resolved_workflow_id,
         installed=workflow_spec["installed"],
     )
     created_files = sum(1 for path in temp_workflow_dir.rglob("*") if path.is_file())
@@ -472,6 +476,8 @@ def _append_normalized_dependency(
         existing["scope"] = "either"
     if dependency["purpose"] not in existing["purpose"]:
         existing["purpose"] = f"{existing['purpose']}; {dependency['purpose']}"
+    if existing.get("install_command") is None and dependency.get("install_command") is not None:
+        existing["install_command"] = dependency["install_command"]
     return dependencies
 
 
@@ -1705,7 +1711,7 @@ def _render_state_py(workflow_spec: dict[str, Any]) -> str:
 
 from dataclasses import asdict, dataclass, field
 
-from workflows.common.policies import condition_matches
+from workflows.common.policies import condition_matches, max_steps_exceeded_decision
 
 
 MAIN_STAGE_IDS = {_python_literal(main_stage_ids)}
@@ -1782,6 +1788,25 @@ def record_observation(
         state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
         if observation.get("status") == "succeeded":
 {chr(10).join(record_update_lines) if record_update_lines else "            pass"}
+
+    max_steps_decision = max_steps_exceeded_decision(
+        current_step_id=current_step_id,
+        state=serialize_state(state),
+    )
+    if max_steps_decision is not None:
+        return_stage_id = determine_return_stage_id(
+            current_step_id=current_step_id,
+            existing_return_stage_id=state.return_stage_id,
+        )
+        state.return_stage_id = return_stage_id
+        state.repair_context = _build_repair_context(
+            current_step_id=current_step_id,
+            return_stage_id=return_stage_id,
+            repair_reason=max_steps_decision.reason,
+            observation=observation,
+            output=structured_output if isinstance(structured_output, dict) else {{}},
+        )
+        return
 
     repair_reason = determine_repair_reason(
         current_step_id=current_step_id,
@@ -1964,7 +1989,10 @@ def _policy_outcome_route_lines(stage: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     for route in stage["outcome_routes"]:
         if route["outcome"] == "verifier_failed":
-            condition_line = '        if verifier_result is not None and not verifier_result["passed"]:'
+            condition_line = (
+                '        if observation["status"] == "succeeded" and verifier_result is not None '
+                'and not verifier_result["passed"]:'
+            )
         else:
             condition_line = f'        if observation["status"] == "{route["outcome"]}":'
         lines.extend(
@@ -3075,7 +3103,9 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
     lines.append("    resume_target[[return_stage_id / originating stage]]")
     for stage in main_stages:
         lines.append(f"    {stage['step_id']} -.->|blocked| unblock_loop")
-        lines.append(f"    {stage['step_id']} -.->|partial / failed / verifier| repair_loop")
+        lines.append(
+            f"    {stage['step_id']} -.->|{_main_stage_repair_loop_label(stage)}| repair_loop"
+        )
     lines.extend(
         [
             "    unblock_loop -.->|resume via return_stage_id when present| resume_target",
@@ -3084,6 +3114,8 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
             "    repair_loop -.->|retry via return_stage_id when repair succeeds| resume_target",
             "    repair_loop -.->|partial / failed / missing return_stage_id| repair_loop",
             "```",
+            "",
+            "Global note: if `max_steps` is exceeded, runtime policy preempts normal business routing and sends the workflow to `request_unblocking_input` while preserving `return_stage_id`.",
             "",
         ]
     )
@@ -3120,6 +3152,18 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
         ]
     )
     return "\n".join(lines)
+
+
+def _main_stage_repair_loop_label(stage: dict[str, Any]) -> str:
+    handled_outcomes = {
+        str(route.get("outcome"))
+        for route in stage.get("outcome_routes") or []
+        if route.get("outcome")
+    }
+    labels = ["partial", "failed"]
+    if "verifier_failed" not in handled_outcomes:
+        labels.append("verifier")
+    return " / ".join(labels)
 
 
 def _render_transition_target(next_node: str, workflow_spec: dict[str, Any]) -> str:
@@ -3461,6 +3505,19 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 '        self.assertEqual(result.branch_kind, "repair")',
                 f"        self.assertEqual(state.return_stage_id, {preserved_return_stage!r})",
                 "",
+                "    def test_generated_max_steps_preserves_return_stage_for_unblocking(self):",
+                "        state = self._make_state({'constraints': {'max_steps': 1}, 'attempt_counts': {}})",
+                f"        expected_return_stage = {preserved_return_stage!r}",
+                "        result = graphbuilder_runtime.run_transition_preview(",
+                "            state=state,",
+                "            current_step_id=expected_return_stage,",
+                "            observation={'status': 'succeeded', 'summary': 'Workflow hit max steps.', 'structured_output': {}},",
+                "            verifier_result={'passed': True, 'checks': []},",
+                "        )",
+                '        self.assertEqual(result.step_id, "request_unblocking_input")',
+                '        self.assertEqual(result.branch_kind, "repair")',
+                "        self.assertEqual(state.return_stage_id, expected_return_stage)",
+                "",
             ]
         )
     for key, sources in _overlapping_start_input_state_keys(workflow_spec):
@@ -3516,7 +3573,6 @@ def _write_manifest(
     description: str,
     start_input_schema: dict[str, Any],
     dependencies: list[Any],
-    installed: list[Any],
 ) -> None:
     payload = {
         "schema_version": 1,
@@ -3524,6 +3580,19 @@ def _write_manifest(
         "description": description,
         "start_input_schema": start_input_schema,
         "dependencies": dependencies,
+    }
+    _write_json_atomic(path, payload)
+
+
+def _write_workflow_lockfile(
+    path: Path,
+    *,
+    workflow_id: str,
+    installed: list[Any],
+) -> None:
+    payload = {
+        "schema_version": 1,
+        "workflow_id": workflow_id,
         "installed": installed,
     }
     _write_json_atomic(path, payload)

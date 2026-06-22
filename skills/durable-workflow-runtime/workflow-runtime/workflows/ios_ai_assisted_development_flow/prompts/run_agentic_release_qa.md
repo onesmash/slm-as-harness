@@ -8,7 +8,9 @@ Stage Context:
 - Implementation summary: {{implementation_summary}}
 - Verification commands: {{verification_commands}}
 - Open issues: {{open_issues}}
-- MR URL: {{mr_url}}
+- UI surface affected: {{ui_surface_affected}}
+- Design comparison source: {{design_comparison_source}}
+- Runtime visual comparison scope: {{runtime_visual_comparison_scope}}
 
 Stage Boundaries:
 
@@ -17,6 +19,7 @@ Stage Boundaries:
 - Do not claim runtime, device, integration, or performance checks passed unless they were actually executed.
 - Do not stress production systems or require destructive QA data without explicit user approval.
 - Normalize release_qa_verdict to one of: ship, ship_with_risks, do_not_ship, blocked.
+- If ui_surface_affected is true and both design_comparison_source and runtime_visual_comparison_scope are available, include an explicit visual comparison pass and report the executed or blocked visual diff evidence.
 
 Blocked Conditions:
 

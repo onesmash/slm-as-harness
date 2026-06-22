@@ -28,10 +28,12 @@ def build_preflight_result(
     repo_path = Path(repo_root).resolve()
     runtime_path = Path(runtime_root).resolve()
     manifest_path = runtime_path / "workflows" / workflow_id / "manifest.json"
+    lockfile_path = runtime_path / "workflows" / workflow_id / ".workflow-lock.json"
     base_result = {
         "kind": "preflight_result",
         "workflow_id": workflow_id,
         "manifest_path": str(manifest_path),
+        "lockfile_path": str(lockfile_path),
         "status": "error",
         "message": "",
         "summary": {
@@ -51,6 +53,7 @@ def build_preflight_result(
 
     try:
         manifest = _load_manifest(manifest_path)
+        lockfile = _load_lockfile(lockfile_path, workflow_id=workflow_id)
     except ValueError as exc:
         base_result["status"] = "invalid_manifest"
         base_result["message"] = str(exc)
@@ -75,6 +78,8 @@ def build_preflight_result(
         base_result["status"] = "invalid_manifest"
         base_result["message"] = str(exc)
         return base_result
+
+    _write_manifest(manifest_path, manifest)
 
     dependency_results: list[dict] = []
     install_plan: list[dict] = []
@@ -119,8 +124,8 @@ def build_preflight_result(
             }
         )
 
-    manifest["installed"] = installed_snapshot
-    _write_manifest(manifest_path, manifest)
+    lockfile["installed"] = installed_snapshot
+    _write_lockfile(lockfile_path, lockfile)
 
     base_result["summary"] = {
         "total": len(manifest["dependencies"]),
@@ -169,8 +174,6 @@ def _load_manifest(path: Path) -> dict:
     description = payload.get("description")
     start_input_schema = payload.get("start_input_schema")
     dependencies = payload.get("dependencies")
-    installed = payload.get("installed", [])
-
     if schema_version != 1:
         raise ValueError("workflow manifest schema_version must be 1")
     if not isinstance(workflow_id, str) or not workflow_id.strip():
@@ -179,8 +182,6 @@ def _load_manifest(path: Path) -> dict:
         raise ValueError("workflow manifest must define non-empty description")
     if not isinstance(dependencies, list):
         raise ValueError("workflow manifest field 'dependencies' must be a list")
-    if not isinstance(installed, list):
-        raise ValueError("workflow manifest field 'installed' must be a list")
 
     normalized_start_input_schema = None
     if start_input_schema is not None:
@@ -195,7 +196,6 @@ def _load_manifest(path: Path) -> dict:
                 f"duplicate dependency declaration: {dependency['id']} ({dependency['type']})"
             )
         seen_dependency_keys.add(key)
-    normalized_installed = [_normalize_installed(item) for item in installed]
     normalized_manifest = {
         "schema_version": 1,
         "workflow_id": workflow_id.strip(),
@@ -204,8 +204,44 @@ def _load_manifest(path: Path) -> dict:
     if normalized_start_input_schema is not None:
         normalized_manifest["start_input_schema"] = normalized_start_input_schema
     normalized_manifest["dependencies"] = normalized_dependencies
-    normalized_manifest["installed"] = normalized_installed
     return normalized_manifest
+
+
+def _load_lockfile(path: Path, *, workflow_id: str) -> dict:
+    if not path.exists():
+        return {
+            "schema_version": 1,
+            "workflow_id": workflow_id,
+            "installed": [],
+        }
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"invalid workflow lock file JSON: {exc}") from exc
+    if not isinstance(payload, dict):
+        raise ValueError("workflow lock file must be a JSON object")
+
+    schema_version = payload.get("schema_version")
+    recorded_workflow_id = payload.get("workflow_id")
+    installed = payload.get("installed", [])
+
+    if schema_version != 1:
+        raise ValueError("workflow lock file schema_version must be 1")
+    if not isinstance(recorded_workflow_id, str) or not recorded_workflow_id.strip():
+        raise ValueError("workflow lock file must define non-empty workflow_id")
+    if recorded_workflow_id.strip() != workflow_id:
+        raise ValueError(
+            "workflow lock file workflow_id mismatch: "
+            f"expected {workflow_id}, got {recorded_workflow_id}"
+        )
+    if not isinstance(installed, list):
+        raise ValueError("workflow lock file field 'installed' must be a list")
+
+    return {
+        "schema_version": 1,
+        "workflow_id": workflow_id,
+        "installed": [_normalize_installed(item) for item in installed],
+    }
 
 
 def _normalize_start_input_schema(item: object) -> dict:
@@ -566,7 +602,18 @@ def _write_manifest(path: Path, payload: dict) -> None:
     if "start_input_schema" in payload:
         ordered_payload["start_input_schema"] = payload["start_input_schema"]
     ordered_payload["dependencies"] = payload["dependencies"]
-    ordered_payload["installed"] = payload["installed"]
+    path.write_text(
+        json.dumps(ordered_payload, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_lockfile(path: Path, payload: dict) -> None:
+    ordered_payload = {
+        "schema_version": payload["schema_version"],
+        "workflow_id": payload["workflow_id"],
+        "installed": payload["installed"],
+    }
     path.write_text(
         json.dumps(ordered_payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",

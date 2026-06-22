@@ -157,16 +157,50 @@ def verify_propose_openspec_change(
   'value': None,
   'message': 'OpenSpec tasks_path must exist.'},
  {'output_key': 'apply_ready',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'OpenSpec change must be apply-ready before implementation.'}],
-        verifier_templates=[],
+  'operator': 'one_of',
+  'value': [True, False],
+  'message': 'OpenSpec proposal must report whether the change is currently apply-ready.'}],
+        verifier_templates=[{'id': 'created_artifacts_minimum_surface',
+  'template': 'min_count',
+  'output_key': 'created_artifacts',
+  'message': 'OpenSpec proposal must report at least proposal, tasks, and one design/spec '
+             'artifact.',
+  'min_count': 3},
+ {'id': 'change_path_repo_policy',
+  'template': 'repo_path_policy',
+  'output_key': 'change_path',
+  'message': 'change_path must point inside openspec/changes/.',
+  'required_prefix': 'openspec/changes/',
+  'forbidden_prefixes': []},
+ {'id': 'proposal_path_repo_policy',
+  'template': 'repo_path_policy',
+  'output_key': 'proposal_path',
+  'message': 'proposal_path must point to an OpenSpec proposal markdown file under '
+             'openspec/changes/.',
+  'required_prefix': 'openspec/changes/',
+  'forbidden_prefixes': [],
+  'required_suffix': 'proposal.md'},
+ {'id': 'tasks_path_repo_policy',
+  'template': 'repo_path_policy',
+  'output_key': 'tasks_path',
+  'message': 'tasks_path must point to an OpenSpec tasks markdown file under openspec/changes/.',
+  'required_prefix': 'openspec/changes/',
+  'forbidden_prefixes': [],
+  'required_suffix': 'tasks.md'}],
         observation=observation,
         repo_root=repo_root,
         state=state,
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_propose_openspec_change(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
 
 def verify_refine_change_with_openspec(
@@ -181,6 +215,8 @@ def verify_refine_change_with_openspec(
         run_id=run_id,
         step_id=step_id,
         required_schema={'refinement_summary': 'string',
+ 'user_discussion_summary': 'string',
+ 'discussion_turn_count': 'integer',
  'changed_artifacts': 'string[]',
  'unresolved_questions': 'string[]',
  'ready_for_apply': 'boolean'},
@@ -188,7 +224,12 @@ def verify_refine_change_with_openspec(
         verifier_rules=[{'output_key': 'refinement_summary',
   'operator': 'truthy',
   'value': None,
-  'message': 'OpenSpec refinement must return a non-empty refinement summary.'}],
+  'message': 'OpenSpec refinement must return a non-empty refinement summary.'},
+ {'output_key': 'user_discussion_summary',
+  'operator': 'truthy',
+  'value': None,
+  'message': 'OpenSpec refinement must summarize the actual user discussion before it can '
+             'continue.'}],
         verifier_templates=[],
         observation=observation,
         repo_root=repo_root,
@@ -196,6 +237,14 @@ def verify_refine_change_with_openspec(
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_refine_change_with_openspec(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
 
 def verify_approve_refine(
@@ -211,11 +260,19 @@ def verify_approve_refine(
         step_id=step_id,
         required_schema={'user_approved': 'boolean', 'additional_refinement_needed': 'boolean'},
         optional_schema={'user_feedback': 'string'},
-        verifier_rules=[{'output_key': 'user_approved',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'User must explicitly approve before proceeding.'}],
-        verifier_templates=[],
+        verifier_rules=[],
+        verifier_templates=[{'id': 'approved_clears_additional_refinement',
+  'template': 'conditional_equals',
+  'output_key': 'additional_refinement_needed',
+  'message': 'If user_approved is true, additional_refinement_needed must be false.',
+  'when': {'output_key': 'user_approved', 'operator': 'is_true', 'value': None},
+  'expected_value': False},
+ {'id': 'rejected_requires_additional_refinement',
+  'template': 'conditional_equals',
+  'output_key': 'additional_refinement_needed',
+  'message': 'If user_approved is false, additional_refinement_needed must be true.',
+  'when': {'output_key': 'user_approved', 'operator': 'is_false', 'value': None},
+  'expected_value': True}],
         observation=observation,
         repo_root=repo_root,
         state=state,
@@ -243,16 +300,8 @@ def verify_execute_implementation(
  'verification_commands': 'string[]',
  'verification_passed': 'boolean',
  'open_issues': 'string[]'},
-        optional_schema={},
-        verifier_rules=[{'output_key': 'tasks_completed',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'Implementation must report all selected OpenSpec tasks complete.'},
- {'output_key': 'verification_passed',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'Implementation verification must pass before review.'},
- {'output_key': 'changed_files',
+        optional_schema={'openspec_updates_required': 'boolean', 'openspec_update_summary': 'string'},
+        verifier_rules=[{'output_key': 'changed_files',
   'operator': 'non_empty',
   'value': None,
   'message': 'Implementation must report the changed file list.'},
@@ -260,13 +309,33 @@ def verify_execute_implementation(
   'operator': 'non_empty',
   'value': None,
   'message': 'Implementation must report at least one verification command.'}],
-        verifier_templates=[],
+        verifier_templates=[{'id': 'openspec_update_requires_summary',
+  'template': 'conditional_required',
+  'output_key': 'openspec_update_summary',
+  'message': 'If openspec_updates_required is true, openspec_update_summary must explain the spec '
+             'gap.',
+  'when': {'output_key': 'openspec_updates_required', 'operator': 'is_true', 'value': None},
+  'required_key': 'openspec_update_summary'},
+ {'id': 'openspec_update_clears_tasks_completed',
+  'template': 'conditional_equals',
+  'output_key': 'tasks_completed',
+  'message': 'If openspec_updates_required is true, tasks_completed must be false.',
+  'when': {'output_key': 'openspec_updates_required', 'operator': 'is_true', 'value': None},
+  'expected_value': False}],
         observation=observation,
         repo_root=repo_root,
         state=state,
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_execute_implementation(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
 
 def verify_run_agentic_release_qa(
@@ -324,16 +393,31 @@ def verify_run_agentic_release_qa(
   'message': 'If release_qa_verdict is ship_with_risks, release_qa_executed_checks must be '
              'non-empty.',
   'when': {'output_key': 'release_qa_verdict', 'operator': 'equals', 'value': 'ship_with_risks'},
-  'required_key': 'release_qa_executed_checks'}],
+  'required_key': 'release_qa_executed_checks'},
+ {'id': 'ship_with_risks_release_qa_requires_blocked_checks',
+  'template': 'conditional_required',
+  'output_key': 'release_qa_blocked_checks',
+  'message': 'If release_qa_verdict is ship_with_risks, release_qa_blocked_checks must identify '
+             'the residual risk scope.',
+  'when': {'output_key': 'release_qa_verdict', 'operator': 'equals', 'value': 'ship_with_risks'},
+  'required_key': 'release_qa_blocked_checks'}],
         observation=observation,
         repo_root=repo_root,
         state=state,
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_run_agentic_release_qa(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
 
-def verify_request_final_code_review(
+def verify_request_pre_merge_code_review(
     *,
     repo_root: str,
     run_id: str,
@@ -371,21 +455,47 @@ def verify_request_final_code_review(
   'message': 'If review_status is approved, changes_requested must be false.',
   'when': {'output_key': 'review_status', 'operator': 'equals', 'value': 'approved'},
   'expected_value': False},
+ {'id': 'approved_status_clears_missing_review_inputs',
+  'template': 'conditional_equals',
+  'output_key': 'missing_review_inputs',
+  'message': 'If review_status is approved, missing_review_inputs must be empty.',
+  'when': {'output_key': 'review_status', 'operator': 'equals', 'value': 'approved'},
+  'expected_value': []},
  {'id': 'changes_requested_requires_findings',
   'template': 'conditional_required',
   'output_key': 'findings',
   'message': 'If review_status is changes_requested, findings must be non-empty.',
   'when': {'output_key': 'review_status', 'operator': 'equals', 'value': 'changes_requested'},
-  'required_key': 'findings'}],
+  'required_key': 'findings'},
+ {'id': 'blocked_status_clears_changes_requested',
+  'template': 'conditional_equals',
+  'output_key': 'changes_requested',
+  'message': 'If review_status is blocked, changes_requested must be false.',
+  'when': {'output_key': 'review_status', 'operator': 'equals', 'value': 'blocked'},
+  'expected_value': False},
+ {'id': 'blocked_status_requires_missing_review_inputs',
+  'template': 'conditional_required',
+  'output_key': 'missing_review_inputs',
+  'message': 'If review_status is blocked, missing_review_inputs must be non-empty.',
+  'when': {'output_key': 'review_status', 'operator': 'equals', 'value': 'blocked'},
+  'required_key': 'missing_review_inputs'}],
         observation=observation,
         repo_root=repo_root,
         state=state,
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_request_pre_merge_code_review(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
 
-def verify_write_code_kb_feedback(
+def verify_verify_completion(
     *,
     repo_root: str,
     run_id: str,
@@ -396,37 +506,430 @@ def verify_write_code_kb_feedback(
     result = _verify_structured_output_schema(
         run_id=run_id,
         step_id=step_id,
-        required_schema={'kb_updated': 'boolean',
- 'updated_pages': 'string[]',
- 'backlog_updates': 'string[]',
- 'kb_checks': 'string[]'},
-        optional_schema={'qa_feedback_path': 'string', 'skipped_reason': 'string'},
-        verifier_rules=[],
-        verifier_templates=[{'id': 'skip_requires_reason',
+        required_schema={'verification_passed': 'boolean',
+ 'verification_summary': 'string',
+ 'verification_evidence': 'string[]',
+ 'remaining_risks': 'string[]',
+ 'missing_verification_inputs': 'string[]'},
+        optional_schema={'release_qa_risks_resolved': 'boolean', 'release_qa_risk_resolution_summary': 'string'},
+        verifier_rules=[{'output_key': 'verification_summary',
+  'operator': 'truthy',
+  'value': None,
+  'message': 'Completion verification must summarize the evidence and outcome.'},
+ {'output_key': 'verification_evidence',
+  'operator': 'non_empty',
+  'value': None,
+  'message': 'Completion verification must record at least one fresh evidence item.'}],
+        verifier_templates=[{'id': 'failed_verification_requires_risks_or_missing_inputs',
   'template': 'conditional_required',
-  'output_key': 'skipped_reason',
-  'message': 'If kb_updated is false, skipped_reason is required.',
-  'when': {'output_key': 'kb_updated', 'operator': 'is_false', 'value': None},
-  'required_key': 'skipped_reason'},
- {'id': 'kb_update_requires_pages',
+  'output_key': 'remaining_risks',
+  'message': 'If verification_passed is false, remaining_risks must be non-empty.',
+  'when': {'output_key': 'verification_passed', 'operator': 'is_false', 'value': None},
+  'required_key': 'remaining_risks'},
+ {'id': 'resolved_release_qa_risks_require_summary',
   'template': 'conditional_required',
-  'output_key': 'updated_pages',
-  'message': 'If kb_updated is true, updated_pages must be non-empty.',
-  'when': {'output_key': 'kb_updated', 'operator': 'is_true', 'value': None},
-  'required_key': 'updated_pages'},
- {'id': 'kb_update_requires_checks',
-  'template': 'conditional_required',
-  'output_key': 'kb_checks',
-  'message': 'If kb_updated is true, kb_checks must report formatting or hygiene checks.',
-  'when': {'output_key': 'kb_updated', 'operator': 'is_true', 'value': None},
-  'required_key': 'kb_checks'}],
+  'output_key': 'release_qa_risk_resolution_summary',
+  'message': 'If release_qa_risks_resolved is true, release_qa_risk_resolution_summary must '
+             'explain the fresh evidence.',
+  'when': {'output_key': 'release_qa_risks_resolved', 'operator': 'is_true', 'value': None},
+  'required_key': 'release_qa_risk_resolution_summary'}],
         observation=observation,
         repo_root=repo_root,
         state=state,
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_verify_completion(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
+
+def _run_custom_verifier_requirements_propose_openspec_change(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_propose_openspec_change_artifact_completeness(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+def _custom_verifier_requirement_propose_openspec_change_artifact_completeness(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+
+Requirement: OpenSpec proposal output must prove that proposal, tasks, and at least one durable design/spec artifact were created and reported consistently.
+Signals: created_artifacts, proposal_path, tasks_path, openspec_design_path, spec_paths
+Implementation surfaces: verifier, tests
+Hint pseudocode:
+- Require created_artifacts to mention proposal and tasks artifacts.
+- Require either openspec_design_path or spec_paths to provide at least one design/spec artifact path.
+- Reject outputs where created_artifacts omits the durable design/spec surface even if raw files exist.
+Test intent:
+- Reject outputs that only report proposal/tasks and omit any design/spec artifact.
+- Accept outputs that report proposal, tasks, and at least one design/spec artifact consistently."""
+    _ = state, repo_root
+    created_artifacts = _string_list(output.get("created_artifacts"))
+    created_text = " ".join(created_artifacts).lower()
+    has_proposal = "proposal" in created_text
+    has_tasks = "task" in created_text
+    openspec_design_path = str(output.get("openspec_design_path") or "").strip()
+    spec_paths = _string_list(output.get("spec_paths"))
+    has_design_or_spec_path = bool(openspec_design_path or spec_paths)
+    has_design_or_spec_artifact = any(
+        any(marker in artifact.lower() for marker in ("design", "spec"))
+        for artifact in created_artifacts
+    )
+    if not has_proposal or not has_tasks:
+        return "OpenSpec proposal must report proposal and tasks artifacts in created_artifacts."
+    if not has_design_or_spec_path:
+        return (
+            "OpenSpec proposal must report at least one durable design/spec artifact path via "
+            "openspec_design_path or spec_paths."
+        )
+    if not has_design_or_spec_artifact:
+        return (
+            "OpenSpec proposal must include a design/spec artifact in created_artifacts when it "
+            "reports durable design/spec paths."
+        )
+    return None
+
+def _run_custom_verifier_requirements_refine_change_with_openspec(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_refine_change_with_openspec_talk_first_conversation_evidence(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+def _custom_verifier_requirement_refine_change_with_openspec_talk_first_conversation_evidence(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+
+Requirement: OpenSpec refinement must prove that at least one real conversational exchange happened before the stage claimed readiness.
+Signals: user_discussion_summary, discussion_turn_count, unresolved_questions, ready_for_apply
+Implementation surfaces: verifier, tests
+Hint pseudocode:
+- Reject if discussion_turn_count is less than 1.
+- Reject if user_discussion_summary is missing or looks empty after trimming.
+- If unresolved_questions is empty and ready_for_apply is true, still require concrete conversation evidence instead of accepting a checklist-only output.
+Test intent:
+- Reject outputs that claim ready_for_apply without any discussion turn evidence.
+- Accept outputs that record a user discussion summary and a positive discussion_turn_count."""
+    _ = state, repo_root
+    discussion_turn_count = output.get("discussion_turn_count")
+    if not isinstance(discussion_turn_count, int) or isinstance(discussion_turn_count, bool):
+        return "discussion_turn_count must be an integer."
+    if discussion_turn_count < 1:
+        return (
+            "OpenSpec refinement must record at least one conversational exchange before "
+            "claiming readiness."
+        )
+    discussion_summary = str(output.get("user_discussion_summary") or "").strip()
+    if not discussion_summary:
+        return (
+            "OpenSpec refinement must summarize the actual user discussion before it can "
+            "continue."
+        )
+    return None
+
+def _run_custom_verifier_requirements_execute_implementation(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_execute_implementation_completed_tasks_consistency(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+def _custom_verifier_requirement_execute_implementation_completed_tasks_consistency(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+
+Requirement: Implementation success output must not claim tasks are complete while still listing remaining tasks.
+Signals: tasks_completed, remaining_tasks, completed_tasks, openspec_updates_required
+Implementation surfaces: verifier, tests
+Hint pseudocode:
+- If tasks_completed is true, require remaining_tasks to be empty.
+- If tasks_completed is false and openspec_updates_required is not true, require remaining_tasks to be non-empty so the retry reason is concrete.
+- If verification_passed is false and openspec_updates_required is not true, reject the output so plain failing implementation cannot continue.
+Test intent:
+- Reject outputs that set tasks_completed=true while still listing remaining_tasks.
+- Reject unfinished implementation outputs that provide neither a remaining task list nor an OpenSpec refinement reason.
+- Reject implementation outputs that fail verification without explicitly routing back for OpenSpec updates."""
+    _ = state, repo_root
+    tasks_completed = output.get("tasks_completed")
+    remaining_tasks = _string_list(output.get("remaining_tasks"))
+    openspec_updates_required = bool(output.get("openspec_updates_required"))
+    verification_passed = output.get("verification_passed")
+    if tasks_completed is True and remaining_tasks:
+        return "Implementation cannot set tasks_completed=true while remaining_tasks is non-empty."
+    if tasks_completed is False and not openspec_updates_required and not remaining_tasks:
+        return (
+            "Implementation retries must list remaining_tasks unless they are explicitly routing "
+            "back for OpenSpec updates."
+        )
+    if verification_passed is False and not openspec_updates_required:
+        return (
+            "Implementation verification cannot fail unless the output is explicitly routing back "
+            "for OpenSpec updates."
+        )
+    return None
+
+def _run_custom_verifier_requirements_run_agentic_release_qa(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_run_agentic_release_qa_ui_visual_qa_evidence(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+def _custom_verifier_requirement_run_agentic_release_qa_ui_visual_qa_evidence(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+
+Requirement: When the workflow state says a UI surface changed and visual comparison inputs are available, release QA must report executed or blocked visual comparison evidence explicitly.
+Signals: state.ui_surface_affected, state.design_comparison_source, state.runtime_visual_comparison_scope, release_qa_executed_checks, release_qa_blocked_checks, release_qa_artifacts
+Implementation surfaces: verifier, tests
+Hint pseudocode:
+- Read ui_surface_affected, design_comparison_source, and runtime_visual_comparison_scope from persisted state.
+- Only enforce this requirement when all three values indicate visual QA should have been attempted.
+- Require executed_checks, blocked_checks, or artifacts to mention a visual diff, screenshot comparison, or design comparison pass.
+Test intent:
+- Reject UI-impacting release QA output that omits all visual comparison evidence despite having comparison inputs.
+- Accept UI-impacting release QA output when visual comparison evidence appears in executed checks, blocked checks, or artifacts."""
+    _ = repo_root
+    state = state or {}
+    ui_surface_affected = bool(state.get("ui_surface_affected"))
+    design_source = str(state.get("design_comparison_source") or "").strip()
+    runtime_scope = str(state.get("runtime_visual_comparison_scope") or "").strip()
+    if not (ui_surface_affected and design_source and runtime_scope):
+        return None
+    evidence_lines = (
+        _string_list(output.get("release_qa_executed_checks"))
+        + _string_list(output.get("release_qa_blocked_checks"))
+        + _string_list(output.get("release_qa_artifacts"))
+    )
+    if not any(_looks_like_visual_evidence(item) for item in evidence_lines):
+        return (
+            "UI-impacting release QA must report explicit visual comparison evidence when "
+            "design and runtime comparison inputs are available."
+        )
+    return None
+
+def _run_custom_verifier_requirements_request_pre_merge_code_review(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_request_pre_merge_code_review_findings_include_severity_grouping(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+def _custom_verifier_requirement_request_pre_merge_code_review_findings_include_severity_grouping(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+
+Requirement: Non-empty review findings must make severity explicit so the workflow can distinguish major merge blockers from lower-risk notes.
+Signals: review_status, findings
+Implementation surfaces: verifier, tests
+Hint pseudocode:
+- Skip the requirement when findings is empty.
+- Require each finding string to begin with or clearly include a recognized severity marker such as critical, high, medium, low, major, or minor.
+Test intent:
+- Reject change-requested findings that omit any severity marker.
+- Accept findings that carry an explicit severity prefix."""
+    _ = state, repo_root
+    findings = _string_list(output.get("findings"))
+    if not findings:
+        return None
+    for finding in findings:
+        if not _has_severity_marker(finding):
+            return (
+                "Review findings must include an explicit severity marker such as critical, "
+                "high, medium, low, major, or minor."
+            )
+    return None
+
+def _run_custom_verifier_requirements_verify_completion(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_verify_completion_ship_with_risks_requires_resolution_before_pass(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+def _custom_verifier_requirement_verify_completion_ship_with_risks_requires_resolution_before_pass(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+
+Requirement: If persisted release QA ended in ship_with_risks, final completion verification may pass only after those residual risks are explicitly resolved with fresh evidence.
+Signals: state.release_qa_verdict, state.release_qa_blocked_checks, verification_passed, verification_evidence, remaining_risks, release_qa_risks_resolved, release_qa_risk_resolution_summary
+Implementation surfaces: verifier, tests
+Hint pseudocode:
+- Read release_qa_verdict and release_qa_blocked_checks from persisted state.
+- If release_qa_verdict is ship_with_risks and verification_passed is true, require release_qa_risks_resolved to be true, a non-empty release_qa_risk_resolution_summary, and fresh verification evidence that resolves the prior risk.
+- If release_qa_verdict is ship_with_risks and verification_passed is false, require remaining_risks or missing_verification_inputs to carry the residual risk forward.
+Test intent:
+- Reject passing completion output that ignores prior ship_with_risks residual QA risk.
+- Accept passing completion output only when it explicitly resolves the prior residual QA risk with fresh evidence."""
+    _ = repo_root
+    state = state or {}
+    if state.get("release_qa_verdict") != "ship_with_risks":
+        return None
+    verification_passed = output.get("verification_passed")
+    remaining_risks = _string_list(output.get("remaining_risks"))
+    missing_inputs = _string_list(output.get("missing_verification_inputs"))
+    evidence = _string_list(output.get("verification_evidence"))
+    risks_resolved = output.get("release_qa_risks_resolved") is True
+    resolution_summary = str(output.get("release_qa_risk_resolution_summary") or "").strip()
+    if verification_passed is True:
+        if not risks_resolved:
+            return (
+                "Completion verification cannot pass while prior ship_with_risks residual QA "
+                "risks remain unresolved."
+            )
+        if not resolution_summary:
+            return (
+                "Completion verification must explain how prior ship_with_risks residual QA "
+                "risks were resolved."
+            )
+        if not any(_looks_like_resolution_evidence(item) for item in evidence):
+            return (
+                "Completion verification must include fresh evidence that resolves the prior "
+                "ship_with_risks QA risk."
+            )
+        return None
+    if not remaining_risks and not missing_inputs:
+        return (
+            "When prior release QA ended in ship_with_risks, a non-passing completion result "
+            "must carry forward remaining_risks or missing_verification_inputs."
+        )
+    return None
+
+
+def _string_list(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        text = str(item).strip()
+        if text:
+            items.append(text)
+    return items
+
+
+def _looks_like_visual_evidence(text: str) -> bool:
+    lowered = text.lower()
+    markers = (
+        "visual",
+        "pixel",
+        "screenshot",
+        "figma",
+        "design comparison",
+        "diff",
+        "snapshot",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _has_severity_marker(text: str) -> bool:
+    lowered = text.strip().lower()
+    markers = ("critical", "high", "medium", "low", "major", "minor")
+    return any(
+        lowered.startswith(f"{marker} ")
+        or lowered.startswith(f"{marker}|")
+        or f"{marker} |" in lowered
+        for marker in markers
+    )
+
+
+def _looks_like_resolution_evidence(text: str) -> bool:
+    lowered = text.lower()
+    markers = (
+        "resolved",
+        "reran",
+        "re-ran",
+        "executed",
+        "visual",
+        "device",
+        "pixel",
+        "comparison",
+    )
+    return any(marker in lowered for marker in markers)
 
 def _verify_structured_output_schema(
     *,
