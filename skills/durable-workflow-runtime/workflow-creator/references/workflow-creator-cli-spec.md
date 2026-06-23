@@ -357,6 +357,21 @@ If the business workflow needs routing or validation semantics that cannot be
 expressed in these fields, edit the generated workflow and keep `spec.json`
 aligned.
 
+Generated observability contract:
+
+- generated workflows preserve compact repair state in `state.repair_context`
+  and `repair_payload`
+- runtime `yield` responses should surface a compact host-visible
+  `retry_context` when a step is re-yielded because of repair, blocked input,
+  or verifier failure
+- preferred minimum mapping:
+  - `repair_payload.category -> retry_context.category`
+  - `repair_payload.summary -> retry_context.summary`
+  - `repair_payload.requirements -> retry_context.requirements`
+- this transport surface is intentionally smaller than persisted run state; do
+  not require hosts to inspect `runs/<run_id>.json` for ordinary retry
+  diagnosis
+
 ## Generated Policy Evaluation Order
 
 For each business stage, generated `policy.py` evaluates routing in this order:
@@ -544,6 +559,15 @@ types:
   optional `state` is supported when verifier semantics depend on previously
   promoted workflow state.
 
+In addition to workflow-specific declared tests, generated workflow tests should
+preserve host-visible observability for the shared repair helpers. At minimum,
+the generated suite should make it easy to verify:
+
+- normal `yield` without `retry_context`
+- blocked recovery that surfaces `retry_context.category == "blocked"`
+- verifier-driven retry that surfaces
+  `retry_context.category == "verifier_failed"`
+
 ## Validation Boundary
 
 `create_workflow.py` validates scaffold and spec concerns:
@@ -617,7 +641,8 @@ types:
 - `regression_tests` generates workflow-specific transition and verifier tests
   under `workflow-runtime/workflows/<workflow_id>/tests/test_workflow.py`; the
   generator also appends default structural tests for shared recovery-helper
-  resume behavior and prompt-context precedence when applicable
+  resume behavior, host-visible blocked retry summaries, and prompt-context
+  precedence when applicable
 
 It intentionally does not validate:
 
@@ -719,6 +744,15 @@ tightening any branch, verifier, or regression coverage that cannot be
 expressed in the JSON spec. `spec.json` is the normalized workflow-local
 blueprint after defaults and validation have been applied, so it may include
 generated defaults that were omitted from the hand-edited file.
+
+When reviewing generated runtime behavior, check both layers:
+
+- persisted repair state under `state.py` / runtime state serialization
+- transport-facing `yield` responses that expose compact `retry_context`
+
+If a generated workflow records verifier failure only in persisted state but not
+in `response.json`, treat that as an observability bug in the generated runtime
+surface rather than acceptable host behavior.
 
 ## Success Output
 

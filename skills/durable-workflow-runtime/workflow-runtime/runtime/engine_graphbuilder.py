@@ -181,6 +181,7 @@ class GraphBuilderRuntimeEngine:
                 run_id=run_state.run_id,
                 step_id=step_id,
                 prompt_envelope=prompt_envelope,
+                retry_context=self._build_retry_context(modules, run_state),
             )
 
         prompt_envelope = PromptEnvelope(
@@ -216,3 +217,36 @@ class GraphBuilderRuntimeEngine:
 
     def _load_workflow_modules(self, workflow_id: str) -> dict:
         return load_workflow_modules(workflow_id)
+
+    def _build_retry_context(self, modules: dict, run_state: RunState) -> dict | None:
+        state_module = modules.get("state")
+        if state_module is None:
+            return None
+        deserialize_state = getattr(state_module, "deserialize_state", None)
+        if not callable(deserialize_state):
+            return None
+        graph_state_payload = run_state.graph_state if isinstance(run_state.graph_state, dict) else {}
+        state = deserialize_state(graph_state_payload)
+        repair_context = getattr(state, "repair_context", None)
+        if not isinstance(repair_context, dict):
+            return None
+        repair_payload = repair_context.get("repair_payload")
+        if not isinstance(repair_payload, dict):
+            return None
+        category = str(repair_payload.get("category") or "").strip()
+        summary = str(repair_payload.get("summary") or "").strip()
+        requirements_raw = repair_payload.get("requirements")
+        requirements = []
+        if isinstance(requirements_raw, list):
+            requirements = [
+                str(item).strip()
+                for item in requirements_raw
+                if isinstance(item, str) and str(item).strip()
+            ]
+        if not category and not summary and not requirements:
+            return None
+        return {
+            "category": category or "failed",
+            "summary": summary or "Repair is required before the workflow can continue.",
+            "requirements": requirements,
+        }

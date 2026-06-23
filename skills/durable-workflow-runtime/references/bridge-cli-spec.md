@@ -179,6 +179,13 @@ The runtime needs host execution before it can continue.
   "kind": "yield",
   "run_id": "run_123",
   "step_id": "collect_context",
+  "retry_context": {
+    "category": "verifier_failed",
+    "summary": "Context inventory must include at least one authoritative source.",
+    "requirements": [
+      "Add at least one authoritative source before retrying collect_context."
+    ]
+  },
   "prompt_envelope": {
     "run_id": "run_123",
     "step_id": "collect_context",
@@ -199,6 +206,32 @@ The runtime needs host execution before it can continue.
 
 The host should execute the envelope, build an `Observation`, and call
 `resume`.
+
+Optional retry diagnostics:
+
+- `retry_context` is optional
+- when present, it is the compact host-visible explanation for why the runtime
+  re-yielded a step without requiring the host to read
+  `runs/<run_id>.json`
+- current contract:
+  - `category`: short machine-readable cause such as `verifier_failed` or
+    `blocked`
+  - `summary`: short human-readable root-cause summary
+  - `requirements`: optional actionable repair requirements
+
+Observability rule:
+
+- `yield` without `retry_context`
+  normal next-step yield unless the workflow deliberately reuses the same step
+- `yield` with `retry_context.category == "verifier_failed"`
+  verifier-driven retry; the host should surface the summary instead of
+  misreading it as silent non-progress
+- `Observation.status == "blocked"`
+  host-side blocked outcome that should resume into a runtime-selected unblock
+  route instead of being conflated with verifier retry
+
+The host may use `retry_context` for diagnosis, user-facing explanation, and
+repair-aware execution, but must not use it to invent new workflow branches.
 
 Important selector rule:
 

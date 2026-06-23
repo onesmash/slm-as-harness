@@ -251,6 +251,7 @@ class YieldResponse:
     run_id: str
     step_id: str
     prompt_envelope: PromptEnvelope
+    retry_context: dict | None = None
     kind: str = "yield"
 
     def __post_init__(self) -> None:
@@ -262,14 +263,40 @@ class YieldResponse:
             raise ValueError("run_id must match prompt_envelope.run_id")
         if self.step_id != self.prompt_envelope.step_id:
             raise ValueError("step_id must match prompt_envelope.step_id")
+        if self.retry_context is not None:
+            if not isinstance(self.retry_context, dict):
+                raise ValueError("retry_context must be a dict when present")
+            category = _require_non_empty_string(
+                self.retry_context.get("category"),
+                "retry_context.category",
+            )
+            summary = _require_non_empty_string(
+                self.retry_context.get("summary"),
+                "retry_context.summary",
+            )
+            requirements = self.retry_context.get("requirements", [])
+            if not isinstance(requirements, list):
+                raise ValueError("retry_context.requirements must be a list")
+            cleaned_requirements = [
+                _require_non_empty_string(item, "retry_context.requirements[]")
+                for item in requirements
+            ]
+            self.retry_context = {
+                "category": category,
+                "summary": summary,
+                "requirements": cleaned_requirements,
+            }
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "kind": self.kind,
             "run_id": self.run_id,
             "step_id": self.step_id,
             "prompt_envelope": self.prompt_envelope.to_dict(),
         }
+        if self.retry_context is not None:
+            result["retry_context"] = dict(self.retry_context)
+        return result
 
 
 @dataclass

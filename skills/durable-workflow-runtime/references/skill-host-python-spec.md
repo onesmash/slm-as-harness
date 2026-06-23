@@ -7,6 +7,10 @@ Read this file when implementing:
 
 - `<skill-root>/workflow-runtime/adapters/skill_host.py`
 
+If imports fail locally, read `environment-setup.md` before changing adapter
+bootstrap logic. Missing packages are an environment problem first, not a
+reason to widen `skill_host.py` responsibilities.
+
 ## Purpose
 
 `skill_host.py` is the thin Python adapter that sits between:

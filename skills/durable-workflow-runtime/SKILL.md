@@ -235,6 +235,13 @@ Then treat these envelope fields as execution contract fields, not hints:
 - `failure_schema`
 - `resume_instructions`
 
+Optional host-visible retry diagnostics:
+
+- `retry_context`
+  present only when runtime is intentionally re-yielding a step with compact
+  failure context that the host should surface without reading persisted run
+  state
+
 Identity invariants:
 
 - `response.run_id == response.prompt_envelope.run_id`
@@ -249,6 +256,13 @@ Reference shape:
   "kind": "yield",
   "run_id": "run_123",
   "step_id": "collect_context",
+  "retry_context": {
+    "category": "verifier_failed",
+    "summary": "Context inventory must include at least one authoritative source.",
+    "requirements": [
+      "Add at least one authoritative source before retrying collect_context."
+    ]
+  },
   "prompt_envelope": {
     "run_id": "run_123",
     "step_id": "collect_context",
@@ -274,6 +288,76 @@ Handling rule:
 - call `resume`
 - do not invent or rewrite `run_id`
 - do not invent or rewrite `step_id`
+
+`retry_context` handling rule:
+
+- if `retry_context` is absent, treat the yield as a normal next-step or
+  same-step runtime instruction and rely on `kind`, `run_id`, `step_id`, and
+  `prompt_envelope`
+- if `retry_context` is present, treat it as a compact host-visible explanation
+  of why the workflow did not advance normally
+- use it for diagnosis, user-facing explanation, and repair-aware host logic
+  without opening `runs/<run_id>.json`
+- do not treat `retry_context` as permission to choose a different branch; the
+  runtime still owns routing
+
+`retry_context` contract:
+
+- keep it compact and host-visible
+- it may summarize verifier failure, repair, or retry cause
+- it should not expose full persisted runtime state
+- when `retry_context.category == "verifier_failed"`, the host should interpret
+  the yield as a retry caused by verifier contract failure, not as silent
+  non-progress
+- when `retry_context.requirements` is present, treat those entries as the
+  minimum actionable repair requirements for the current retry
+
+Reference retry shape:
+
+```json
+{
+  "kind": "yield",
+  "run_id": "run_123",
+  "step_id": "run_brainstorming",
+  "retry_context": {
+    "category": "verifier_failed",
+    "summary": "Brainstorming open_questions must be empty before OpenSpec formalization.",
+    "requirements": [
+      "Brainstorming open_questions must be empty before OpenSpec formalization."
+    ]
+  },
+  "prompt_envelope": {
+    "run_id": "run_123",
+    "step_id": "run_brainstorming",
+    "prompt": "...",
+    "intent": "run_brainstorming",
+    "expected_artifact": "updated brainstorming result",
+    "done_when": ["..."],
+    "output_schema": {},
+    "failure_schema": {},
+    "resume_instructions": "...",
+    "metadata": {
+      "workflow_id": "ios_ai_assisted_development_flow",
+      "workflow_version": "v1"
+    }
+  }
+}
+```
+
+Host-side observability triage:
+
+- `yield` without `retry_context`
+  normal next-step yield unless the same `step_id` is deliberately reissued for
+  business reasons
+- `yield` with `retry_context.category == "verifier_failed"`
+  same-step or repair-aware retry caused by verifier failure
+- `Observation.status == "blocked"`
+  host execution was blocked and needs external input, approval, credentials,
+  files, or decisions before safe continuation
+
+This distinction matters because the host should be able to tell the difference
+between "the runtime advanced", "the runtime retried because verification
+failed", and "the host itself is blocked" without opening persisted run state.
 
 #### `done` response
 
@@ -483,6 +567,40 @@ start -> yield -> host executes prompt -> Observation -> resume -> ... -> done
   `references/observation-format.md` for the full schema.
 - If the task is not explicitly about runtime authoring, stay on these
   interface docs and do not descend into runtime implementation files.
+
+## Internal authoring/debugging contract
+
+Use this section only when the task explicitly concerns runtime internals,
+workflow authoring, generator behavior, or protocol debugging.
+
+Runtime-side observability rule:
+
+- when runtime retries a yielded step because of verifier failure, it should
+  surface a compact `retry_context` in `response.json`
+- the preferred minimum mapping is from repair payload to response payload:
+  `repair_payload.category -> retry_context.category`,
+  `repair_payload.summary -> retry_context.summary`,
+  `repair_payload.requirements -> retry_context.requirements`
+- this mapping should expose only the minimum host-visible root cause needed
+  for diagnosis and repair; do not dump the full run state
+
+Generator-side rule:
+
+- `workflow-creator` should treat verifier-failure surfacing as part of the
+  default generated contract, not as a workflow-specific customization
+- newly generated workflows should preserve the compact repair payload in state
+  and also make the retry cause visible from `response.json`
+- generated tests should cover at least:
+  `normal yield`,
+  `yield` with `retry_context.category == "verifier_failed"`,
+  and blocked execution that requires external input
+
+Authoring/debugging warning:
+
+- do not "fix" observability by teaching the host to read
+  `runs/<run_id>.json` during normal execution
+- persisted run state is a debugging source of truth, not the required
+  transport surface for ordinary host diagnosis
 
 ## Non-negotiable rules
 

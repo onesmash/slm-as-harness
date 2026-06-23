@@ -27,6 +27,9 @@ Path convention used below:
 - `observation-format.md`
   Read when you need to build, validate, or debug `Observation` payloads,
   especially non-empty `tool_trace` or `error` objects.
+- `environment-setup.md`
+  Read when you need to prepare the local Python environment for normal runtime
+  execution, bridge usage, or regression tests.
 - `skill-host-python-spec.md`
   Read when changing the thin Python adapter that the bridge loads, especially
   if you need to change workflow binding or bootstrap behavior.
