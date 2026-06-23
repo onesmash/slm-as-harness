@@ -5,28 +5,16 @@
 
 来源阶段：`{{source_stage_id}}`
 返回阶段：`{{return_stage_id}}`
-修复原因：{{repair_reason}}
+修复类别：{{repair_category}}
 
-上一轮摘要：
+修复摘要：
 {{repair_summary}}
 
-缺少输入：
-{{missing_inputs}}
+本轮必须满足的要求：
+{{repair_requirements}}
 
-未决问题：
-{{open_questions}}
-
-Integrity suspected failure modes：
-{{suspected_failure_modes}}
-
-Claim audit HIGH-WARN annotations：
-{{high_warn_annotations}}
-
-Critical review issues：
-{{critical_issues}}
-
-Residual issues：
-{{residual_issues}}
+与修复直接相关的证据：
+{{repair_evidence}}
 
 请执行最小修复动作。
 

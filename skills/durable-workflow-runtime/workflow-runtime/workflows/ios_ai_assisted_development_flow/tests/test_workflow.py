@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[3]
@@ -1005,6 +1006,58 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             state={},
         )
         self.assertIs(result['passed'], False)
+
+    def test_repair_context_keeps_precise_verifier_requirements(self):
+        state = self._make_state(None)
+        workflow_state.record_observation(
+            state,
+            current_step_id='verify_completion',
+            observation={
+                'status': 'succeeded',
+                'summary': 'Final verification passed without fresh evidence.',
+                'structured_output': {
+                    'verification_passed': True,
+                    'verification_summary': 'Verified.',
+                    'verification_evidence': [],
+                    'remaining_risks': [],
+                    'missing_verification_inputs': [],
+                },
+            },
+            verifier_result={
+                'passed': False,
+                'message': 'Completion verification must record at least one fresh evidence item.',
+                'details': {},
+            },
+        )
+        repair_payload = state.repair_context.get('repair_payload') or {}
+        self.assertEqual(state.repair_context.get('transition_reason'), 'verifier_failed')
+        self.assertEqual(repair_payload.get('category'), 'verifier_failed')
+        self.assertEqual(
+            repair_payload.get('requirements'),
+            ['Completion verification must record at least one fresh evidence item.'],
+        )
+
+    def test_repair_template_context_uses_trimmed_payload_fields(self):
+        state = self._make_state(None)
+        state.return_stage_id = 'verify_completion'
+        state.repair_context = {
+            'source_stage_id': 'verify_completion',
+            'return_stage_id': 'verify_completion',
+            'transition_reason': 'blocked',
+            'repair_payload': {
+                'category': 'blocked',
+                'summary': 'Final completion verification needs external verification inputs before completion can be claimed.',
+                'requirements': ['final device screenshot'],
+                'evidence': ['Completion evidence is incomplete.'],
+            },
+        }
+        context = graphbuilder_runtime.build_template_context(
+            step_id='request_unblocking_input',
+            run_state=SimpleNamespace(graph_state=workflow_state.serialize_state(state)),
+        )
+        self.assertEqual(context['repair_category'], 'blocked')
+        self.assertIn('final device screenshot', context['repair_requirements'])
+        self.assertEqual(context['repair_evidence'], '- Completion evidence is incomplete.')
 
     def test_generated_request_unblocking_input_resumes_to_return_stage(self):
         state = self._make_state(None)

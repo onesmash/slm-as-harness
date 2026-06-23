@@ -6,12 +6,18 @@ Workflow goal:
 Return stage:
 {{return_stage_id}}
 
-Current repair reason:
-{{repair_reason}}
+Repair category:
+{{repair_category}}
 
-Current repair summary:
+Repair summary:
 {{repair_summary}}
 
-Describe the repair work needed before the original stage can be attempted
-again. Do not decide routing yourself. The runtime will route based on the next
-Observation.
+Requirements to satisfy before retry:
+{{repair_requirements}}
+
+Relevant evidence:
+{{repair_evidence}}
+
+Describe the smallest repair work needed before the original stage can be
+attempted again. Do not decide routing yourself. The runtime will route based
+on the next Observation.

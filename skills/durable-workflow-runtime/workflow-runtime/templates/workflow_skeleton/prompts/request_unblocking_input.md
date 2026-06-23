@@ -4,11 +4,17 @@ workflow.
 Workflow goal:
 {{workflow_goal}}
 
-Current repair reason:
-{{repair_reason}}
+Repair category:
+{{repair_category}}
 
-Current repair summary:
+Repair summary:
 {{repair_summary}}
+
+Required external inputs or approvals:
+{{repair_requirements}}
+
+Relevant evidence:
+{{repair_evidence}}
 
 Explain what input, approval, or external action is needed before the original
 stage can continue. Do not choose the next node yourself. The runtime will do

@@ -89,14 +89,12 @@ def _default_shared_repair_helpers() -> dict[str, dict[str, Any]]:
                     "Current step: {{current_step_id}}",
                     "Return stage: {{return_stage_id}}",
                     "Source stage: {{source_stage_id}}",
-                    "Repair reason: {{repair_reason}}",
-                    "Previous summary: {{repair_summary}}",
-                    "Blocked reason: {{blocked_reason}}",
-                    "Error message: {{error_message}}",
-                    "Missing inputs: {{missing_inputs}}",
-                    "Missing artifacts: {{missing_artifacts}}",
-                    "Failed commands: {{repair_failed_commands}}",
-                    "Structured repair details: {{repair_details_json}}",
+                    "Repair category: {{repair_category}}",
+                    "Repair summary: {{repair_summary}}",
+                    "Required external inputs or approvals:",
+                    "{{repair_requirements}}",
+                    "Relevant evidence:",
+                    "{{repair_evidence}}",
                 ],
                 "boundaries": [
                     "Do not resume the workflow until the exact missing external dependency is identified.",
@@ -127,19 +125,16 @@ def _default_shared_repair_helpers() -> dict[str, dict[str, Any]]:
                     "Current step: {{current_step_id}}",
                     "Return stage: {{return_stage_id}}",
                     "Source stage: {{source_stage_id}}",
-                    "Repair reason: {{repair_reason}}",
-                    "Previous summary: {{repair_summary}}",
-                    "Blocked reason: {{blocked_reason}}",
-                    "Error message: {{error_message}}",
-                    "Missing inputs: {{missing_inputs}}",
-                    "Missing artifacts: {{missing_artifacts}}",
-                    "Failed commands: {{repair_failed_commands}}",
-                    "Failing checks: {{repair_failing_checks}}",
-                    "Structured repair details: {{repair_details_json}}",
+                    "Repair category: {{repair_category}}",
+                    "Repair summary: {{repair_summary}}",
+                    "Repair requirements:",
+                    "{{repair_requirements}}",
+                    "Relevant evidence:",
+                    "{{repair_evidence}}",
                 ],
                 "boundaries": [
                     "Keep the retry scoped to the original return stage instead of changing workflow routing.",
-                    "Base the repair plan on the persisted failure details rather than generic retries.",
+                    "Base the repair plan on the persisted repair requirements rather than generic retries.",
                 ],
                 "blocked_conditions": [
                     "Return blocked if repair cannot proceed without additional external input or approval.",
@@ -1494,8 +1489,10 @@ def _request_unblocking_prompt() -> str:
         "Request the exact external input needed to unblock the workflow.\n\n"
         "Current step: {{current_step_id}}\n"
         "Return stage: {{return_stage_id}}\n"
-        "Repair reason: {{repair_reason}}\n"
-        "Previous summary: {{repair_summary}}\n\n"
+        "Repair category: {{repair_category}}\n"
+        "Repair summary: {{repair_summary}}\n"
+        "Required external inputs or approvals:\n{{repair_requirements}}\n"
+        "Relevant evidence:\n{{repair_evidence}}\n\n"
         "Explain exactly what user input, approval, credential, file, or decision is needed.\n"
     )
 
@@ -1505,8 +1502,10 @@ def _repair_prompt() -> str:
         "Repair the previous workflow step and prepare a safe retry.\n\n"
         "Current step: {{current_step_id}}\n"
         "Return stage: {{return_stage_id}}\n"
-        "Repair reason: {{repair_reason}}\n"
-        "Previous summary: {{repair_summary}}\n\n"
+        "Repair category: {{repair_category}}\n"
+        "Repair summary: {{repair_summary}}\n"
+        "Repair requirements:\n{{repair_requirements}}\n"
+        "Relevant evidence:\n{{repair_evidence}}\n\n"
         "Return repair actions and the rationale for retrying the original stage.\n"
     )
 
@@ -1712,6 +1711,7 @@ def _render_state_py(workflow_spec: dict[str, Any]) -> str:
 from dataclasses import asdict, dataclass, field
 
 from workflows.common.policies import condition_matches, max_steps_exceeded_decision
+from workflows.common.repair_payloads import build_default_agent_repair_payload, make_agent_repair_payload
 
 
 MAIN_STAGE_IDS = {_python_literal(main_stage_ids)}
@@ -1802,30 +1802,38 @@ def record_observation(
         state.repair_context = _build_repair_context(
             current_step_id=current_step_id,
             return_stage_id=return_stage_id,
-            repair_reason=max_steps_decision.reason,
-            observation=observation,
-            output=structured_output if isinstance(structured_output, dict) else {{}},
+            transition_reason="max_steps_exceeded",
+            repair_payload=make_agent_repair_payload(
+                category="blocked",
+                summary=max_steps_decision.reason,
+                requirements=[],
+                evidence=[],
+            ),
         )
         return
 
-    repair_reason = determine_repair_reason(
+    transition_reason = determine_transition_reason(
         current_step_id=current_step_id,
         observation=observation,
         verifier_result=verifier_result,
     )
-    if repair_reason is None:
+    if transition_reason is None:
         return
     return_stage_id = determine_return_stage_id(
         current_step_id=current_step_id,
         existing_return_stage_id=state.return_stage_id,
     )
+    repair_payload = build_default_agent_repair_payload(
+        current_step_id=current_step_id,
+        observation=observation,
+        verifier_result=verifier_result,
+    )
     state.return_stage_id = return_stage_id
     state.repair_context = _build_repair_context(
         current_step_id=current_step_id,
         return_stage_id=return_stage_id,
-        repair_reason=repair_reason,
-        observation=observation,
-        output=structured_output if isinstance(structured_output, dict) else {{}},
+        transition_reason=transition_reason,
+        repair_payload=repair_payload or {{}},
     )
 
 
@@ -1841,7 +1849,7 @@ def determine_return_stage_id(
     return MAIN_STAGE_IDS[0]
 
 
-def determine_repair_reason(
+def determine_transition_reason(
     *,
     current_step_id: str,
     observation: dict,
@@ -1849,13 +1857,13 @@ def determine_repair_reason(
 ) -> str | None:
     status = observation.get("status")
     if status == "blocked":
-        return f"{{current_step_id}} is blocked and needs external input"
+        return "blocked"
     if status == "partial":
-        return f"{{current_step_id}} only partially completed"
+        return "partial"
     if status == "failed":
-        return f"{{current_step_id}} failed and needs another attempt"
+        return "failed"
     if verifier_result is not None and not verifier_result.get("passed", False):
-        return f"{{current_step_id}} did not satisfy verifier checks"
+        return "verifier_failed"
     structured_output = observation.get("structured_output") or {{}}
     if isinstance(structured_output, dict):
 {chr(10).join(repair_condition_lines) if repair_condition_lines else "        pass"}
@@ -1890,30 +1898,14 @@ def _build_repair_context(
     *,
     current_step_id: str,
     return_stage_id: str | None,
-    repair_reason: str,
-    observation: dict,
-    output: dict,
+    transition_reason: str,
+    repair_payload: dict[str, object],
 ) -> dict[str, object]:
-    details = {{
-        key: value
-        for key, value in output.items()
-        if value not in (None, "", [], {{}})
-    }}
-    error_payload = observation.get("error")
-    if isinstance(error_payload, dict) and error_payload:
-        details["error"] = dict(error_payload)
     return {{
         "source_stage_id": current_step_id,
         "return_stage_id": return_stage_id or "",
-        "repair_reason": repair_reason,
-        "summary": observation.get("summary", ""),
-        "blocked_reason": str(output.get("blocked_reason") or ""),
-        "error_message": str(output.get("error_message") or ""),
-        "missing_inputs": _string_list(output.get("missing_inputs")),
-        "missing_artifacts": _string_list(output.get("missing_artifacts")),
-        "failed_commands": _string_list(output.get("failed_commands")),
-        "failing_checks": _list_value(output.get("failing_checks")),
-        "details": details,
+        "transition_reason": transition_reason,
+        "repair_payload": dict(repair_payload or {{}}),
     }}
 
 
@@ -2473,21 +2465,19 @@ def build_template_context(*, step_id: str, run_state) -> dict:
         run_state.graph_state if isinstance(run_state.graph_state, dict) else {{}}
     )
     repair_context = state.repair_context if isinstance(state.repair_context, dict) else {{}}
+    repair_payload = repair_context.get("repair_payload")
+    if not isinstance(repair_payload, dict):
+        repair_payload = {{}}
     context = _template_context_from_state(state)
     context.update(
         {{
             "current_step_id": step_id,
             "return_stage_id": state.return_stage_id or "",
             "source_stage_id": str(repair_context.get("source_stage_id") or ""),
-            "repair_reason": str(repair_context.get("repair_reason") or ""),
-            "repair_summary": str(repair_context.get("summary") or ""),
-            "blocked_reason": str(repair_context.get("blocked_reason") or ""),
-            "error_message": str(repair_context.get("error_message") or ""),
-            "missing_inputs": _format_prompt_list(repair_context.get("missing_inputs")),
-            "missing_artifacts": _format_prompt_list(repair_context.get("missing_artifacts")),
-            "repair_failed_commands": _format_prompt_list(repair_context.get("failed_commands")),
-            "repair_failing_checks": _format_prompt_value(repair_context.get("failing_checks")),
-            "repair_details_json": _format_prompt_value(repair_context.get("details")),
+            "repair_category": str(repair_payload.get("category") or ""),
+            "repair_summary": str(repair_payload.get("summary") or ""),
+            "repair_requirements": _format_prompt_list(repair_payload.get("requirements")),
+            "repair_evidence": _format_prompt_list(repair_payload.get("evidence")),
         }}
     )
     return context

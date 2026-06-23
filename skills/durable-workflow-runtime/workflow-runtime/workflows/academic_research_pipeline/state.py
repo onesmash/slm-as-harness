@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
+from workflows.common.repair_payloads import (
+    build_default_agent_repair_payload,
+    make_agent_repair_payload,
+)
+
 
 MAIN_STAGE_IDS = (
     "collect_research_context",
@@ -137,21 +142,25 @@ def record_observation(
     if observation.get("status") == "succeeded" and isinstance(structured_output, dict):
         _record_success_payload(state, current_step_id=current_step_id, output=structured_output)
 
-    repair_reason = determine_repair_reason(
+    transition_reason = determine_transition_reason(
         current_step_id=current_step_id,
         observation=observation,
         verifier_result=verifier_result,
     )
-    if repair_reason is None:
+    if transition_reason is None:
         return
     return_stage_id = determine_return_stage_id(current_step_id=current_step_id, observation=observation)
+    repair_payload = _build_agent_repair_payload(
+        current_step_id=current_step_id,
+        observation=observation,
+        verifier_result=verifier_result,
+    )
     state.return_stage_id = return_stage_id
     state.repair_context = _build_repair_context(
         current_step_id=current_step_id,
         return_stage_id=return_stage_id,
-        repair_reason=repair_reason,
-        observation=observation,
-        output=structured_output if isinstance(structured_output, dict) else {},
+        transition_reason=transition_reason,
+        repair_payload=repair_payload or {},
     )
 
 
@@ -171,7 +180,7 @@ def determine_return_stage_id(*, current_step_id: str, observation: dict) -> str
     return current_step_id
 
 
-def determine_repair_reason(
+def determine_transition_reason(
     *,
     current_step_id: str,
     observation: dict,
@@ -179,20 +188,20 @@ def determine_repair_reason(
 ) -> str | None:
     status = observation.get("status")
     if status == "blocked":
-        return f"{current_step_id} is blocked and needs external input"
+        return "blocked"
     if status == "partial":
-        return f"{current_step_id} only partially completed"
+        return "partial"
     if status == "failed":
-        return f"{current_step_id} failed and needs another attempt"
+        return "failed"
     if verifier_result is not None and not verifier_result.get("passed", False):
-        return f"{current_step_id} did not satisfy verifier checks"
+        return "verifier_failed"
     output = observation.get("structured_output") or {}
     if not isinstance(output, dict):
         return None
     if current_step_id == "run_pre_review_integrity" and output.get("integrity_passed") is False:
-        return "Stage 2.5 integrity gate did not pass"
+        return "business_rule_failed"
     if current_step_id == "run_final_integrity" and output.get("final_integrity_passed") is False:
-        return "Stage 4.5 final integrity gate did not pass"
+        return "business_rule_failed"
     return None
 
 
@@ -258,25 +267,56 @@ def _build_repair_context(
     *,
     current_step_id: str,
     return_stage_id: str,
-    repair_reason: str,
-    observation: dict,
-    output: dict,
+    transition_reason: str,
+    repair_payload: dict[str, object],
 ) -> dict[str, object]:
     return {
         "source_stage_id": current_step_id,
         "return_stage_id": return_stage_id,
-        "repair_reason": repair_reason,
-        "summary": observation.get("summary", ""),
-        "blocked_reason": str(output.get("blocked_reason") or ""),
-        "missing_inputs": _string_list(output.get("missing_inputs")),
-        "open_questions": _string_list(output.get("open_questions")),
-        "suspected_failure_modes": _string_list(output.get("suspected_failure_modes")),
-        "high_warn_annotations": _string_list(output.get("high_warn_annotations")),
-        "editorial_decision": str(output.get("editorial_decision") or ""),
-        "rereview_decision": str(output.get("rereview_decision") or ""),
-        "residual_issues": output.get("residual_issues") or [],
-        "critical_issues": output.get("critical_issues") or [],
+        "transition_reason": transition_reason,
+        "repair_payload": dict(repair_payload or {}),
     }
+
+
+def _build_agent_repair_payload(
+    *,
+    current_step_id: str,
+    observation: dict,
+    verifier_result: dict | None,
+) -> dict[str, object] | None:
+    default_payload = build_default_agent_repair_payload(
+        current_step_id=current_step_id,
+        observation=observation,
+        verifier_result=verifier_result,
+    )
+    if default_payload is not None:
+        return default_payload
+
+    output = observation.get("structured_output") or {}
+    if not isinstance(output, dict):
+        return None
+
+    if current_step_id == "run_pre_review_integrity" and output.get("integrity_passed") is False:
+        requirements = _string_list(output.get("suspected_failure_modes"))
+        evidence = _issue_titles(output.get("critical_issues"))
+        return make_agent_repair_payload(
+            category="business_rule_failed",
+            summary="Stage 2.5 integrity gate did not pass.",
+            requirements=requirements,
+            evidence=evidence,
+        )
+
+    if current_step_id == "run_final_integrity" and output.get("final_integrity_passed") is False:
+        requirements = _string_list(output.get("suspected_failure_modes"))
+        evidence = _issue_titles(output.get("critical_issues")) + _issue_titles(output.get("residual_issues"))
+        return make_agent_repair_payload(
+            category="business_rule_failed",
+            summary="Stage 4.5 final integrity gate did not pass.",
+            requirements=requirements,
+            evidence=evidence,
+        )
+
+    return None
 
 
 def _string_list(value) -> list[str]:
@@ -294,6 +334,21 @@ def _string_list(value) -> list[str]:
 
 def _positive_int(value, *, default: int) -> int:
     return value if isinstance(value, int) and value >= 0 else default
+
+
+def _issue_titles(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    items: list[str] = []
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("issue") or item.get("summary") or "").strip()
+        if text:
+            items.append(text)
+        if len(items) >= 3:
+            break
+    return items
 
 
 def _normalize_decision(value) -> str:

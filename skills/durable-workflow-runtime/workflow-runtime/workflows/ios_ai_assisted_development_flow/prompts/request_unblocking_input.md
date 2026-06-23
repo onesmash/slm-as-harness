@@ -5,15 +5,12 @@ Stage Context:
 - Current step: {{current_step_id}}
 - Return stage: {{return_stage_id}}
 - Source stage: {{source_stage_id}}
-- Repair reason: {{repair_reason}}
-- Previous summary: {{repair_summary}}
-- Blocked reason: {{blocked_reason}}
-- Error message: {{error_message}}
-- Missing inputs: {{missing_inputs}}
-- Missing artifacts: {{missing_artifacts}}
-- Failed commands: {{repair_failed_commands}}
-- Failing checks: {{repair_failing_checks}}
-- Structured repair details: {{repair_details_json}}
+- Repair category: {{repair_category}}
+- Repair summary: {{repair_summary}}
+- Required external inputs or approvals:
+{{repair_requirements}}
+- Relevant evidence:
+{{repair_evidence}}
 
 Stage Boundaries:
 

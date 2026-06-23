@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
 
+from workflows.common.repair_payloads import build_default_agent_repair_payload
+
 
 MAIN_STAGE_IDS = ("run_primary_stage",)
 REPAIR_STAGE_IDS = (
@@ -57,20 +59,25 @@ def record_observation(
     if isinstance(structured_output, dict):
         state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
 
-    repair_reason = determine_repair_reason(
+    transition_reason = determine_transition_reason(
         current_step_id=current_step_id,
         observation=observation,
         verifier_result=verifier_result,
     )
-    if repair_reason is None:
+    if transition_reason is None:
         return
     return_stage_id = determine_return_stage_id(current_step_id=current_step_id)
+    repair_payload = build_default_agent_repair_payload(
+        current_step_id=current_step_id,
+        observation=observation,
+        verifier_result=verifier_result,
+    )
     state.return_stage_id = return_stage_id
     state.repair_context = {
         "source_stage_id": current_step_id,
         "return_stage_id": return_stage_id,
-        "repair_reason": repair_reason,
-        "summary": observation.get("summary", ""),
+        "transition_reason": transition_reason,
+        "repair_payload": repair_payload or {},
     }
 
 
@@ -78,7 +85,7 @@ def determine_return_stage_id(*, current_step_id: str) -> str:
     return current_step_id
 
 
-def determine_repair_reason(
+def determine_transition_reason(
     *,
     current_step_id: str,
     observation: dict,
@@ -86,13 +93,13 @@ def determine_repair_reason(
 ) -> str | None:
     status = observation.get("status")
     if status == "blocked":
-        return f"{current_step_id} is blocked and needs external input"
+        return "blocked"
     if status == "partial":
-        return f"{current_step_id} only partially completed"
+        return "partial"
     if status == "failed":
-        return f"{current_step_id} failed and needs another attempt"
+        return "failed"
     if verifier_result is not None and not verifier_result.get("passed", False):
-        return f"{current_step_id} did not satisfy verifier checks"
+        return "verifier_failed"
     return None
 
 

@@ -229,13 +229,27 @@ def build_template_context(*, step_id: str, run_state) -> dict:
         run_state.graph_state if isinstance(run_state.graph_state, dict) else {}
     )
     repair_context = state.repair_context if isinstance(state.repair_context, dict) else {}
+    repair_payload = repair_context.get("repair_payload")
+    if not isinstance(repair_payload, dict):
+        repair_payload = {}
     return {
         "workflow_goal": state.workflow_goal or "",
         "current_step_id": step_id,
         "return_stage_id": state.return_stage_id or "",
-        "repair_reason": str(repair_context.get("repair_reason") or ""),
-        "repair_summary": str(repair_context.get("summary") or ""),
+        "repair_category": str(repair_payload.get("category") or ""),
+        "repair_summary": str(repair_payload.get("summary") or ""),
+        "repair_requirements": _format_prompt_list(repair_payload.get("requirements")),
+        "repair_evidence": _format_prompt_list(repair_payload.get("evidence")),
     }
+
+
+def _format_prompt_list(value) -> str:
+    if not isinstance(value, list):
+        return "- none"
+    items = [item.strip() for item in value if isinstance(item, str) and item.strip()]
+    if not items:
+        return "- none"
+    return "\n".join(f"- {item}" for item in items)
 
 
 def run_transition_preview(

@@ -621,12 +621,20 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         )
         expected = {
             "run_primary_stage.md": {"workflow_goal"},
-            "request_unblocking_input.md": {"workflow_goal", "repair_reason", "repair_summary"},
+            "request_unblocking_input.md": {
+                "workflow_goal",
+                "repair_category",
+                "repair_summary",
+                "repair_requirements",
+                "repair_evidence",
+            },
             "repair_and_resume.md": {
                 "workflow_goal",
                 "return_stage_id",
-                "repair_reason",
+                "repair_category",
                 "repair_summary",
+                "repair_requirements",
+                "repair_evidence",
             },
             "finalize_summary.md": {"workflow_goal"},
         }

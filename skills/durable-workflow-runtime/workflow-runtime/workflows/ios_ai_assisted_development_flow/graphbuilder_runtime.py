@@ -277,21 +277,19 @@ def build_template_context(*, step_id: str, run_state) -> dict:
         run_state.graph_state if isinstance(run_state.graph_state, dict) else {}
     )
     repair_context = state.repair_context if isinstance(state.repair_context, dict) else {}
+    repair_payload = repair_context.get("repair_payload")
+    if not isinstance(repair_payload, dict):
+        repair_payload = {}
     context = _template_context_from_state(state)
     context.update(
         {
             "current_step_id": step_id,
             "return_stage_id": state.return_stage_id or "",
             "source_stage_id": str(repair_context.get("source_stage_id") or ""),
-            "repair_reason": str(repair_context.get("repair_reason") or ""),
-            "repair_summary": str(repair_context.get("summary") or ""),
-            "blocked_reason": str(repair_context.get("blocked_reason") or ""),
-            "error_message": str(repair_context.get("error_message") or ""),
-            "missing_inputs": _format_prompt_list(repair_context.get("missing_inputs")),
-            "missing_artifacts": _format_prompt_list(repair_context.get("missing_artifacts")),
-            "repair_failed_commands": _format_prompt_list(repair_context.get("failed_commands")),
-            "repair_failing_checks": _format_prompt_value(repair_context.get("failing_checks")),
-            "repair_details_json": _format_prompt_value(repair_context.get("details")),
+            "repair_category": str(repair_payload.get("category") or ""),
+            "repair_summary": str(repair_payload.get("summary") or ""),
+            "repair_requirements": _format_prompt_list(repair_payload.get("requirements")),
+            "repair_evidence": _format_prompt_list(repair_payload.get("evidence")),
         }
     )
     return context

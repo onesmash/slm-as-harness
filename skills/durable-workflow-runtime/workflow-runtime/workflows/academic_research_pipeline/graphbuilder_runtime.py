@@ -294,6 +294,9 @@ def build_template_context(*, step_id: str, run_state) -> dict:
         run_state.graph_state if isinstance(run_state.graph_state, dict) else {}
     )
     repair_context = state.repair_context if isinstance(state.repair_context, dict) else {}
+    repair_payload = repair_context.get("repair_payload")
+    if not isinstance(repair_payload, dict):
+        repair_payload = {}
     return {
         "research_goal": state.research_goal or "",
         "entry_stage": state.entry_stage or "",
@@ -326,15 +329,10 @@ def build_template_context(*, step_id: str, run_state) -> dict:
         "allow_format_render": str(state.allow_format_render),
         "return_stage_id": state.return_stage_id or "",
         "source_stage_id": str(repair_context.get("source_stage_id", "")),
-        "repair_reason": str(repair_context.get("repair_reason", "")),
-        "repair_summary": str(repair_context.get("summary", "")),
-        "blocked_reason": str(repair_context.get("blocked_reason", "")),
-        "missing_inputs": _format_prompt_list(repair_context.get("missing_inputs")),
-        "open_questions": _format_prompt_list(repair_context.get("open_questions")),
-        "suspected_failure_modes": _format_prompt_list(repair_context.get("suspected_failure_modes")),
-        "high_warn_annotations": _format_prompt_list(repair_context.get("high_warn_annotations")),
-        "critical_issues": _format_issue_list(repair_context.get("critical_issues")),
-        "residual_issues": _format_issue_list(repair_context.get("residual_issues")),
+        "repair_category": str(repair_payload.get("category", "")),
+        "repair_summary": str(repair_payload.get("summary", "")),
+        "repair_requirements": _format_prompt_list(repair_payload.get("requirements")),
+        "repair_evidence": _format_prompt_list(repair_payload.get("evidence")),
     }
 
 

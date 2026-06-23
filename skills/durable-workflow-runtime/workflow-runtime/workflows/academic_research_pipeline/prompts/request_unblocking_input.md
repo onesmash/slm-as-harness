@@ -5,15 +5,16 @@
 
 来源阶段：`{{source_stage_id}}`
 应返回阶段：`{{return_stage_id}}`
+修复类别：{{repair_category}}
 
-阻塞原因：
-{{blocked_reason}}
+修复摘要：
+{{repair_summary}}
 
-缺少输入：
-{{missing_inputs}}
+需要用户补充的输入、材料或授权：
+{{repair_requirements}}
 
-未决问题：
-{{open_questions}}
+相关证据：
+{{repair_evidence}}
 
 请向用户清楚说明：
 - 当前不能继续的原因。
