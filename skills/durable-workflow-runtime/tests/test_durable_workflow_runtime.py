@@ -1780,6 +1780,97 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             "recheck_runtime_scaffold",
         )
 
+    def test_ios_workflow_engine_verifier_failed_yield_surfaces_retry_context(self) -> None:
+        from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
+
+        engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
+        start_response = engine.start("ios_ai_assisted_development_flow", self._start_request())
+
+        response = engine.resume(
+            start_response["run_id"],
+            {
+                "run_id": start_response["run_id"],
+                "step_id": "run_brainstorming",
+                "status": "succeeded",
+                "summary": "Brainstorming completed but still has unresolved open questions.",
+                "structured_output": {
+                    "clarification_questions": ["What user-visible behavior should change?"],
+                    "clarification_answers_summary": "The user confirmed behavior, scope, and success criteria.",
+                    "design_presented": True,
+                    "user_approved_design": True,
+                    "design_approved": True,
+                    "approved_design_summary": "Approved design summary.",
+                    "approved_design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
+                    "ui_surface_affected": False,
+                    "spec_review_loop_completed": True,
+                    "spec_review_perspectives": ["development", "design", "testing"],
+                    "spec_review_findings_summary": "Development, design, and testing reviews passed.",
+                    "spec_review_subagent_summaries": [
+                        "Development review passed.",
+                        "Design review passed.",
+                        "Testing review passed.",
+                    ],
+                    "open_questions": [
+                        "Brainstorming open_questions must be empty before OpenSpec formalization."
+                    ],
+                    "ready_for_openspec": True,
+                },
+                "artifacts": [],
+                "error": None,
+                "tool_trace": [],
+                "raw_output": "",
+            },
+        )
+
+        self.assertEqual(response["kind"], "yield")
+        self.assertEqual(response["step_id"], "run_brainstorming")
+        self.assertEqual(response["retry_context"]["category"], "verifier_failed")
+        self.assertIn(
+            "open_questions must be empty",
+            response["retry_context"]["summary"],
+        )
+        self.assertIn(
+            "open_questions must be empty",
+            response["retry_context"]["requirements"][0],
+        )
+
+    def test_ios_workflow_engine_blocked_yield_surfaces_retry_context(self) -> None:
+        from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
+
+        engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
+        start_response = engine.start("ios_ai_assisted_development_flow", self._start_request())
+
+        response = engine.resume(
+            start_response["run_id"],
+            {
+                "run_id": start_response["run_id"],
+                "step_id": "run_brainstorming",
+                "status": "blocked",
+                "summary": "Need user confirmation on the target screen before the design can continue.",
+                "structured_output": {
+                    "blocked_reason": "waiting for target screen confirmation",
+                    "missing_inputs": ["target screen confirmation"],
+                    "open_questions": ["Which screen should change?"],
+                },
+                "artifacts": [],
+                "error": None,
+                "tool_trace": [],
+                "raw_output": "",
+            },
+        )
+
+        self.assertEqual(response["kind"], "yield")
+        self.assertEqual(response["step_id"], "request_unblocking_input")
+        self.assertEqual(response["retry_context"]["category"], "blocked")
+        self.assertEqual(
+            response["retry_context"]["summary"],
+            "waiting for target screen confirmation",
+        )
+        self.assertEqual(
+            response["retry_context"]["requirements"],
+            ["target screen confirmation"],
+        )
+
     def test_graphbuilder_engine_cross_instance_resume_blocked_returns_next_yield(self) -> None:
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
@@ -3234,6 +3325,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertIn("test_recovery_success_returns_to_critique", generated_test_text)
             self.assertIn("test_generated_request_unblocking_input_resumes_to_return_stage", generated_test_text)
             self.assertIn("test_generated_repair_and_resume_without_return_stage_stays_put", generated_test_text)
+            self.assertIn(
+                "test_generated_blocked_repair_context_preserves_host_visible_summary",
+                generated_test_text,
+            )
             self.assertIn("repo_root=str(REPO_ROOT)", generated_test_text)
             self.assertNotIn("run_primary_stage", contract_text)
             self.assertNotIn('next_node=state.get("return_stage_id") or', policy_text)
@@ -3290,6 +3385,126 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 generated_test_result.returncode,
                 0,
                 msg=generated_test_result.stderr,
+            )
+
+            blocked_runtime_result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "\n".join(
+                        [
+                            "import json",
+                            "from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine",
+                            f"engine = GraphBuilderRuntimeEngine({str(runtime_root)!r})",
+                            "response = engine.start(",
+                            "    'paper_review_flow',",
+                            "    {'task_input': {'goal': 'generated workflow regression'}, 'context': {'repo_root': "
+                            + repr(str(runtime_root))
+                            + "}, 'constraints': {'max_steps': 5}},",
+                            ")",
+                            "run_id = response['run_id']",
+                            "response = engine.resume(",
+                            "    run_id,",
+                            "    {",
+                            "        'run_id': run_id,",
+                            "        'step_id': 'collect_review_context',",
+                            "        'status': 'blocked',",
+                            "        'summary': 'Need manuscript before context collection can continue.',",
+                            "        'structured_output': {'blocked_reason': 'awaiting manuscript', 'missing_inputs': ['manuscript']},",
+                            "        'artifacts': [],",
+                            "        'error': None,",
+                            "        'tool_trace': [],",
+                            "        'raw_output': '',",
+                            "    },",
+                            ")",
+                            "print(json.dumps(response, ensure_ascii=False))",
+                        ]
+                    ),
+                ],
+                cwd=runtime_root,
+                capture_output=True,
+                text=True,
+                env=generated_test_env,
+            )
+            self.assertEqual(blocked_runtime_result.returncode, 0, msg=blocked_runtime_result.stderr)
+            blocked_runtime_payload = json.loads(blocked_runtime_result.stdout)
+            self.assertEqual(blocked_runtime_payload["kind"], "yield")
+            self.assertEqual(blocked_runtime_payload["step_id"], "request_unblocking_input")
+            self.assertEqual(blocked_runtime_payload["retry_context"]["category"], "blocked")
+            self.assertEqual(blocked_runtime_payload["retry_context"]["summary"], "awaiting manuscript")
+            self.assertEqual(
+                blocked_runtime_payload["retry_context"]["requirements"],
+                ["manuscript"],
+            )
+
+            verifier_runtime_result = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "\n".join(
+                        [
+                            "import json",
+                            "from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine",
+                            f"engine = GraphBuilderRuntimeEngine({str(runtime_root)!r})",
+                            "response = engine.start(",
+                            "    'paper_review_flow',",
+                            "    {'task_input': {'goal': 'generated workflow regression'}, 'context': {'repo_root': "
+                            + repr(str(runtime_root))
+                            + "}, 'constraints': {'max_steps': 5}},",
+                            ")",
+                            "run_id = response['run_id']",
+                            "response = engine.resume(",
+                            "    run_id,",
+                            "    {",
+                            "        'run_id': run_id,",
+                            "        'step_id': 'collect_review_context',",
+                            "        'status': 'succeeded',",
+                            "        'summary': 'Context is ready for critique.',",
+                            "        'structured_output': {'review_scope': 'Draft review', 'missing_inputs': [], 'ready_for_critique': True},",
+                            "        'artifacts': [],",
+                            "        'error': None,",
+                            "        'tool_trace': [],",
+                            "        'raw_output': '',",
+                            "    },",
+                            ")",
+                            "response = engine.resume(",
+                            "    run_id,",
+                            "    {",
+                            "        'run_id': run_id,",
+                            "        'step_id': 'run_structured_critique',",
+                            "        'status': 'succeeded',",
+                            "        'summary': 'Critique done but risk classification is invalid.',",
+                            "        'structured_output': {'findings': ['Claim lacks support.'], 'overall_risk': 'unknown', 'ready_for_synthesis': True},",
+                            "        'artifacts': [],",
+                            "        'error': None,",
+                            "        'tool_trace': [],",
+                            "        'raw_output': '',",
+                            "    },",
+                            ")",
+                            "print(json.dumps(response, ensure_ascii=False))",
+                        ]
+                    ),
+                ],
+                cwd=runtime_root,
+                capture_output=True,
+                text=True,
+                env=generated_test_env,
+            )
+            self.assertEqual(verifier_runtime_result.returncode, 0, msg=verifier_runtime_result.stderr)
+            verifier_runtime_payload = json.loads(verifier_runtime_result.stdout)
+            self.assertEqual(verifier_runtime_payload["kind"], "yield")
+            self.assertEqual(verifier_runtime_payload["step_id"], "repair_structured_critique")
+            self.assertEqual(
+                verifier_runtime_payload["retry_context"]["category"],
+                "verifier_failed",
+            )
+            self.assertIn(
+                "overall_risk must be low, medium, or high",
+                verifier_runtime_payload["retry_context"]["summary"],
+            )
+            self.assertIn(
+                "overall_risk must be low, medium, or high",
+                verifier_runtime_payload["retry_context"]["requirements"][0],
             )
 
     def test_workflow_creator_cli_rejects_existing_workflow_without_force(self) -> None:
