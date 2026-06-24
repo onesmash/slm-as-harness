@@ -6,7 +6,6 @@ Stage Context:
 - Plan summary: {{plan_summary}}
 - Approved design path: {{approved_design_path}}
 - Approved design summary: {{approved_design_summary}}
-- Plan approval feedback: {{plan_user_feedback}}
 - Plan revision reason: {{plan_revision_reason}}
 - Latest completed tasks: {{implementation_completed_tasks}}
 - Latest remaining tasks: {{implementation_remaining_tasks}}

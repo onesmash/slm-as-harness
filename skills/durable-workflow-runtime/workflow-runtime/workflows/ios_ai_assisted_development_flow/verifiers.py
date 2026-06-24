@@ -24,12 +24,8 @@ def verify_run_brainstorming(
  'approved_design_summary': 'string',
  'approved_design_path': 'string',
  'ui_surface_affected': 'boolean',
- 'spec_review_loop_completed': 'boolean',
- 'spec_review_perspectives': 'string[]',
- 'spec_review_findings_summary': 'string',
- 'spec_review_subagent_summaries': 'string[]',
  'open_questions': 'string[]',
- 'ready_for_planning': 'boolean'},
+ 'ready_for_subagent_review': 'boolean'},
         optional_schema={'visual_spec_detail_summary': 'string',
  'design_comparison_source': 'string',
  'runtime_visual_comparison_scope': 'string'},
@@ -58,19 +54,10 @@ def verify_run_brainstorming(
   'operator': 'path_exists',
   'value': None,
   'message': 'Brainstorming must create the approved design document before continuing.'},
- {'output_key': 'ready_for_planning',
+ {'output_key': 'ready_for_subagent_review',
   'operator': 'is_true',
   'value': None,
-  'message': 'Brainstorming must declare the change ready for implementation planning.'},
- {'output_key': 'spec_review_loop_completed',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'Brainstorming must complete the required spec review loop before continuing.'},
- {'output_key': 'spec_review_findings_summary',
-  'operator': 'truthy',
-  'value': None,
-  'message': 'Brainstorming must summarize the development, design, and testing spec review '
-             'findings.'},
+  'message': 'Brainstorming must declare the change ready for subagent review authorization.'},
  {'output_key': 'open_questions',
   'operator': 'empty',
   'value': None,
@@ -93,7 +80,95 @@ def verify_run_brainstorming(
   'message': 'If ui_surface_affected is true, runtime_visual_comparison_scope is required.',
   'when': {'output_key': 'ui_surface_affected', 'operator': 'is_true', 'value': None},
   'required_key': 'runtime_visual_comparison_scope'},
- {'id': 'spec_review_requires_three_perspectives',
+ {'id': 'approved_design_path_repo_policy',
+  'template': 'repo_path_policy',
+  'output_key': 'approved_design_path',
+  'message': 'approved_design_path must point to a Markdown document under docs/superpowers/specs/ '
+             'and must not point at docs/superpowers/plans/ artifacts.',
+  'required_prefix': 'docs/superpowers/specs/',
+  'forbidden_prefixes': ['docs/superpowers/plans/'],
+  'required_suffix': '.md'}],
+        observation=observation,
+        repo_root=repo_root,
+        state=state,
+    )
+    if not result["passed"]:
+        return result
+    return result
+
+def verify_approve_subagent_review(
+    *,
+    repo_root: str,
+    run_id: str,
+    step_id: str,
+    observation: dict,
+    state: dict | None = None,
+) -> VerifierResult:
+    result = _verify_structured_output_schema(
+        run_id=run_id,
+        step_id=step_id,
+        required_schema={'subagent_review_approved': 'boolean',
+ 'authorization_summary': 'string',
+ 'ready_for_spec_review': 'boolean'},
+        optional_schema={},
+        verifier_rules=[{'output_key': 'authorization_summary',
+  'operator': 'truthy',
+  'value': None,
+  'message': "The workflow must record a summary of the user's subagent review authorization "
+             'decision.'}],
+        verifier_templates=[{'id': 'approved_authorization_requires_ready_for_spec_review',
+  'template': 'conditional_equals',
+  'output_key': 'ready_for_spec_review',
+  'message': 'If subagent_review_approved is true, ready_for_spec_review must be true.',
+  'when': {'output_key': 'subagent_review_approved', 'operator': 'is_true', 'value': None},
+  'expected_value': True},
+ {'id': 'declined_authorization_clears_ready_for_spec_review',
+  'template': 'conditional_equals',
+  'output_key': 'ready_for_spec_review',
+  'message': 'If subagent_review_approved is false, ready_for_spec_review must be false.',
+  'when': {'output_key': 'subagent_review_approved', 'operator': 'is_false', 'value': None},
+  'expected_value': False}],
+        observation=observation,
+        repo_root=repo_root,
+        state=state,
+    )
+    if not result["passed"]:
+        return result
+    return result
+
+def verify_run_spec_review(
+    *,
+    repo_root: str,
+    run_id: str,
+    step_id: str,
+    observation: dict,
+    state: dict | None = None,
+) -> VerifierResult:
+    result = _verify_structured_output_schema(
+        run_id=run_id,
+        step_id=step_id,
+        required_schema={'spec_review_loop_completed': 'boolean',
+ 'spec_review_perspectives': 'string[]',
+ 'spec_review_findings_summary': 'string',
+ 'spec_review_subagent_summaries': 'string[]',
+ 'spec_review_artifact_paths': 'string[]',
+ 'open_questions': 'string[]',
+ 'ready_for_planning': 'boolean'},
+        optional_schema={},
+        verifier_rules=[{'output_key': 'spec_review_loop_completed',
+  'operator': 'is_true',
+  'value': None,
+  'message': 'The subagent spec review loop must complete before implementation planning.'},
+ {'output_key': 'spec_review_findings_summary',
+  'operator': 'truthy',
+  'value': None,
+  'message': 'The workflow must summarize the development, design, and testing spec review '
+             'findings.'},
+ {'output_key': 'spec_review_artifact_paths',
+  'operator': 'non_empty',
+  'value': None,
+  'message': 'The workflow must return the concrete subagent review artifact paths.'}],
+        verifier_templates=[{'id': 'spec_review_requires_three_perspectives',
   'template': 'min_count',
   'output_key': 'spec_review_perspectives',
   'message': 'Spec review must include at least development, design, and testing perspectives.',
@@ -103,26 +178,37 @@ def verify_run_brainstorming(
   'output_key': 'spec_review_subagent_summaries',
   'message': 'Spec review must include summaries from three independent review subagents.',
   'min_count': 3},
- {'id': 'approved_design_path_repo_policy',
-  'template': 'repo_path_policy',
-  'output_key': 'approved_design_path',
-  'message': 'approved_design_path must point to a Markdown document under docs/superpowers/specs/ '
-             'and must not point at docs/superpowers/plans/ artifacts.',
-  'required_prefix': 'docs/superpowers/specs/',
-  'forbidden_prefixes': ['docs/superpowers/plans/'],
-  'required_suffix': '.md'},
+ {'id': 'spec_review_requires_three_artifacts',
+  'template': 'min_count',
+  'output_key': 'spec_review_artifact_paths',
+  'message': 'Spec review must hand in three concrete subagent review artifacts.',
+  'min_count': 3},
  {'id': 'spec_review_requires_named_perspectives',
   'template': 'required_set_members',
   'output_key': 'spec_review_perspectives',
   'message': 'Spec review must include development, design, and testing perspectives.',
   'required_members': ['development', 'design', 'testing'],
-  'case_sensitive': False}],
+  'case_sensitive': False},
+ {'id': 'planning_ready_requires_open_questions_cleared',
+  'template': 'conditional_equals',
+  'output_key': 'open_questions',
+  'message': 'If ready_for_planning is true, open_questions must be empty.',
+  'when': {'output_key': 'ready_for_planning', 'operator': 'is_true', 'value': None},
+  'expected_value': []}],
         observation=observation,
         repo_root=repo_root,
         state=state,
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_run_spec_review(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
 
 def verify_write_implementation_plan(
@@ -188,40 +274,6 @@ def verify_write_implementation_plan(
     )
     if custom_error is not None:
         return _fail(custom_error, run_id, step_id, state)
-    return result
-
-def verify_approve_plan(
-    *,
-    repo_root: str,
-    run_id: str,
-    step_id: str,
-    observation: dict,
-    state: dict | None = None,
-) -> VerifierResult:
-    result = _verify_structured_output_schema(
-        run_id=run_id,
-        step_id=step_id,
-        required_schema={'user_approved': 'boolean', 'additional_planning_needed': 'boolean'},
-        optional_schema={'user_feedback': 'string'},
-        verifier_rules=[],
-        verifier_templates=[{'id': 'approved_clears_additional_planning',
-  'template': 'conditional_equals',
-  'output_key': 'additional_planning_needed',
-  'message': 'If user_approved is true, additional_planning_needed must be false.',
-  'when': {'output_key': 'user_approved', 'operator': 'is_true', 'value': None},
-  'expected_value': False},
- {'id': 'rejected_requires_additional_planning',
-  'template': 'conditional_equals',
-  'output_key': 'additional_planning_needed',
-  'message': 'If user_approved is false, additional_planning_needed must be true.',
-  'when': {'output_key': 'user_approved', 'operator': 'is_false', 'value': None},
-  'expected_value': True}],
-        observation=observation,
-        repo_root=repo_root,
-        state=state,
-    )
-    if not result["passed"]:
-        return result
     return result
 
 def verify_execute_implementation(
@@ -479,6 +531,66 @@ def verify_verify_completion(
         return _fail(custom_error, run_id, step_id, state)
     return result
 
+def _run_custom_verifier_requirements_run_spec_review(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_run_spec_review_spec_review_outputs_require_artifacts(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+def _custom_verifier_requirement_run_spec_review_spec_review_outputs_require_artifacts(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+
+Requirement: The review stage must hand in concrete subagent review artifacts so the workflow can verify that development, design, and testing reviews really happened.
+Signals: spec_review_perspectives, spec_review_subagent_summaries, spec_review_artifact_paths
+Implementation surfaces: verifier, tests
+Hint pseudocode:
+- Require at least three non-empty artifact paths.
+- Require each artifact path to exist under docs/superpowers/specs/ and end with .md.
+- Require the combined artifact paths to clearly cover development, design, and testing review outputs.
+Test intent:
+- Reject review output that provides review summaries without artifact paths.
+- Reject review output whose artifact paths do not exist or do not cover development, design, and testing.
+- Accept review output that hands in concrete review artifacts for all three perspectives."""
+    artifact_paths = _meaningful_entries(output.get("spec_review_artifact_paths"))
+    if len(artifact_paths) < 3:
+        return "spec_review_artifact_paths must contain at least three concrete artifact paths"
+
+    required_prefix = Path("docs/superpowers/specs")
+    missing_perspectives = {"development", "design", "testing"}
+    repo_root_path = Path(repo_root)
+    for artifact_path in artifact_paths:
+        artifact = Path(artifact_path)
+        if artifact.suffix != ".md":
+            return "spec review artifacts must be Markdown files"
+        if not _path_has_prefix(artifact, required_prefix):
+            return "spec review artifacts must live under docs/superpowers/specs/"
+        if not (repo_root_path / artifact).exists():
+            return f"spec review artifact does not exist: {artifact_path}"
+        lowered = artifact_path.lower()
+        missing_perspectives = {
+            perspective for perspective in missing_perspectives if perspective not in lowered
+        }
+
+    if missing_perspectives:
+        joined = ", ".join(sorted(missing_perspectives))
+        return f"spec review artifacts must clearly cover these perspectives: {joined}"
+    return None
+
 def _run_custom_verifier_requirements_write_implementation_plan(
     *,
     output: dict,
@@ -510,38 +622,29 @@ Hint pseudocode:
 - Normalize execution_mode to lowercase.
 - Accept only subagent-driven or subagent-driven-development as implementation-ready modes.
 - If execution_mode is inline, reject the output or require ready_for_implementation to remain false.
-- If plan_user_feedback, plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
+- If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
 Test intent:
 - Reject planning outputs that pick inline execution while claiming implementation is ready.
 - Accept planning outputs that record subagent-driven execution with a reviewed plan.
-- Reject replanning output that ignores recorded user feedback or plan-update reasons when such context exists in state."""
-    _ = repo_root
-    state = state or {}
-    execution_mode = _normalized_text(output.get("execution_mode")).lower()
-    ready_for_implementation = output.get("ready_for_implementation") is True
-    allowed_ready_modes = {"subagent-driven", "subagent-driven-development"}
-    if ready_for_implementation and execution_mode not in allowed_ready_modes:
-        return (
-            "Implementation planning may continue only with a subagent-driven execution_mode "
-            "when ready_for_implementation is true."
+- Reject replanning output that ignores recorded plan-update or implementation-learned reasons when such context exists in state."""
+    execution_mode = str(output.get("execution_mode") or "").strip().lower()
+    ready_for_implementation = bool(output.get("ready_for_implementation"))
+    allowed_modes = {"subagent-driven", "subagent-driven-development"}
+    if ready_for_implementation and execution_mode not in allowed_modes:
+        return "ready_for_implementation requires execution_mode to be subagent-driven"
+
+    replanning_state_present = False
+    if isinstance(state, dict):
+        replanning_state_present = bool(
+            str(state.get("plan_update_summary") or "").strip()
+            or str(state.get("debugging_summary") or "").strip()
+            or _meaningful_entries(state.get("open_issues"))
         )
-    replanning_context = any(
-        [
-            _normalized_text(state.get("plan_user_feedback")),
-            _normalized_text(state.get("plan_update_summary")),
-            _normalized_text(state.get("debugging_summary")),
-            _string_list_trimmed(state.get("open_issues")),
-        ]
-    )
-    if replanning_context:
-        revision_reason = _normalized_text(output.get("plan_revision_reason"))
-        plan_summary = _normalized_text(output.get("plan_summary")).lower()
-        summary_markers = ("revis", "replan", "feedback", "update", "issue", "debug", "owner", "follow-up")
-        if not revision_reason and not any(marker in plan_summary for marker in summary_markers):
-            return (
-                "Replanning output must acknowledge recorded user feedback or implementation "
-                "learned issues via plan_revision_reason or plan_summary."
-            )
+    if replanning_state_present:
+        plan_revision_reason = str(output.get("plan_revision_reason") or "").strip()
+        plan_summary = str(output.get("plan_summary") or "").strip().lower()
+        if not plan_revision_reason and "replan" not in plan_summary and "revis" not in plan_summary:
+            return "replanning context requires plan_revision_reason or an explicit replanning acknowledgement"
     return None
 
 def _run_custom_verifier_requirements_execute_implementation(
@@ -579,23 +682,16 @@ Test intent:
 - Reject outputs that set tasks_completed=true while still listing remaining_tasks.
 - Reject unfinished implementation outputs that provide neither a remaining task list nor a planning reason.
 - Reject implementation outputs that fail verification without explicitly routing back for plan updates."""
-    _ = state, repo_root
-    tasks_completed = output.get("tasks_completed") is True
-    remaining_tasks = _string_list_trimmed(output.get("remaining_tasks"))
-    plan_updates_required = output.get("plan_updates_required") is True
-    verification_passed = output.get("verification_passed") is True
+    tasks_completed = bool(output.get("tasks_completed"))
+    plan_updates_required = bool(output.get("plan_updates_required"))
+    verification_passed = bool(output.get("verification_passed"))
+    remaining_tasks = _meaningful_entries(output.get("remaining_tasks"))
     if tasks_completed and remaining_tasks:
-        return "Implementation cannot set tasks_completed=true while remaining_tasks is non-empty."
+        return "tasks_completed cannot be true when remaining_tasks is non-empty"
     if not tasks_completed and not plan_updates_required and not remaining_tasks:
-        return (
-            "Implementation retries must list remaining_tasks unless they are explicitly routing "
-            "back for plan updates."
-        )
+        return "unfinished implementation must report remaining_tasks or request plan updates"
     if not verification_passed and not plan_updates_required:
-        return (
-            "Implementation verification cannot fail unless the output is explicitly routing "
-            "back for plan updates."
-        )
+        return "verification_passed cannot be false unless the output explicitly routes back for plan updates"
     return None
 
 def _run_custom_verifier_requirements_run_agentic_release_qa(
@@ -639,23 +735,22 @@ Hint pseudocode:
 Test intent:
 - Reject UI-impacting release QA output that omits all visual comparison evidence despite having comparison inputs.
 - Accept UI-impacting release QA output when visual comparison evidence appears in executed checks, blocked checks, or artifacts."""
-    _ = repo_root
     state = state or {}
-    ui_surface_affected = state.get("ui_surface_affected") is True
-    design_comparison_source = _normalized_text(state.get("design_comparison_source"))
-    runtime_visual_scope = _normalized_text(state.get("runtime_visual_comparison_scope"))
-    if not (ui_surface_affected and design_comparison_source and runtime_visual_scope):
-        return None
-    evidence_lines = (
-        _string_list_trimmed(output.get("release_qa_executed_checks"))
-        + _string_list_trimmed(output.get("release_qa_blocked_checks"))
-        + _string_list_trimmed(output.get("release_qa_artifacts"))
+    should_require_visual_evidence = bool(
+        state.get("ui_surface_affected")
+        and str(state.get("design_comparison_source") or "").strip()
+        and str(state.get("runtime_visual_comparison_scope") or "").strip()
     )
-    if not any(_looks_like_visual_evidence(item) for item in evidence_lines):
-        return (
-            "UI-impacting release QA must report explicit visual comparison evidence when "
-            "design and runtime comparison inputs are available."
-        )
+    if not should_require_visual_evidence:
+        return None
+
+    evidence_items = (
+        _meaningful_entries(output.get("release_qa_executed_checks"))
+        + _meaningful_entries(output.get("release_qa_blocked_checks"))
+        + _meaningful_entries(output.get("release_qa_artifacts"))
+    )
+    if not any(_looks_like_visual_evidence(item) for item in evidence_items):
+        return "UI-impacting release QA must report explicit visual comparison evidence"
     return None
 
 def _custom_verifier_requirement_run_agentic_release_qa_release_qa_lists_require_meaningful_entries(
@@ -677,16 +772,16 @@ Hint pseudocode:
 Test intent:
 - Reject ship outputs with whitespace-only executed checks or next steps.
 - Reject outputs with whitespace-only blocked checks."""
-    _ = state, repo_root
-    verdict = _normalized_text(output.get("release_qa_verdict")).lower()
-    executed_checks = _string_list_trimmed(output.get("release_qa_executed_checks"))
-    risk_next_steps = _string_list_trimmed(output.get("release_qa_risk_next_steps"))
-    if verdict == "ship" and not executed_checks:
-        return "Release QA ship outputs must contain meaningful executed checks."
-    if not risk_next_steps:
-        return "Release QA outputs must contain meaningful risk-based next steps."
-    if _list_has_only_blank_placeholders(output.get("release_qa_blocked_checks")):
-        return "Release QA blocked checks must not contain only blank placeholders."
+    verdict = str(output.get("release_qa_verdict") or "").strip().lower()
+    executed_checks_raw = output.get("release_qa_executed_checks") or []
+    blocked_checks_raw = output.get("release_qa_blocked_checks") or []
+    next_steps_raw = output.get("release_qa_risk_next_steps") or []
+    if verdict == "ship" and not _meaningful_entries(executed_checks_raw):
+        return "ship release QA output must include meaningful executed checks"
+    if not _meaningful_entries(next_steps_raw):
+        return "release QA must include meaningful risk next steps"
+    if isinstance(blocked_checks_raw, list) and blocked_checks_raw and not _meaningful_entries(blocked_checks_raw):
+        return "release QA blocked checks cannot be blank placeholders"
     return None
 
 def _run_custom_verifier_requirements_request_pre_merge_code_review(
@@ -729,14 +824,14 @@ Hint pseudocode:
 Test intent:
 - Reject change-requested findings that omit any severity marker.
 - Accept findings that carry an explicit severity prefix."""
-    _ = state, repo_root
-    findings = _string_list_trimmed(output.get("findings"))
+    findings = _meaningful_entries(output.get("findings"))
+    if not findings:
+        return None
+    severity_markers = ("critical", "high", "medium", "low", "major", "minor")
     for finding in findings:
-        if not _has_severity_marker(finding):
-            return (
-                "Review findings must include an explicit severity marker such as critical, "
-                "high, medium, low, major, or minor."
-            )
+        lowered = finding.lower()
+        if not any(marker in lowered for marker in severity_markers):
+            return "review findings must include an explicit severity marker"
     return None
 
 def _custom_verifier_requirement_request_pre_merge_code_review_findings_require_meaningful_entries(
@@ -755,11 +850,10 @@ Hint pseudocode:
 - If review_status is changes_requested, reject findings that become empty after trimming.
 Test intent:
 - Reject changes_requested outputs whose findings are only blank strings."""
-    _ = state, repo_root
-    review_status = _normalized_text(output.get("review_status")).lower()
-    findings = _string_list_trimmed(output.get("findings"))
-    if review_status == "changes_requested" and not findings:
-        return "Review findings must contain meaningful non-empty entries when changes are requested."
+    review_status = str(output.get("review_status") or "").strip().lower()
+    findings_raw = output.get("findings") or []
+    if review_status == "changes_requested" and not _meaningful_entries(findings_raw):
+        return "changes_requested review output must include meaningful findings"
     return None
 
 def _run_custom_verifier_requirements_verify_completion(
@@ -803,19 +897,18 @@ Hint pseudocode:
 Test intent:
 - Reject passing completion output with blank evidence items.
 - Reject failed completion output whose remaining_risks are only blank placeholders."""
-    _ = state, repo_root
-    verification_passed = output.get("verification_passed") is True
-    verification_evidence = _string_list_trimmed(output.get("verification_evidence"))
-    if not verification_evidence:
-        return "Completion verification must include meaningful verification evidence entries."
+    verification_evidence_raw = output.get("verification_evidence") or []
+    if not _meaningful_entries(verification_evidence_raw):
+        return "completion verification must include meaningful evidence entries"
+
+    verification_passed = bool(output.get("verification_passed"))
     if not verification_passed:
-        if _list_has_only_blank_placeholders(output.get("remaining_risks")):
-            return "remaining_risks must not contain only blank placeholders when verification fails."
-        if _list_has_only_blank_placeholders(output.get("missing_verification_inputs")):
-            return (
-                "missing_verification_inputs must not contain only blank placeholders when "
-                "verification fails."
-            )
+        remaining_risks_raw = output.get("remaining_risks") or []
+        if isinstance(remaining_risks_raw, list) and remaining_risks_raw and not _meaningful_entries(remaining_risks_raw):
+            return "remaining_risks cannot contain only blank placeholders"
+        missing_inputs_raw = output.get("missing_verification_inputs") or []
+        if isinstance(missing_inputs_raw, list) and missing_inputs_raw and not _meaningful_entries(missing_inputs_raw):
+            return "missing_verification_inputs cannot contain only blank placeholders"
     return None
 
 def _custom_verifier_requirement_verify_completion_completion_requires_release_qa_and_review_approval(
@@ -841,41 +934,56 @@ Test intent:
 - Reject passing completion output when unresolved open_issues are still recorded in state.
 - Reject passing completion output when release QA blocked checks are still unresolved.
 - Accept passing completion output when release QA blocked checks were rechecked and explicitly resolved."""
-    _ = repo_root
-    state = state or {}
-    if output.get("verification_passed") is not True:
+    if not bool(output.get("verification_passed")):
         return None
-    release_qa_verdict = _normalized_text(state.get("release_qa_verdict")).lower()
-    if release_qa_verdict != "ship":
-        return "Completion cannot pass until release QA reaches a ship verdict in persisted state."
-    review_status = _normalized_text(state.get("review_status")).lower()
-    if review_status != "approved":
-        return "Completion cannot pass until pre-merge review reaches approved in persisted state."
-    if _string_list_trimmed(state.get("open_issues")):
-        return "Completion cannot pass while persisted open_issues remains non-empty."
-    release_qa_blocked_checks = _string_list_trimmed(state.get("release_qa_blocked_checks"))
-    release_qa_risk_next_steps = _string_list_trimmed(state.get("release_qa_risk_next_steps"))
-    release_qa_risks_resolved = output.get("release_qa_risks_resolved") is True
-    release_qa_risk_resolution_summary = _normalized_text(output.get("release_qa_risk_resolution_summary"))
-    if release_qa_blocked_checks and not release_qa_risks_resolved:
-        return (
-            "Completion cannot pass while persisted release QA blocked checks remain unresolved; "
-            "set release_qa_risks_resolved only after rechecking them."
-        )
-    unresolved_release_qa_risk_steps = [
-        step for step in release_qa_risk_next_steps if _looks_like_unresolved_release_qa_risk(step)
-    ]
-    if unresolved_release_qa_risk_steps and not release_qa_risks_resolved:
-        return (
-            "Completion cannot pass while persisted release QA risk next steps remain unresolved; "
-            "set release_qa_risks_resolved only after rechecking them."
-        )
-    if release_qa_risks_resolved and not release_qa_risk_resolution_summary:
-        return (
-            "Completion must summarize how release QA blocked checks or risk next steps were "
-            "resolved before passing final verification."
-        )
+
+    state = state or {}
+    if str(state.get("release_qa_verdict") or "").strip().lower() != "ship":
+        return "completion cannot pass before release QA reaches ship"
+    if str(state.get("review_status") or "").strip().lower() != "approved":
+        return "completion cannot pass before pre-merge review reaches approved"
+    if _meaningful_entries(state.get("open_issues")):
+        return "completion cannot pass while open_issues remain in state"
+
+    blocked_checks = _meaningful_entries(state.get("release_qa_blocked_checks"))
+    unresolved_next_steps = _meaningful_entries(state.get("release_qa_risk_next_steps"))
+    risks_resolved = bool(output.get("release_qa_risks_resolved"))
+    risk_resolution_summary = str(output.get("release_qa_risk_resolution_summary") or "").strip()
+    if blocked_checks and not risks_resolved:
+        return "completion cannot pass while release QA blocked checks remain unresolved"
+    if unresolved_next_steps and not risks_resolved:
+        return "completion cannot pass while release QA next steps remain unresolved"
+    if risks_resolved and not risk_resolution_summary:
+        return "resolved release QA risks require a risk resolution summary"
     return None
+
+
+def _meaningful_entries(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _path_has_prefix(path: Path, prefix: Path) -> bool:
+    try:
+        path.relative_to(prefix)
+        return True
+    except ValueError:
+        return False
+
+
+def _looks_like_visual_evidence(value: str) -> bool:
+    lowered = value.lower()
+    tokens = (
+        "visual",
+        "screenshot",
+        "pixel",
+        "diff",
+        "design comparison",
+        "snapshot",
+        "figma",
+    )
+    return any(token in lowered for token in tokens)
 
 def _verify_structured_output_schema(
     *,
@@ -1100,98 +1208,6 @@ def _artifact_file_contains_sections_error(actual, template: dict, repo_root: st
     sections = [str(section) for section in template.get("sections") or []]
     missing = [section for section in sections if section not in text]
     return None if not missing else f"{message}: missing sections {missing}"
-
-
-def _normalized_text(value: object) -> str:
-    return value.strip() if isinstance(value, str) else ""
-
-
-def _string_list_trimmed(value: object) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [text for item in value if (text := _normalized_text(item))]
-
-
-def _list_has_only_blank_placeholders(value: object) -> bool:
-    return isinstance(value, list) and bool(value) and not _string_list_trimmed(value)
-
-
-def _looks_like_visual_evidence(value: object) -> bool:
-    text = _normalized_text(value).lower()
-    if not text:
-        return False
-    keywords = (
-        "visual",
-        "pixel",
-        "screenshot",
-        "figma",
-        "design comparison",
-        "diff",
-        "snapshot",
-        "mock",
-        "baseline",
-    )
-    return any(keyword in text for keyword in keywords)
-
-
-def _has_severity_marker(value: object) -> bool:
-    text = _normalized_text(value).lower()
-    if not text:
-        return False
-    markers = (
-        "critical:",
-        "high:",
-        "medium:",
-        "low:",
-        "major:",
-        "minor:",
-        "[critical]",
-        "[high]",
-        "[medium]",
-        "[low]",
-        "[major]",
-        "[minor]",
-        "(critical)",
-        "(high)",
-        "(medium)",
-        "(low)",
-        "(major)",
-        "(minor)",
-    )
-    return text.startswith(("critical ", "high ", "medium ", "low ", "major ", "minor ")) or any(
-        marker in text for marker in markers
-    )
-
-
-def _looks_like_unresolved_release_qa_risk(value: object) -> bool:
-    text = _normalized_text(value).lower()
-    if not text:
-        return False
-    non_remediation_markers = (
-        "proceed to code review",
-        "no further action",
-        "none",
-        "no additional action",
-        "continue to review",
-        "continue to code review",
-    )
-    if any(marker in text for marker in non_remediation_markers):
-        return False
-    remediation_markers = (
-        "resolve",
-        "fix",
-        "rerun",
-        "re-run",
-        "investigate",
-        "capture",
-        "verify",
-        "confirm",
-        "address",
-        "remediate",
-        "soak",
-        "retry",
-    )
-    return any(marker in text for marker in remediation_markers)
 
 
 def _fail(message: str, run_id: str, step_id: str, state: dict | None) -> VerifierResult:

@@ -7,11 +7,15 @@ Stage Context:
 - Verification commands: {{verification_commands}}
 - Release QA verdict: {{release_qa_verdict}}
 - Release QA summary: {{release_qa_summary}}
+- Release QA executed checks: {{release_qa_executed_checks}}
 - Release QA target scope: {{release_qa_target_scope}}
 - Release QA blocked checks: {{release_qa_blocked_checks}}
 - Release QA risk next steps: {{release_qa_risk_next_steps}}
+- Release QA artifacts: {{release_qa_artifacts}}
 - Review status: {{review_status}}
+- Review summary: {{review_summary}}
 - Review findings: {{review_findings}}
+- Missing review inputs: {{missing_review_inputs}}
 - Open issues: {{open_issues}}
 - Latest release QA risk resolution summary: {{completion_release_qa_risk_resolution_summary}}
 

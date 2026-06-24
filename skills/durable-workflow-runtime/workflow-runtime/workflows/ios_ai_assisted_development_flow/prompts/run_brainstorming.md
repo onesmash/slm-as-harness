@@ -1,4 +1,4 @@
-/brainstorming {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce an approved design package under docs/superpowers/specs/ that is ready for implementation planning.
+/brainstorming {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce an approved design package under docs/superpowers/specs/ before any implementation planning begins.
 
 Stage Context:
 
@@ -16,8 +16,7 @@ Stage Boundaries:
 - Do not use implementation plan documents as the brainstorming design document.
 - If the approved request affects a user-visible UI surface, the spec must include implementation-ready visual detail: view hierarchy, per-element properties, typography, colors, spacing, padding, alignment, sizing, constraints, states, assets, interaction behavior, layout relationships, and measurable expectations detailed enough to support code generation and visual verification without guessing.
 - If the approved request affects a user-visible UI surface, the spec must name the design-comparison source for visual QA, such as a Figma frame, approved mock, or reference screenshot, and describe the expected app screenshot/view scope to capture for runtime visual comparison.
-- Complete the required spec review loop before handing back from this stage.
-- The review loop must include independent development, design, and testing perspectives, but the workflow prompt should describe that durable requirement without teaching each review lens its internal SOP.
+- Do not launch subagent review in this stage; the workflow will ask for explicit authorization in the next stage.
 
 Blocked Conditions:
 
@@ -26,4 +25,3 @@ Blocked Conditions:
 - Block if the requested change cannot be scoped to a concrete iOS Client objective.
 - Block if the approved spec document is written or finalized before the normal design-approval flow completes.
 - Block if a user-visible UI change lacks implementation-ready visual detail, a design-comparison source, or runtime screenshot/view scope.
-- Block if the three-perspective spec review loop has not completed or did not include development, design, and testing perspectives.

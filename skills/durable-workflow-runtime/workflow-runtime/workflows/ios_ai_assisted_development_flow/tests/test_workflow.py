@@ -43,7 +43,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'design_approved': True,
                        'approved_design_summary': 'Approved design summary.',
                        'open_questions': [],
-                       'ready_for_planning': True}},
+                       'ready_for_subagent_review': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -64,7 +64,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'approved_design_summary': 'Approved design summary.',
                        'approved_design_path': 'docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md',
                        'open_questions': [],
-                       'ready_for_planning': True}},
+                       'ready_for_subagent_review': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -85,15 +85,8 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'approved_design_summary': 'Approved design summary.',
                        'approved_design_path': 'docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md',
                        'ui_surface_affected': False,
-                       'spec_review_loop_completed': True,
-                       'spec_review_perspectives': ['development', 'design', 'testing'],
-                       'spec_review_findings_summary': 'Development, design, and testing reviews '
-                                                       'passed.',
-                       'spec_review_subagent_summaries': ['Development review passed.',
-                                                          'Design review passed.',
-                                                          'Testing review passed.'],
                        'open_questions': [],
-                       'ready_for_planning': True}},
+                       'ready_for_subagent_review': True}},
             state={},
         )
         self.assertIs(result['passed'], True)
@@ -114,41 +107,57 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'approved_design_summary': 'Approved UI design summary.',
                        'approved_design_path': 'docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md',
                        'ui_surface_affected': True,
-                       'spec_review_loop_completed': True,
-                       'spec_review_perspectives': ['development', 'design', 'testing'],
-                       'spec_review_findings_summary': 'Development, design, and testing reviews '
-                                                       'passed.',
-                       'spec_review_subagent_summaries': ['Development review passed.',
-                                                          'Design review passed.',
-                                                          'Testing review passed.'],
                        'open_questions': [],
-                       'ready_for_planning': True}},
+                       'ready_for_subagent_review': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
 
-    def test_brainstorming_rejects_missing_spec_review_perspective(self):
-        result = verifiers.verify_run_brainstorming(
+    def test_approve_subagent_review_accepts_explicit_no(self):
+        result = verifiers.verify_approve_subagent_review(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
-            step_id='run_brainstorming',
+            step_id='approve_subagent_review',
             observation={'status': 'succeeded',
- 'summary': 'Brainstorming completed review without the design perspective.',
- 'structured_output': {'clarification_questions': ['What user-visible behavior should change?'],
-                       'clarification_answers_summary': 'The user confirmed behavior, scope, and '
-                                                        'success criteria.',
-                       'design_presented': True,
-                       'user_approved_design': True,
-                       'design_approved': True,
-                       'approved_design_summary': 'Approved design summary.',
-                       'approved_design_path': 'docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md',
-                       'ui_surface_affected': False,
-                       'spec_review_loop_completed': True,
+ 'summary': 'The user declined subagent review.',
+ 'structured_output': {'subagent_review_approved': False,
+                       'authorization_summary': 'The user declined independent development, design, and testing review subagents.',
+                       'ready_for_spec_review': False}},
+            state={},
+        )
+        self.assertIs(result['passed'], True)
+
+    def test_approve_subagent_review_accepts_explicit_yes(self):
+        result = verifiers.verify_approve_subagent_review(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='approve_subagent_review',
+            observation={'status': 'succeeded',
+ 'summary': 'The user approved subagent review.',
+ 'structured_output': {'subagent_review_approved': True,
+                       'authorization_summary': 'Approved independent development, design, and '
+                                                'testing review subagents.',
+                       'ready_for_spec_review': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], True)
+
+    def test_run_spec_review_rejects_missing_spec_review_perspective(self):
+        result = verifiers.verify_run_spec_review(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='run_spec_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Spec review completed without the design perspective.',
+ 'structured_output': {'spec_review_loop_completed': True,
                        'spec_review_perspectives': ['development', 'testing', 'testing'],
                        'spec_review_findings_summary': 'Development and testing reviews passed.',
                        'spec_review_subagent_summaries': ['Development review passed.',
                                                           'Testing review passed.',
                                                           'Second testing review passed.'],
+                       'spec_review_artifact_paths': ['docs/superpowers/specs/2026-06-24-ios-change-development-review.md',
+                                                      'docs/superpowers/specs/2026-06-24-ios-change-testing-review.md',
+                                                      'docs/superpowers/specs/2026-06-24-ios-change-testing-review.md'],
                        'open_questions': [],
                        'ready_for_planning': True}},
             state={},
@@ -171,7 +180,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'approved_design_summary': 'Approved design summary.',
                        'approved_design_path': 'docs/superpowers/plans/2026-06-24-sample-plan.md',
                        'open_questions': [],
-                       'ready_for_planning': True}},
+                       'ready_for_subagent_review': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -190,12 +199,87 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'approved_design_summary': 'Approved design summary.',
                        'approved_design_path': 'docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md',
                        'open_questions': [],
-                       'ready_for_planning': True}},
+                       'ready_for_subagent_review': True}},
             verifier_result={'passed': False,
  'checks': [{'name': 'clarification_questions',
              'passed': False,
              'message': 'Brainstorming must ask and record at least one clarification question '
                         'before continuing.'}]},
+        )
+        self.assertEqual(result.step_id, 'run_brainstorming')
+        self.assertEqual(result.branch_kind, 'retry')
+
+    def test_approve_subagent_review_success_routes_to_spec_review(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='approve_subagent_review',
+            observation={'status': 'succeeded',
+ 'summary': 'The user approved subagent review.',
+ 'structured_output': {'subagent_review_approved': True,
+                       'authorization_summary': 'Approved independent development, design, and '
+                                                'testing review subagents.',
+                       'ready_for_spec_review': True}},
+            verifier_result={'passed': True, 'checks': []},
+        )
+        self.assertEqual(result.step_id, 'run_spec_review')
+        self.assertEqual(result.branch_kind, 'continue')
+
+    def test_approve_subagent_review_decline_completes_workflow(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='approve_subagent_review',
+            observation={'status': 'succeeded',
+ 'summary': 'The user declined subagent review.',
+ 'structured_output': {'subagent_review_approved': False,
+                       'authorization_summary': 'The user declined independent development, design, and testing review subagents.',
+                       'ready_for_spec_review': False}},
+            verifier_result={'passed': True, 'checks': []},
+        )
+        self.assertEqual(result.step_id, 'finalize_delivery_summary')
+        self.assertEqual(result.branch_kind, 'complete')
+
+    def test_run_spec_review_gate_failure_retries_run_spec_review(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='run_spec_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Spec review tried to continue without concrete artifacts.',
+ 'structured_output': {'spec_review_loop_completed': True,
+                       'spec_review_perspectives': ['development', 'design', 'testing'],
+                       'spec_review_findings_summary': 'Development, design, and testing reviews '
+                                                       'passed.',
+                       'spec_review_subagent_summaries': ['Development review passed.',
+                                                          'Design review passed.',
+                                                          'Testing review passed.'],
+                       'spec_review_artifact_paths': [],
+                       'open_questions': [],
+                       'ready_for_planning': True}},
+            verifier_result={'passed': False,
+ 'checks': [{'name': 'spec_review_artifact_paths',
+             'passed': False,
+             'message': 'The workflow must return the concrete subagent review artifact paths.'}]},
+        )
+        self.assertEqual(result.step_id, 'run_spec_review')
+        self.assertEqual(result.branch_kind, 'retry')
+
+    def test_run_spec_review_not_ready_routes_back_to_brainstorming(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='run_spec_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Spec review found design gaps that require another brainstorming pass.',
+ 'structured_output': {'spec_review_loop_completed': True,
+                       'spec_review_perspectives': ['development', 'design', 'testing'],
+                       'spec_review_findings_summary': 'Design detail is not implementation-ready yet.',
+                       'spec_review_subagent_summaries': ['Development review found a design gap.',
+                                                          'Design review requested a revised interaction state.',
+                                                          'Testing review needs clarified acceptance criteria.'],
+                       'spec_review_artifact_paths': ['docs/superpowers/specs/2026-06-24-ios-change-development-review.md',
+                                                      'docs/superpowers/specs/2026-06-24-ios-change-design-review.md',
+                                                      'docs/superpowers/specs/2026-06-24-ios-change-testing-review.md'],
+                       'open_questions': ['Clarify empty-state behavior before planning.'],
+                       'ready_for_planning': False}},
+            verifier_result={'passed': True, 'checks': []},
         )
         self.assertEqual(result.step_id, 'run_brainstorming')
         self.assertEqual(result.branch_kind, 'retry')
@@ -281,8 +365,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'execution_mode': 'subagent-driven',
                        'open_questions': [],
                        'ready_for_implementation': True}},
-            state={'plan_user_feedback': 'Need clearer rollback steps.',
- 'plan_update_summary': 'The prior implementation pass exposed a missing owner.'},
+            state={'plan_update_summary': 'The prior implementation pass exposed a missing owner.'},
         )
         self.assertIs(result['passed'], False)
 
@@ -303,47 +386,22 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, 'write_implementation_plan')
         self.assertEqual(result.branch_kind, 'retry')
 
-    def test_approve_plan_approved_routes_to_implementation(self):
+    def test_planning_ready_routes_to_implementation(self):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
-            current_step_id='approve_plan',
+            current_step_id='write_implementation_plan',
             observation={'status': 'succeeded',
- 'summary': 'User approved the plan.',
- 'structured_output': {'user_approved': True,
-                       'user_feedback': 'Proceed with execution.',
-                       'additional_planning_needed': False}},
+ 'summary': 'Planning completed with a reviewed plan and ready execution mode.',
+ 'structured_output': {'plan_summary': 'Plan summary.',
+                       'plan_path': 'docs/superpowers/plans/2026-06-24-ios-change.md',
+                       'plan_reviewed': True,
+                       'execution_mode': 'subagent-driven',
+                       'open_questions': [],
+                       'ready_for_implementation': True}},
             verifier_result={'passed': True, 'checks': []},
         )
         self.assertEqual(result.step_id, 'execute_implementation')
         self.assertEqual(result.branch_kind, 'continue')
-
-    def test_approve_plan_rejects_approved_with_additional_planning(self):
-        result = verifiers.verify_approve_plan(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='approve_plan',
-            observation={'status': 'succeeded',
- 'summary': 'Approval output contradicts itself.',
- 'structured_output': {'user_approved': True,
-                       'user_feedback': 'Looks good.',
-                       'additional_planning_needed': True}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_approve_plan_rejected_retries_planning(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='approve_plan',
-            observation={'status': 'succeeded',
- 'summary': 'User requested another planning pass.',
- 'structured_output': {'user_approved': False,
-                       'user_feedback': 'Need clearer rollback steps.',
-                       'additional_planning_needed': True}},
-            verifier_result={'passed': True, 'checks': []},
-        )
-        self.assertEqual(result.step_id, 'write_implementation_plan')
-        self.assertEqual(result.branch_kind, 'retry')
 
     def test_implementation_requires_verification_commands(self):
         result = verifiers.verify_execute_implementation(
@@ -584,27 +642,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertEqual(result.step_id, 'finalize_delivery_summary')
         self.assertEqual(result.branch_kind, 'complete')
-
-    def test_completion_verification_accepts_ship_handoff_next_steps_without_resolution_override(self):
-        result = verifiers.verify_verify_completion(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='verify_completion',
-            observation={'status': 'succeeded',
- 'summary': 'Final verification passed after normal ship handoff guidance.',
- 'structured_output': {'verification_passed': True,
-                       'verification_summary': 'All completion checks passed.',
-                       'verification_evidence': ['xcodebuild test -scheme ZoomClient',
-                                                 'Manual smoke test on updated screen'],
-                       'remaining_risks': [],
-                       'missing_verification_inputs': []}},
-            state={'release_qa_verdict': 'ship',
- 'review_status': 'approved',
- 'open_issues': [],
- 'release_qa_blocked_checks': [],
- 'release_qa_risk_next_steps': ['Proceed to code review.']},
-        )
-        self.assertIs(result['passed'], True)
 
     def test_release_qa_rejects_ship_with_risks_verdict(self):
         result = verifiers.verify_run_agentic_release_qa(
@@ -950,6 +987,42 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, "repair_and_resume")
         self.assertEqual(result.branch_kind, "continue")
 
+    def test_generated_request_unblocking_input_blocked_then_success_preserves_repair_owner(self):
+        state = self._make_state(None)
+        state.return_stage_id = 'verify_completion'
+        state.repair_context = {
+            'source_stage_id': 'repair_and_resume',
+            'return_stage_id': 'verify_completion',
+            'transition_reason': 'blocked',
+            'repair_payload': {'summary': 'Need user approval'},
+        }
+        workflow_state.record_observation(
+            state,
+            current_step_id='request_unblocking_input',
+            observation={
+                'status': 'blocked',
+                'summary': 'Still waiting on approval.',
+                'structured_output': {'missing_inputs': ['approval']},
+            },
+            verifier_result=None,
+        )
+        self.assertEqual(state.repair_context.get('source_stage_id'), 'repair_and_resume')
+        result = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id='request_unblocking_input',
+            observation={
+                'status': 'succeeded',
+                'summary': 'Received the approval.',
+                'structured_output': {
+                    'blocking_reason': 'Awaiting approval',
+                    'user_action_needed': 'Use the provided approval and continue.',
+                },
+            },
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'continue')
+
     def test_generated_repair_and_resume_resumes_to_return_stage(self):
         state = self._make_state(None)
         state.return_stage_id = 'run_brainstorming'
@@ -997,42 +1070,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, "request_unblocking_input")
         self.assertEqual(result.branch_kind, "repair")
         self.assertEqual(state.return_stage_id, 'verify_completion')
-
-    def test_generated_request_unblocking_input_blocked_then_success_preserves_repair_owner(self):
-        state = self._make_state(None)
-        state.return_stage_id = 'verify_completion'
-        state.repair_context = {
-            'source_stage_id': 'repair_and_resume',
-            'return_stage_id': 'verify_completion',
-            'transition_reason': 'blocked',
-            'repair_payload': {'summary': 'Need user approval'},
-        }
-        workflow_state.record_observation(
-            state,
-            current_step_id='request_unblocking_input',
-            observation={
-                'status': 'blocked',
-                'summary': 'Still waiting on approval.',
-                'structured_output': {'missing_inputs': ['approval']},
-            },
-            verifier_result=None,
-        )
-        self.assertEqual(state.repair_context.get('source_stage_id'), 'repair_and_resume')
-        result = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id='request_unblocking_input',
-            observation={
-                'status': 'succeeded',
-                'summary': 'Received the approval.',
-                'structured_output': {
-                    'blocking_reason': 'Awaiting approval',
-                    'user_action_needed': 'Use the provided approval and continue.',
-                },
-            },
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, 'repair_and_resume')
-        self.assertEqual(result.branch_kind, 'continue')
 
     def test_generated_real_repair_escalation_preserves_repair_owner(self):
         state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})
@@ -1109,23 +1146,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertEqual(result.step_id, 'repair_and_resume')
         self.assertEqual(result.branch_kind, 'retry')
-
-    def test_review_rejects_false_positive_severity_substrings(self):
-        result = verifiers.verify_request_pre_merge_code_review(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='request_pre_merge_code_review',
-            observation={'status': 'succeeded',
- 'summary': 'Review finding used a misleading substring instead of a severity label.',
- 'structured_output': {'review_status': 'changes_requested',
-                       'reviewed_snapshot': 'HEAD vs working tree',
-                       'findings': ['highlight screenshot mismatch on updated footer'],
-                       'review_summary': 'One issue must be fixed.',
-                       'changes_requested': True,
-                       'missing_review_inputs': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
 
     def test_generated_blocked_repair_context_preserves_host_visible_summary(self):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine

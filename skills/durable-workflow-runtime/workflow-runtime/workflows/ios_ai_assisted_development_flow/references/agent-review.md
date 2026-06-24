@@ -8,14 +8,29 @@ the right workflow.
 ## Generated Stage Path
 
 - `run_brainstorming`
+- `approve_subagent_review`
+- `run_spec_review`
 - `write_implementation_plan`
-- `approve_plan`
 - `execute_implementation`
 - `run_agentic_release_qa`
 - `request_pre_merge_code_review`
 - `verify_completion`
 
 ## Declared Custom Verifier Requirements
+
+### `run_spec_review`
+
+- `spec_review_outputs_require_artifacts`: The review stage must hand in concrete subagent review artifacts so the workflow can verify that development, design, and testing reviews really happened.
+  Signals: `spec_review_perspectives`, `spec_review_subagent_summaries`, `spec_review_artifact_paths`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Require at least three non-empty artifact paths.
+    - Require each artifact path to exist under docs/superpowers/specs/ and end with .md.
+    - Require the combined artifact paths to clearly cover development, design, and testing review outputs.
+  Test intent:
+    - Reject review output that provides review summaries without artifact paths.
+    - Reject review output whose artifact paths do not exist or do not cover development, design, and testing.
+    - Accept review output that hands in concrete review artifacts for all three perspectives.
 
 ### `write_implementation_plan`
 
@@ -26,11 +41,11 @@ the right workflow.
     - Normalize execution_mode to lowercase.
     - Accept only subagent-driven or subagent-driven-development as implementation-ready modes.
     - If execution_mode is inline, reject the output or require ready_for_implementation to remain false.
-    - If plan_user_feedback, plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
+    - If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
   Test intent:
     - Reject planning outputs that pick inline execution while claiming implementation is ready.
     - Accept planning outputs that record subagent-driven execution with a reviewed plan.
-    - Reject replanning output that ignores recorded user feedback or plan-update reasons when such context exists in state.
+    - Reject replanning output that ignores recorded plan-update or implementation-learned reasons when such context exists in state.
 
 ### `execute_implementation`
 

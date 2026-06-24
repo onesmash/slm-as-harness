@@ -7,8 +7,9 @@ from workflows.common.repair_payloads import build_default_agent_repair_payload,
 
 
 MAIN_STAGE_IDS = ('run_brainstorming',
+ 'approve_subagent_review',
+ 'run_spec_review',
  'write_implementation_plan',
- 'approve_plan',
  'execute_implementation',
  'run_agentic_release_qa',
  'request_pre_merge_code_review',
@@ -36,15 +37,16 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     ui_surface_affected: bool | None = None
     design_comparison_source: str | None = None
     runtime_visual_comparison_scope: str | None = None
-    spec_review_findings_summary: str | None = None
     open_questions: list = field(default_factory=list)
+    subagent_review_approved: bool | None = None
+    authorization_summary: str | None = None
+    spec_review_findings_summary: str | None = None
+    spec_review_artifact_paths: list = field(default_factory=list)
     plan_summary: str | None = None
     plan_path: str | None = None
     plan_reviewed: bool | None = None
     execution_mode: str | None = None
     plan_revision_reason: str | None = None
-    plan_user_approved: bool | None = None
-    plan_user_feedback: str | None = None
     implementation_summary: str | None = None
     implementation_completed_tasks: list = field(default_factory=list)
     implementation_remaining_tasks: list = field(default_factory=list)
@@ -118,15 +120,16 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         ui_surface_affected=payload.get('ui_surface_affected'),
         design_comparison_source=payload.get('design_comparison_source'),
         runtime_visual_comparison_scope=payload.get('runtime_visual_comparison_scope'),
-        spec_review_findings_summary=payload.get('spec_review_findings_summary'),
         open_questions=list(payload.get('open_questions') or []),
+        subagent_review_approved=payload.get('subagent_review_approved'),
+        authorization_summary=payload.get('authorization_summary'),
+        spec_review_findings_summary=payload.get('spec_review_findings_summary'),
+        spec_review_artifact_paths=list(payload.get('spec_review_artifact_paths') or []),
         plan_summary=payload.get('plan_summary'),
         plan_path=payload.get('plan_path'),
         plan_reviewed=payload.get('plan_reviewed'),
         execution_mode=payload.get('execution_mode'),
         plan_revision_reason=payload.get('plan_revision_reason'),
-        plan_user_approved=payload.get('plan_user_approved'),
-        plan_user_feedback=payload.get('plan_user_feedback'),
         implementation_summary=payload.get('implementation_summary'),
         implementation_completed_tasks=list(payload.get('implementation_completed_tasks') or []),
         implementation_remaining_tasks=list(payload.get('implementation_remaining_tasks') or []),
@@ -181,7 +184,13 @@ def record_observation(
                 state.ui_surface_affected = structured_output.get('ui_surface_affected')
                 state.design_comparison_source = structured_output.get('design_comparison_source')
                 state.runtime_visual_comparison_scope = structured_output.get('runtime_visual_comparison_scope')
+                state.open_questions = _list_value(structured_output.get('open_questions'))
+            elif current_step_id == 'approve_subagent_review':
+                state.subagent_review_approved = structured_output.get('subagent_review_approved')
+                state.authorization_summary = structured_output.get('authorization_summary')
+            elif current_step_id == 'run_spec_review':
                 state.spec_review_findings_summary = structured_output.get('spec_review_findings_summary')
+                state.spec_review_artifact_paths = _list_value(structured_output.get('spec_review_artifact_paths'))
                 state.open_questions = _list_value(structured_output.get('open_questions'))
             elif current_step_id == 'write_implementation_plan':
                 state.plan_summary = structured_output.get('plan_summary')
@@ -190,9 +199,6 @@ def record_observation(
                 state.execution_mode = structured_output.get('execution_mode')
                 state.open_questions = _list_value(structured_output.get('open_questions'))
                 state.plan_revision_reason = structured_output.get('plan_revision_reason')
-            elif current_step_id == 'approve_plan':
-                state.plan_user_approved = structured_output.get('user_approved')
-                state.plan_user_feedback = structured_output.get('user_feedback')
             elif current_step_id == 'execute_implementation':
                 state.implementation_summary = structured_output.get('implementation_summary')
                 state.implementation_completed_tasks = _list_value(structured_output.get('completed_tasks'))

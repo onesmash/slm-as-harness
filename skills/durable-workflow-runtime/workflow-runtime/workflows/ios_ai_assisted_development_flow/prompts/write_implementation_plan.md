@@ -1,11 +1,10 @@
-/writing-plans {{approved_design_path}}; write or revise the implementation plan under docs/superpowers/plans/, incorporate any recorded replanning feedback, have the user review the plan, and return subagent-driven as the selected execution approach when implementation is ready.
+/writing-plans {{approved_design_path}}; write or revise the implementation plan under docs/superpowers/plans/, incorporate any recorded replanning feedback, have the user review the plan, and return subagent-driven as the selected execution approach when implementation is ready to start immediately.
 
 Stage Context:
 
 - Approved design path: {{approved_design_path}}
 - Approved design summary: {{approved_design_summary}}
 - Repository root: {{repo_root}}
-- Latest plan approval feedback: {{plan_user_feedback}}
 - Latest plan update summary: {{plan_update_summary}}
 - Latest debugging summary: {{debugging_summary}}
 - Latest open issues: {{open_issues}}

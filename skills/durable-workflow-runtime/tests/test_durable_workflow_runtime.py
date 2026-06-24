@@ -1805,18 +1805,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                     "approved_design_summary": "Approved design summary.",
                     "approved_design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
                     "ui_surface_affected": False,
-                    "spec_review_loop_completed": True,
-                    "spec_review_perspectives": ["development", "design", "testing"],
-                    "spec_review_findings_summary": "Development, design, and testing reviews passed.",
-                    "spec_review_subagent_summaries": [
-                        "Development review passed.",
-                        "Design review passed.",
-                        "Testing review passed.",
-                    ],
                     "open_questions": [
                         "Brainstorming open_questions must be empty before implementation planning."
                     ],
-                    "ready_for_planning": True,
+                    "ready_for_subagent_review": True,
                 },
                 "artifacts": [],
                 "error": None,

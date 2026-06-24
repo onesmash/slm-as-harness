@@ -32,9 +32,59 @@ def choose_next_node(
         if status_decision is not None:
             return status_decision
         return TransitionDecision(
+            next_node="approve_subagent_review",
+            branch_kind="continue",
+            reason="run_brainstorming completed; continue to approve_subagent_review",
+        )
+
+    if current_step_id == "approve_subagent_review":
+        status_decision = _route_common_failure(
+            current_step_id=current_step_id,
+            observation=observation,
+            verifier_result=verifier_result,
+        )
+        if status_decision is not None:
+            return status_decision
+        structured_output = observation.get("structured_output") or {}
+        if isinstance(structured_output, dict):
+            if condition_matches(structured_output.get('subagent_review_approved'), 'is_false', None):
+                return TransitionDecision(
+                    next_node='finalize_delivery_summary',
+                    branch_kind='complete',
+                    reason='The user declined the required subagent review pass, so the workflow must stop before implementation planning.',
+                )
+        return TransitionDecision(
+            next_node="run_spec_review",
+            branch_kind="continue",
+            reason="approve_subagent_review completed; continue to run_spec_review",
+        )
+
+    if current_step_id == "run_spec_review":
+        if observation["status"] == "succeeded" and verifier_result is not None and not verifier_result["passed"]:
+            return TransitionDecision(
+                next_node='run_spec_review',
+                branch_kind='retry',
+                reason='The subagent review loop must complete with concrete artifacts and readiness before implementation planning.',
+            )
+        status_decision = _route_common_failure(
+            current_step_id=current_step_id,
+            observation=observation,
+            verifier_result=verifier_result,
+        )
+        if status_decision is not None:
+            return status_decision
+        structured_output = observation.get("structured_output") or {}
+        if isinstance(structured_output, dict):
+            if condition_matches(structured_output.get('ready_for_planning'), 'is_false', None):
+                return TransitionDecision(
+                    next_node='run_brainstorming',
+                    branch_kind='retry',
+                    reason='Spec review found design gaps that must be revised in brainstorming before implementation planning can continue.',
+                )
+        return TransitionDecision(
             next_node="write_implementation_plan",
             branch_kind="continue",
-            reason="run_brainstorming completed; continue to write_implementation_plan",
+            reason="run_spec_review completed; continue to write_implementation_plan",
         )
 
     if current_step_id == "write_implementation_plan":
@@ -54,37 +104,9 @@ def choose_next_node(
                     reason='Implementation planning is not ready yet and needs another pass.',
                 )
         return TransitionDecision(
-            next_node="approve_plan",
-            branch_kind="continue",
-            reason="write_implementation_plan completed; continue to approve_plan",
-        )
-
-    if current_step_id == "approve_plan":
-        status_decision = _route_common_failure(
-            current_step_id=current_step_id,
-            observation=observation,
-            verifier_result=verifier_result,
-        )
-        if status_decision is not None:
-            return status_decision
-        structured_output = observation.get("structured_output") or {}
-        if isinstance(structured_output, dict):
-            if condition_matches(structured_output.get('user_approved'), 'is_true', None):
-                return TransitionDecision(
-                    next_node='execute_implementation',
-                    branch_kind='continue',
-                    reason='User approved the plan; proceeding to implementation.',
-                )
-            if condition_matches(structured_output.get('additional_planning_needed'), 'is_true', None):
-                return TransitionDecision(
-                    next_node='write_implementation_plan',
-                    branch_kind='retry',
-                    reason='User requested additional planning before implementation.',
-                )
-        return TransitionDecision(
             next_node="execute_implementation",
             branch_kind="continue",
-            reason="approve_plan completed; continue to execute_implementation",
+            reason="write_implementation_plan completed; continue to execute_implementation",
         )
 
     if current_step_id == "execute_implementation":

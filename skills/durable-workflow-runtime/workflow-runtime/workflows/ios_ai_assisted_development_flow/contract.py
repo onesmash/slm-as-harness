@@ -12,15 +12,12 @@ WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
 RUN_BRAINSTORMING_ROUTE_1 = SkillRoute(
     skill='brainstorming',
     use_when=SkillUseWhen(
-        operations=['requirements clarification',
- 'design approval gate',
- 'design artifact preparation',
- 'multi-perspective spec review orchestration'],
+        operations=['requirements clarification', 'design approval gate', 'design artifact preparation'],
         file_patterns=['docs/superpowers/specs/*.md'],
     ),
-    usage_notes=['Primary owner for the pre-implementation approval gate.',
- 'Owns the approved design package and the required development, design, and testing spec review '
- 'loop before the stage completes.'],
+    usage_notes=['Primary owner for the pre-implementation design clarification and approval gate.',
+ 'Owns the approved design package that will later be handed into the review-authorization and '
+ 'subagent-review stages.'],
 )
 
 RUN_BRAINSTORMING_ROUTE_2 = SkillRoute(
@@ -32,18 +29,6 @@ RUN_BRAINSTORMING_ROUTE_2 = SkillRoute(
     usage_notes=['Supporting context layer only; do not write KB pages during brainstorming.'],
 )
 
-RUN_BRAINSTORMING_ROUTE_3 = SkillRoute(
-    skill='software-design-philosophy',
-    use_when=SkillUseWhen(
-        operations=['development perspective spec review',
- 'design decision review',
- 'impact scope review',
- 'implementation readiness review'],
-        file_patterns=['docs/superpowers/specs/*.md'],
-    ),
-    usage_notes=['Supporting review lens for the required development-perspective spec review loop.'],
-)
-
 RUN_BRAINSTORMING = StepContract(
     done_when=['Clarification questions and answer summary are recorded.',
  'The user-approved design direction is recorded.',
@@ -51,8 +36,7 @@ RUN_BRAINSTORMING = StepContract(
  'included.',
  'UI-impacting requests include implementation-ready visual detail and visual QA comparison inputs '
  'in the approved design document.',
- 'The spec review loop has completed with independent development, design, and testing perspective '
- 'reviews.'],
+ 'The approved design package is ready for an explicit subagent review authorization decision.'],
     output_schema={'clarification_questions': 'string[]',
  'clarification_answers_summary': 'string',
  'design_presented': 'boolean',
@@ -64,17 +48,85 @@ RUN_BRAINSTORMING = StepContract(
  'visual_spec_detail_summary': 'string?',
  'design_comparison_source': 'string?',
  'runtime_visual_comparison_scope': 'string?',
- 'spec_review_loop_completed': 'boolean',
- 'spec_review_perspectives': 'string[]',
- 'spec_review_findings_summary': 'string',
- 'spec_review_subagent_summaries': 'string[]',
  'open_questions': 'string[]',
- 'ready_for_planning': 'boolean'},
+ 'ready_for_subagent_review': 'boolean'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
-    skill_routing=[RUN_BRAINSTORMING_ROUTE_1, RUN_BRAINSTORMING_ROUTE_2, RUN_BRAINSTORMING_ROUTE_3],
+    skill_routing=[RUN_BRAINSTORMING_ROUTE_1, RUN_BRAINSTORMING_ROUTE_2],
     verifier=StepVerifier(
         kind="python_callable",
         ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_run_brainstorming",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
+APPROVE_SUBAGENT_REVIEW_ROUTE_1 = SkillRoute(
+    skill='brainstorming',
+    use_when=SkillUseWhen(
+        operations=['user approval gate', 'subagent review authorization request'],
+        file_patterns=['docs/superpowers/specs/*.md'],
+    ),
+    usage_notes=['Primary owner for asking whether the required review subagents may be launched.'],
+)
+
+APPROVE_SUBAGENT_REVIEW = StepContract(
+    done_when=['The user has explicitly approved or declined the required subagent design review pass.',
+ 'The authorization decision is summarized for the next stage or workflow closeout.'],
+    output_schema={'subagent_review_approved': 'boolean',
+ 'authorization_summary': 'string',
+ 'ready_for_spec_review': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[APPROVE_SUBAGENT_REVIEW_ROUTE_1],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_approve_subagent_review",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
+RUN_SPEC_REVIEW_ROUTE_1 = SkillRoute(
+    skill='brainstorming',
+    use_when=SkillUseWhen(
+        operations=['multi-perspective spec review orchestration',
+ 'subagent review artifact handoff',
+ 'implementation readiness confirmation'],
+        file_patterns=['docs/superpowers/specs/*.md'],
+    ),
+    usage_notes=['Primary owner for orchestrating the independent review loop and collecting the concrete review '
+ 'artifacts.'],
+)
+
+RUN_SPEC_REVIEW_ROUTE_2 = SkillRoute(
+    skill='software-design-philosophy',
+    use_when=SkillUseWhen(
+        operations=['development perspective spec review',
+ 'design decision review',
+ 'impact scope review',
+ 'implementation readiness review'],
+        file_patterns=['docs/superpowers/specs/*.md'],
+    ),
+    usage_notes=['Supporting review lens for the development-oriented portion of the independent spec review loop.'],
+)
+
+RUN_SPEC_REVIEW = StepContract(
+    done_when=['Concrete review artifacts from the development, design, and testing subagent reviews are handed '
+ 'in.',
+ 'The spec review loop has completed with independent development, design, and testing perspective '
+ 'reviews.',
+ 'Implementation-planning readiness or required design rework is recorded.'],
+    output_schema={'spec_review_loop_completed': 'boolean',
+ 'spec_review_perspectives': 'string[]',
+ 'spec_review_findings_summary': 'string',
+ 'spec_review_subagent_summaries': 'string[]',
+ 'spec_review_artifact_paths': 'string[]',
+ 'open_questions': 'string[]',
+ 'ready_for_planning': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[RUN_SPEC_REVIEW_ROUTE_1, RUN_SPEC_REVIEW_ROUTE_2],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_run_spec_review",
         timeout_seconds=15,
         run_on_status=["succeeded"],
     ),
@@ -116,19 +168,6 @@ WRITE_IMPLEMENTATION_PLAN = StepContract(
     verifier=StepVerifier(
         kind="python_callable",
         ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_write_implementation_plan",
-        timeout_seconds=15,
-        run_on_status=["succeeded"],
-    ),
-)
-
-APPROVE_PLAN = StepContract(
-    done_when=['The user has reviewed the plan summary.',
- 'The user has explicitly approved implementation or requested another planning pass.'],
-    output_schema={'user_approved': 'boolean', 'user_feedback': 'string?', 'additional_planning_needed': 'boolean'},
-    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
-    verifier=StepVerifier(
-        kind="python_callable",
-        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_approve_plan",
         timeout_seconds=15,
         run_on_status=["succeeded"],
     ),
@@ -404,8 +443,9 @@ REPAIR_AND_RESUME = StepContract(
 
 STEP_CONTRACTS = {
     "run_brainstorming": RUN_BRAINSTORMING,
+    "approve_subagent_review": APPROVE_SUBAGENT_REVIEW,
+    "run_spec_review": RUN_SPEC_REVIEW,
     "write_implementation_plan": WRITE_IMPLEMENTATION_PLAN,
-    "approve_plan": APPROVE_PLAN,
     "execute_implementation": EXECUTE_IMPLEMENTATION,
     "run_agentic_release_qa": RUN_AGENTIC_RELEASE_QA,
     "request_pre_merge_code_review": REQUEST_PRE_MERGE_CODE_REVIEW,
