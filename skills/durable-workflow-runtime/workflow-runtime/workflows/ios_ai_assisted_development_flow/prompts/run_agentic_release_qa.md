@@ -20,6 +20,7 @@ Stage Boundaries:
 - Do not claim runtime, device, integration, or performance checks passed unless they were actually executed.
 - Do not stress production systems or require destructive QA data without explicit user approval.
 - Normalize release_qa_verdict to one of: ship or do_not_ship when the QA pass completes.
+- Do not return release_qa_verdict=ship while blocked checks or other unresolved QA issues still remain.
 - If required QA inputs are missing, return observation.status=blocked instead of encoding blocked as a succeeded release_qa_verdict.
 - If ui_surface_affected is true and both design_comparison_source and runtime_visual_comparison_scope are available, include an explicit visual comparison pass and report the executed or blocked visual diff evidence.
 - Return the concrete QA target scope or artifact under test so later stages know exactly what was validated.

@@ -139,7 +139,8 @@ WRITE_IMPLEMENTATION_PLAN_ROUTE_1 = SkillRoute(
         file_patterns=['docs/superpowers/plans/*.md', 'docs/superpowers/specs/*.md'],
     ),
     usage_notes=['Primary owner for turning the approved design into a detailed implementation plan.',
- 'Must capture the selected subagent-driven execution mode required by this workflow.'],
+ 'Must record subagent-driven as the execution mode required by this workflow without asking the '
+ 'user to choose alternatives.'],
 )
 
 WRITE_IMPLEMENTATION_PLAN_ROUTE_2 = SkillRoute(
@@ -155,7 +156,7 @@ WRITE_IMPLEMENTATION_PLAN = StepContract(
     done_when=['The implementation plan exists under docs/superpowers/plans/.',
  'The plan summary is recorded.',
  'The user has reviewed the written plan.',
- 'The execution mode is selected and is ready for implementation.'],
+ 'The execution mode is recorded as subagent-driven and is ready for implementation.'],
     output_schema={'plan_summary': 'string',
  'plan_path': 'string',
  'plan_reviewed': 'boolean',
@@ -311,6 +312,7 @@ RUN_AGENTIC_RELEASE_QA = StepContract(
  'Change-derived release risks are summarized.',
  'Executed checks and blocked checks are reported separately.',
  'The release QA verdict is ship or do_not_ship when the stage completes successfully.',
+ 'A ship verdict means there are no blocked checks left in the QA result.',
  'Risk-based next steps are listed.'],
     output_schema={'release_qa_verdict': 'string',
  'release_qa_summary': 'string',
@@ -369,6 +371,7 @@ REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_3 = SkillRoute(
 REQUEST_PRE_MERGE_CODE_REVIEW = StepContract(
     done_when=['Review snapshot is identified.',
  'Findings are grouped by severity or explicitly reported as none.',
+ 'An approved review means no actionable findings remain.',
  'The review status is approved or changes_requested when the stage completes successfully.'],
     output_schema={'review_status': 'string',
  'reviewed_snapshot': 'string',

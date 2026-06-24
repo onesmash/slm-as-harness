@@ -10,10 +10,9 @@ Stage Boundaries:
 
 - Do not launch any review subagents in this stage.
 - Do not write the implementation plan in this stage.
-- Wait for an explicit yes-or-no authorization decision from the user.
-- If the user declines subagent review, summarize the decision clearly and do not continue into spec review or implementation planning.
+- Wait for an explicit authorization decision from the user.
 
 Blocked Conditions:
 
-- Block if the user has not provided an explicit yes-or-no authorization decision yet.
+- Block if the user has not made an explicit authorization decision yet.
 - Block if the approved design package is missing.

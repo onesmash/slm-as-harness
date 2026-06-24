@@ -18,6 +18,7 @@ Stage Boundaries:
 - Use ios-best-practices as an explicit iOS review lens for Swift, Objective-C, UIKit, SwiftUI, memory, concurrency, security, and architecture concerns in the changed files.
 - Prefer reviewing the current local git diff or branch state instead of requiring a published MR.
 - If findings exist, group them by severity and make the severity obvious in the returned finding strings.
+- Do not return review_status=approved while any findings still require action.
 - If required review inputs are missing, return observation.status=blocked instead of encoding blocked as a succeeded review_status.
 - If a suitable git review range or snapshot cannot be determined because external review inputs are missing, block and request the missing review input.
 

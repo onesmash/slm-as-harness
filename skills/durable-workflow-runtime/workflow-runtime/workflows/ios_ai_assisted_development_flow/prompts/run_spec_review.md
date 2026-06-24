@@ -16,7 +16,6 @@ Stage Boundaries:
 - Hand in the concrete subagent review outputs, not just a combined summary, so the workflow can verify that development, design, and testing reviews really happened.
 - Do not write the implementation plan in this stage.
 - If the approved request affects a user-visible UI surface, preserve the implementation-ready visual detail and visual QA comparison inputs in the reviewed design package.
-- If the design is not ready for implementation planning, return the concrete design gaps and open questions so the workflow can route back to brainstorming for revision.
 
 Blocked Conditions:
 

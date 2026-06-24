@@ -288,10 +288,10 @@
         "boundaries": [
           "Do not launch any review subagents in this stage.",
           "Do not write the implementation plan in this stage.",
-          "Wait for an explicit yes-or-no authorization decision from the user."
+          "Wait for an explicit authorization decision from the user."
         ],
         "blocked_conditions": [
-          "Block if the user has not explicitly approved subagent review yet.",
+          "Block if the user has not made an explicit authorization decision yet.",
           "Block if the approved design package is missing."
         ]
       },
@@ -355,12 +355,6 @@
       ],
       "outcome_routes": [],
       "verifier_rules": [
-        {
-          "output_key": "subagent_review_approved",
-          "operator": "is_true",
-          "value": null,
-          "message": "The workflow must record an explicit approve-or-decline subagent review decision before continuing or closing."
-        },
         {
           "output_key": "authorization_summary",
           "operator": "truthy",
@@ -621,8 +615,8 @@
       "stage_kind": "main",
       "recovery_return_node": null,
       "intent": "create_superpowers_implementation_plan",
-      "expected_artifact": "reviewed implementation plan document and selected execution mode ready for implementation",
-      "prompt": "/writing-plans {{approved_design_path}}; write or revise the implementation plan under docs/superpowers/plans/, incorporate any recorded replanning feedback, have the user review the plan, and return subagent-driven as the selected execution approach when implementation is ready to start immediately.",
+      "expected_artifact": "reviewed implementation plan document and recorded subagent-driven execution mode ready for implementation",
+      "prompt": "/writing-plans {{approved_design_path}}; write or revise the implementation plan under docs/superpowers/plans/, incorporate any recorded replanning feedback, have the user review the plan, and default the recorded execution mode to subagent-driven without asking the user to choose between execution styles.",
       "prompt_sections": {
         "stage_goal": "Turn the approved design into a concrete superpowers implementation plan, incorporate any replanning feedback, and prepare a reviewed plan that can move directly into implementation.",
         "context": [
@@ -638,21 +632,21 @@
           "Write the plan as a Markdown document under docs/superpowers/plans/.",
           "The plan must be concrete enough for subagent-driven-development to execute task by task.",
           "The plan review loop with the user must complete before this stage can finish.",
-          "Recommend and capture subagent-driven execution explicitly; do not leave execution_mode open-ended when the workflow is ready to continue.",
+          "Default and record execution_mode as subagent-driven; do not ask the user to choose between execution styles.",
           "Use the recorded replanning feedback and implementation-learned plan gaps when revising the plan."
         ],
         "blocked_conditions": [
           "Block if the approved design is missing or ambiguous.",
           "Block if the plan file has not been written yet.",
           "Block if the user has not reviewed the written plan.",
-          "Block if the execution approach has not been selected explicitly."
+          "Block if the recorded execution mode is not subagent-driven."
         ]
       },
       "done_when": [
         "The implementation plan exists under docs/superpowers/plans/.",
         "The plan summary is recorded.",
         "The user has reviewed the written plan.",
-        "The execution mode is selected and is ready for implementation."
+        "The execution mode is recorded as subagent-driven and is ready for implementation."
       ],
       "output_schema": {
         "plan_summary": "string",
@@ -682,7 +676,7 @@
           ],
           "usage_notes": [
             "Primary owner for turning the approved design into a detailed implementation plan.",
-            "Must capture the selected subagent-driven execution mode required by this workflow."
+            "Must record subagent-driven as the execution mode required by this workflow without asking the user to choose alternatives."
           ]
         },
         {
@@ -792,6 +786,14 @@
           "operator": "truthy",
           "value": null,
           "message": "Implementation planning must return an explicit execution_mode."
+        },
+        {
+          "output_key": "execution_mode",
+          "operator": "one_of",
+          "value": [
+            "subagent-driven"
+          ],
+          "message": "Implementation planning must record execution_mode as subagent-driven."
         }
       ],
       "verifier_templates": [
@@ -808,7 +810,7 @@
       "custom_verifier_requirements": [
         {
           "id": "planning_requires_subagent_execution_mode",
-          "description": "This workflow may continue only when planning records subagent-driven execution as the selected approach.",
+          "description": "This workflow may continue only when planning records subagent-driven execution as the selected approach and does not ask the user to choose a different execution style.",
           "signals": [
             "execution_mode",
             "ready_for_implementation",
@@ -820,8 +822,8 @@
           ],
           "hint_pseudocode": [
             "Normalize execution_mode to lowercase.",
-            "Accept only subagent-driven or subagent-driven-development as implementation-ready modes.",
-            "If execution_mode is inline, reject the output or require ready_for_implementation to remain false.",
+            "Accept only subagent-driven as the implementation-ready mode.",
+            "If execution_mode is inline or any other value, reject the output or require ready_for_implementation to remain false.",
             "If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary."
           ],
           "test_intent": [
@@ -1704,7 +1706,7 @@
       "custom_verifier_requirements": [
         {
           "id": "findings_include_severity_grouping",
-          "description": "Non-empty review findings must make severity explicit so the workflow can distinguish major merge blockers from lower-risk notes.",
+          "description": "Non-empty review findings must make severity explicit with a stable prefix so the workflow can distinguish major merge blockers from lower-risk notes.",
           "signals": [
             "review_status",
             "findings"
@@ -1715,11 +1717,13 @@
           ],
           "hint_pseudocode": [
             "Skip the requirement when findings is empty.",
-            "Require each finding string to begin with or clearly include a recognized severity marker such as critical, high, medium, low, major, or minor."
+            "Require each finding string to begin with an explicit severity prefix such as critical:, high:, medium:, low:, major:, minor:, blocker:, or p0:.",
+            "Reject findings whose severity is only implied in prose or negated by surrounding text."
           ],
           "test_intent": [
-            "Reject change-requested findings that omit any severity marker.",
-            "Accept findings that carry an explicit severity prefix."
+            "Reject change-requested findings that omit a severity prefix.",
+            "Accept findings that carry an explicit severity prefix.",
+            "Reject findings that only mention severity in prose without a stable prefix."
           ]
         },
         {
@@ -2458,19 +2462,19 @@
       "state": null
     },
     {
-      "name": "approve_subagent_review_requires_explicit_yes",
+      "name": "approve_subagent_review_accepts_explicit_no",
       "type": "verifier",
       "step_id": "approve_subagent_review",
       "observation": {
         "status": "succeeded",
-        "summary": "The user has not approved subagent review.",
+        "summary": "The user declined subagent review.",
         "structured_output": {
           "subagent_review_approved": false,
-          "authorization_summary": "Waiting for explicit user permission.",
+          "authorization_summary": "The user declined independent development, design, and testing review subagents.",
           "ready_for_spec_review": false
         }
       },
-      "expected_passed": false,
+      "expected_passed": true,
       "state": null
     },
     {

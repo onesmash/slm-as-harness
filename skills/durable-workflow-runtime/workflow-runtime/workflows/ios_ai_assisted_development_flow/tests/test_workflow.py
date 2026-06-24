@@ -121,7 +121,8 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             observation={'status': 'succeeded',
  'summary': 'The user declined subagent review.',
  'structured_output': {'subagent_review_approved': False,
-                       'authorization_summary': 'The user declined independent development, design, and testing review subagents.',
+                       'authorization_summary': 'The user declined independent development, '
+                                                'design, and testing review subagents.',
                        'ready_for_spec_review': False}},
             state={},
         )
@@ -224,20 +225,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, 'run_spec_review')
         self.assertEqual(result.branch_kind, 'continue')
 
-    def test_approve_subagent_review_decline_completes_workflow(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='approve_subagent_review',
-            observation={'status': 'succeeded',
- 'summary': 'The user declined subagent review.',
- 'structured_output': {'subagent_review_approved': False,
-                       'authorization_summary': 'The user declined independent development, design, and testing review subagents.',
-                       'ready_for_spec_review': False}},
-            verifier_result={'passed': True, 'checks': []},
-        )
-        self.assertEqual(result.step_id, 'finalize_delivery_summary')
-        self.assertEqual(result.branch_kind, 'complete')
-
     def test_run_spec_review_gate_failure_retries_run_spec_review(self):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
@@ -260,28 +247,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
              'message': 'The workflow must return the concrete subagent review artifact paths.'}]},
         )
         self.assertEqual(result.step_id, 'run_spec_review')
-        self.assertEqual(result.branch_kind, 'retry')
-
-    def test_run_spec_review_not_ready_routes_back_to_brainstorming(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='run_spec_review',
-            observation={'status': 'succeeded',
- 'summary': 'Spec review found design gaps that require another brainstorming pass.',
- 'structured_output': {'spec_review_loop_completed': True,
-                       'spec_review_perspectives': ['development', 'design', 'testing'],
-                       'spec_review_findings_summary': 'Design detail is not implementation-ready yet.',
-                       'spec_review_subagent_summaries': ['Development review found a design gap.',
-                                                          'Design review requested a revised interaction state.',
-                                                          'Testing review needs clarified acceptance criteria.'],
-                       'spec_review_artifact_paths': ['docs/superpowers/specs/2026-06-24-ios-change-development-review.md',
-                                                      'docs/superpowers/specs/2026-06-24-ios-change-design-review.md',
-                                                      'docs/superpowers/specs/2026-06-24-ios-change-testing-review.md'],
-                       'open_questions': ['Clarify empty-state behavior before planning.'],
-                       'ready_for_planning': False}},
-            verifier_result={'passed': True, 'checks': []},
-        )
-        self.assertEqual(result.step_id, 'run_brainstorming')
         self.assertEqual(result.branch_kind, 'retry')
 
     def test_plan_requires_written_plan_path(self):
@@ -744,11 +709,13 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             observation={'status': 'succeeded',
  'summary': 'Release QA tried to ship with blocked checks still open.',
  'structured_output': {'release_qa_target_scope': 'Changed meeting footer flow on iPhone simulator',
-                       'release_qa_summary': 'Core checks passed, but one visual confirmation is still blocked.',
+                       'release_qa_summary': 'Core checks passed, but one visual confirmation is '
+                                             'still blocked.',
                        'release_qa_verdict': 'ship',
                        'release_qa_executed_checks': ['Smoke', 'Regression'],
                        'release_qa_blocked_checks': ['Final screenshot diff confirmation'],
-                       'release_qa_risk_next_steps': ['Resolve the blocked screenshot diff before shipping.'],
+                       'release_qa_risk_next_steps': ['Resolve the blocked screenshot diff before '
+                                                      'shipping.'],
                        'release_qa_artifacts': []}},
             state={},
         )
@@ -1022,42 +989,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, "repair_and_resume")
         self.assertEqual(result.branch_kind, "continue")
 
-    def test_generated_request_unblocking_input_blocked_then_success_preserves_repair_owner(self):
-        state = self._make_state(None)
-        state.return_stage_id = 'verify_completion'
-        state.repair_context = {
-            'source_stage_id': 'repair_and_resume',
-            'return_stage_id': 'verify_completion',
-            'transition_reason': 'blocked',
-            'repair_payload': {'summary': 'Need user approval'},
-        }
-        workflow_state.record_observation(
-            state,
-            current_step_id='request_unblocking_input',
-            observation={
-                'status': 'blocked',
-                'summary': 'Still waiting on approval.',
-                'structured_output': {'missing_inputs': ['approval']},
-            },
-            verifier_result=None,
-        )
-        self.assertEqual(state.repair_context.get('source_stage_id'), 'repair_and_resume')
-        result = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id='request_unblocking_input',
-            observation={
-                'status': 'succeeded',
-                'summary': 'Received the approval.',
-                'structured_output': {
-                    'blocking_reason': 'Awaiting approval',
-                    'user_action_needed': 'Use the provided approval and continue.',
-                },
-            },
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, 'repair_and_resume')
-        self.assertEqual(result.branch_kind, 'continue')
-
     def test_generated_repair_and_resume_resumes_to_return_stage(self):
         state = self._make_state(None)
         state.return_stage_id = 'run_brainstorming'
@@ -1105,82 +1036,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, "request_unblocking_input")
         self.assertEqual(result.branch_kind, "repair")
         self.assertEqual(state.return_stage_id, 'verify_completion')
-
-    def test_generated_real_repair_escalation_preserves_repair_owner(self):
-        state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})
-        state.return_stage_id = 'verify_completion'
-        state.repair_context = {
-            'source_stage_id': 'verify_completion',
-            'return_stage_id': 'verify_completion',
-            'transition_reason': 'blocked',
-            'repair_payload': {'summary': 'Need screenshot approval'},
-        }
-        workflow_state.record_observation(
-            state,
-            current_step_id='repair_and_resume',
-            observation={
-                'status': 'blocked',
-                'summary': 'Repair exhausted local attempts and needs approval.',
-                'structured_output': {'missing_inputs': ['approval']},
-            },
-            verifier_result=None,
-        )
-        self.assertEqual(state.repair_context.get('source_stage_id'), 'repair_and_resume')
-        escalate = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id='repair_and_resume',
-            observation={
-                'status': 'blocked',
-                'summary': 'Repair exhausted local attempts and needs approval.',
-                'structured_output': {'missing_inputs': ['approval']},
-            },
-            verifier_result=None,
-        )
-        self.assertEqual(escalate.step_id, 'request_unblocking_input')
-        resume = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id='request_unblocking_input',
-            observation={
-                'status': 'succeeded',
-                'summary': 'Received the required approval.',
-                'structured_output': {
-                    'blocking_reason': 'Awaiting approval',
-                    'user_action_needed': 'Use the approval and resume repair.',
-                },
-            },
-            verifier_result=None,
-        )
-        self.assertEqual(resume.step_id, 'repair_and_resume')
-        self.assertEqual(resume.branch_kind, 'continue')
-
-    def test_generated_repair_attempt_threshold_resets_between_repair_episodes(self):
-        state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})
-        state.return_stage_id = 'verify_completion'
-        workflow_state.apply_transition(
-            state,
-            current_step_id='repair_and_resume',
-            next_step_id='verify_completion',
-        )
-        self.assertEqual(state.attempt_counts.get('repair_and_resume'), 0)
-        state.return_stage_id = 'verify_completion'
-        workflow_state.apply_transition(
-            state,
-            current_step_id='verify_completion',
-            next_step_id='repair_and_resume',
-        )
-        self.assertEqual(state.attempt_counts.get('repair_and_resume'), 0)
-        result = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id='repair_and_resume',
-            observation={
-                'status': 'blocked',
-                'summary': 'New repair episode still needs one more local attempt.',
-                'structured_output': {'missing_inputs': ['approval']},
-            },
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, 'repair_and_resume')
-        self.assertEqual(result.branch_kind, 'retry')
 
     def test_generated_blocked_repair_context_preserves_host_visible_summary(self):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine

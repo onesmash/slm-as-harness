@@ -280,7 +280,6 @@ def record_observation(
         return_stage_id=return_stage_id,
         transition_reason=transition_reason,
         repair_payload=repair_payload or {},
-        existing_repair_context=state.repair_context,
     )
 
 
@@ -320,11 +319,7 @@ def apply_transition(state: IosAiAssistedDevelopmentFlowWorkflowState, *, curren
         if current_step_id not in state.completed_stages:
             state.completed_stages.append(current_step_id)
 
-    if current_step_id not in REPAIR_STAGE_IDS and next_step_id == "repair_and_resume":
-        state.attempt_counts["repair_and_resume"] = 0
-
     if current_step_id in REPAIR_STAGE_IDS and next_step_id == state.return_stage_id:
-        state.attempt_counts["repair_and_resume"] = 0
         state.return_stage_id = None
         state.repair_context = {}
 
@@ -349,17 +344,9 @@ def _build_repair_context(
     return_stage_id: str | None,
     transition_reason: str,
     repair_payload: dict[str, object],
-    existing_repair_context: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    existing_repair_context = dict(existing_repair_context or {})
-    if current_step_id == "repair_and_resume":
-        source_stage_id = current_step_id
-    elif current_step_id in REPAIR_STAGE_IDS:
-        source_stage_id = existing_repair_context.get("source_stage_id") or current_step_id
-    else:
-        source_stage_id = current_step_id
     return {
-        "source_stage_id": source_stage_id,
+        "source_stage_id": current_step_id,
         "return_stage_id": return_stage_id or "",
         "transition_reason": transition_reason,
         "repair_payload": dict(repair_payload or {}),

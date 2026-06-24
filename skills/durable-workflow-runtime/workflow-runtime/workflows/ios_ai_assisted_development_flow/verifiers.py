@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from workflows.common.contracts import VerifierResult, make_verifier_result
@@ -111,12 +112,7 @@ def verify_approve_subagent_review(
  'authorization_summary': 'string',
  'ready_for_spec_review': 'boolean'},
         optional_schema={},
-        verifier_rules=[{'output_key': 'subagent_review_approved',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'The workflow must record an explicit approve-or-decline subagent review decision '
-             'before continuing or closing.'},
- {'output_key': 'authorization_summary',
+        verifier_rules=[{'output_key': 'authorization_summary',
   'operator': 'truthy',
   'value': None,
   'message': "The workflow must record a summary of the user's subagent review authorization "
@@ -257,7 +253,11 @@ def verify_write_implementation_plan(
  {'output_key': 'execution_mode',
   'operator': 'truthy',
   'value': None,
-  'message': 'Implementation planning must return an explicit execution_mode.'}],
+  'message': 'Implementation planning must return an explicit execution_mode.'},
+ {'output_key': 'execution_mode',
+  'operator': 'one_of',
+  'value': ['subagent-driven'],
+  'message': 'Implementation planning must record execution_mode as subagent-driven.'}],
         verifier_templates=[{'id': 'plan_path_repo_policy',
   'template': 'repo_path_policy',
   'output_key': 'plan_path',
@@ -620,7 +620,7 @@ def _run_custom_verifier_requirements_write_implementation_plan(
 # custom_verifier_stage_id: write_implementation_plan
 # custom_verifier_requirement_id: planning_requires_subagent_execution_mode
 # template_version: 1
-# spec_fingerprint: 4d55ba5eb104c127a1ac939bb251525ef50bc1e98eb8c256bc4c2c042acf422d
+# spec_fingerprint: a8324eda4016d163fd8b9675e5b0554fa969bb3afcf7325dd2f5e8b5767f4e93
 # implementation_version: none
 def _custom_verifier_requirement_write_implementation_plan_planning_requires_subagent_execution_mode(
     *,
@@ -630,13 +630,13 @@ def _custom_verifier_requirement_write_implementation_plan_planning_requires_sub
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
 
-Requirement: This workflow may continue only when planning records subagent-driven execution as the selected approach.
+Requirement: This workflow may continue only when planning records subagent-driven execution as the selected approach and does not ask the user to choose a different execution style.
 Signals: execution_mode, ready_for_implementation, plan_reviewed
 Implementation surfaces: verifier, tests
 Hint pseudocode:
 - Normalize execution_mode to lowercase.
-- Accept only subagent-driven or subagent-driven-development as implementation-ready modes.
-- If execution_mode is inline, reject the output or require ready_for_implementation to remain false.
+- Accept only subagent-driven as the implementation-ready mode.
+- If execution_mode is inline or any other value, reject the output or require ready_for_implementation to remain false.
 - If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
 Test intent:
 - Reject planning outputs that pick inline execution while claiming implementation is ready.
@@ -644,8 +644,7 @@ Test intent:
 - Reject replanning output that ignores recorded plan-update or implementation-learned reasons when such context exists in state."""
     execution_mode = str(output.get("execution_mode") or "").strip().lower()
     ready_for_implementation = bool(output.get("ready_for_implementation"))
-    allowed_modes = {"subagent-driven", "subagent-driven-development"}
-    if ready_for_implementation and execution_mode not in allowed_modes:
+    if ready_for_implementation and execution_mode != "subagent-driven":
         return "ready_for_implementation requires execution_mode to be subagent-driven"
 
     replanning_state_present = False
@@ -882,7 +881,7 @@ def _run_custom_verifier_requirements_request_pre_merge_code_review(
 # custom_verifier_stage_id: request_pre_merge_code_review
 # custom_verifier_requirement_id: findings_include_severity_grouping
 # template_version: 1
-# spec_fingerprint: 3b84742beebc9a12109887b903e69e70e9796c58d0b8fb5bac951fa28b13292c
+# spec_fingerprint: 4c38827b31d91e5c7c4c1cd8a266ddc49d30f3ab3ffceb2a8d661b683b572148
 # implementation_version: none
 def _custom_verifier_requirement_request_pre_merge_code_review_findings_include_severity_grouping(
     *,
@@ -892,23 +891,23 @@ def _custom_verifier_requirement_request_pre_merge_code_review_findings_include_
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
 
-Requirement: Non-empty review findings must make severity explicit so the workflow can distinguish major merge blockers from lower-risk notes.
+Requirement: Non-empty review findings must make severity explicit with a stable prefix so the workflow can distinguish major merge blockers from lower-risk notes.
 Signals: review_status, findings
 Implementation surfaces: verifier, tests
 Hint pseudocode:
 - Skip the requirement when findings is empty.
-- Require each finding string to begin with or clearly include a recognized severity marker such as critical, high, medium, low, major, or minor.
+- Require each finding string to begin with an explicit severity prefix such as critical:, high:, medium:, low:, major:, minor:, blocker:, or p0:.
+- Reject findings whose severity is only implied in prose or negated by surrounding text.
 Test intent:
-- Reject change-requested findings that omit any severity marker.
-- Accept findings that carry an explicit severity prefix."""
+- Reject change-requested findings that omit a severity prefix.
+- Accept findings that carry an explicit severity prefix.
+- Reject findings that only mention severity in prose without a stable prefix."""
     findings = _meaningful_entries(output.get("findings"))
     if not findings:
         return None
-    severity_markers = ("critical", "high", "medium", "low", "major", "minor")
     for finding in findings:
-        lowered = finding.lower()
-        if not any(marker in lowered for marker in severity_markers):
-            return "review findings must include an explicit severity marker"
+        if not _has_explicit_severity_prefix(finding):
+            return "review findings must include an explicit severity prefix"
     return None
 
 # custom_verifier_stage_id: request_pre_merge_code_review
@@ -1301,12 +1300,41 @@ def _artifact_file_contains_sections_error(actual, template: dict, repo_root: st
     missing = [section for section in sections if section not in text]
     return None if not missing else f"{message}: missing sections {missing}"
 
-def _path_has_prefix(path, prefix) -> bool:
-    try:
-        Path(path).relative_to(prefix)
-        return True
-    except ValueError:
+
+def _has_explicit_severity_prefix(text: str) -> bool:
+    lowered = text.strip().lower()
+    if not lowered:
         return False
+    markers = ("critical", "high", "medium", "low", "major", "minor", "blocker", "p0", "p1")
+    for marker in markers:
+        if re.match(rf"^(?:\[\s*)?{re.escape(marker)}(?:\s*\])?\s*:\s+", lowered):
+            return True
+        if re.match(rf"^(?:\[\s*)?{re.escape(marker)}(?:\s*\])?\s*-\s+", lowered):
+            return True
+        if re.match(rf"^\[\s*{re.escape(marker)}\s*\]\s+", lowered):
+            return True
+    return False
+
+
+def _looks_like_visual_evidence(value) -> bool:
+    if not isinstance(value, str):
+        return False
+    text = value.strip().lower()
+    if not text:
+        return False
+    return any(
+        keyword in text
+        for keyword in (
+            "visual diff",
+            "screenshot",
+            "design comparison",
+            "ui comparison",
+            "pixel diff",
+            "image diff",
+            "visual comparison",
+        )
+    )
+
 
 def _meaningful_entries(value) -> list:
     """Return list items that are non-None non-empty strings."""

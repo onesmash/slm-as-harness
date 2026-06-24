@@ -1,4 +1,4 @@
-/writing-plans {{approved_design_path}}; write or revise the implementation plan under docs/superpowers/plans/, incorporate any recorded replanning feedback, have the user review the plan, and return subagent-driven as the selected execution approach when implementation is ready to start immediately.
+/writing-plans {{approved_design_path}}; write or revise the implementation plan under docs/superpowers/plans/, incorporate any recorded replanning feedback, have the user review the plan, and default the recorded execution mode to subagent-driven without asking the user to choose between execution styles.
 
 Stage Context:
 
@@ -15,7 +15,7 @@ Stage Boundaries:
 - Write the plan as a Markdown document under docs/superpowers/plans/.
 - The plan must be concrete enough for subagent-driven-development to execute task by task.
 - The plan review loop with the user must complete before this stage can finish.
-- Recommend and capture subagent-driven execution explicitly; do not leave execution_mode open-ended when the workflow is ready to continue.
+- Default and record execution_mode as subagent-driven; do not ask the user to choose between execution styles.
 - Use the recorded replanning feedback and implementation-learned plan gaps when revising the plan.
 
 Blocked Conditions:
@@ -23,4 +23,4 @@ Blocked Conditions:
 - Block if the approved design is missing or ambiguous.
 - Block if the plan file has not been written yet.
 - Block if the user has not reviewed the written plan.
-- Block if the execution approach has not been selected explicitly.
+- Block if the recorded execution mode is not subagent-driven.

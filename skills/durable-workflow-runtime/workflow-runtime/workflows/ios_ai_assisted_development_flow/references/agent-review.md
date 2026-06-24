@@ -34,13 +34,13 @@ the right workflow.
 
 ### `write_implementation_plan`
 
-- `planning_requires_subagent_execution_mode`: This workflow may continue only when planning records subagent-driven execution as the selected approach.
+- `planning_requires_subagent_execution_mode`: This workflow may continue only when planning records subagent-driven execution as the selected approach and does not ask the user to choose a different execution style.
   Signals: `execution_mode`, `ready_for_implementation`, `plan_reviewed`
   Implementation surfaces: `verifier`, `tests`
   Hint pseudocode:
     - Normalize execution_mode to lowercase.
-    - Accept only subagent-driven or subagent-driven-development as implementation-ready modes.
-    - If execution_mode is inline, reject the output or require ready_for_implementation to remain false.
+    - Accept only subagent-driven as the implementation-ready mode.
+    - If execution_mode is inline or any other value, reject the output or require ready_for_implementation to remain false.
     - If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
   Test intent:
     - Reject planning outputs that pick inline execution while claiming implementation is ready.
@@ -84,18 +84,29 @@ the right workflow.
   Test intent:
     - Reject ship outputs with whitespace-only executed checks or next steps.
     - Reject outputs with whitespace-only blocked checks.
+- `ship_verdict_requires_no_blocked_checks`: A ship verdict must not carry unresolved blocked checks or other outstanding QA issues forward.
+  Signals: `release_qa_verdict`, `release_qa_blocked_checks`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Trim blocked_checks before validation.
+    - If release_qa_verdict is ship, require blocked_checks to be empty after trimming.
+  Test intent:
+    - Reject ship outputs that still include blocked checks.
+    - Accept ship outputs only when blocked checks are empty.
 
 ### `request_pre_merge_code_review`
 
-- `findings_include_severity_grouping`: Non-empty review findings must make severity explicit so the workflow can distinguish major merge blockers from lower-risk notes.
+- `findings_include_severity_grouping`: Non-empty review findings must make severity explicit with a stable prefix so the workflow can distinguish major merge blockers from lower-risk notes.
   Signals: `review_status`, `findings`
   Implementation surfaces: `verifier`, `tests`
   Hint pseudocode:
     - Skip the requirement when findings is empty.
-    - Require each finding string to begin with or clearly include a recognized severity marker such as critical, high, medium, low, major, or minor.
+    - Require each finding string to begin with an explicit severity prefix such as critical:, high:, medium:, low:, major:, minor:, blocker:, or p0:.
+    - Reject findings whose severity is only implied in prose or negated by surrounding text.
   Test intent:
-    - Reject change-requested findings that omit any severity marker.
+    - Reject change-requested findings that omit a severity prefix.
     - Accept findings that carry an explicit severity prefix.
+    - Reject findings that only mention severity in prose without a stable prefix.
 - `findings_require_meaningful_entries`: Review findings must contain meaningful non-empty entries when findings are provided.
   Signals: `review_status`, `findings`
   Implementation surfaces: `verifier`, `tests`
@@ -104,6 +115,15 @@ the right workflow.
     - If review_status is changes_requested, reject findings that become empty after trimming.
   Test intent:
     - Reject changes_requested outputs whose findings are only blank strings.
+- `approved_review_requires_no_findings`: An approved pre-merge review must not leave actionable findings behind.
+  Signals: `review_status`, `findings`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Trim each finding string before validation.
+    - If review_status is approved, require findings to be empty after trimming.
+  Test intent:
+    - Reject approved review outputs that still include findings.
+    - Accept approved review outputs only when findings are empty.
 
 ### `verify_completion`
 

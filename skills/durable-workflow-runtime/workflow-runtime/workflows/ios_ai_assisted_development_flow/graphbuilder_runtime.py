@@ -89,7 +89,7 @@ NODE_DEFINITIONS = {
         step_id="write_implementation_plan",
         prompt_asset_path=PROMPTS_DIR / "write_implementation_plan.md",
         intent="create_superpowers_implementation_plan",
-        expected_artifact="reviewed implementation plan document and selected execution mode ready for implementation",
+        expected_artifact="reviewed implementation plan document and recorded subagent-driven execution mode ready for implementation",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "execute_implementation": NodeDefinition(
