@@ -976,7 +976,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         )
 
         self.assertIn('return_stage_id = state.get("return_stage_id")', policy_text)
-        self.assertIn('reason="cannot resume because return_stage_id is missing"', policy_text)
+        self.assertIn('reason="cannot resume because the next recovery target is missing"', policy_text)
         self.assertNotIn('next_node=state.get("return_stage_id") or', policy_text)
 
     def test_workflow_creator_generated_regression_tests_include_structural_defaults(self) -> None:
@@ -1009,6 +1009,9 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
         self.assertIn("test_generated_request_unblocking_input_resumes_to_return_stage", generated)
         self.assertIn("test_generated_request_unblocking_input_without_return_stage_stays_put", generated)
+        self.assertIn("test_generated_request_unblocking_input_returns_to_repair_owner", generated)
+        self.assertIn("test_generated_repair_and_resume_blocked_before_threshold_retries_locally", generated)
+        self.assertIn("test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking", generated)
         self.assertIn("test_generated_repair_and_resume_resumes_to_return_stage", generated)
         self.assertIn("test_generated_repair_and_resume_without_return_stage_stays_put", generated)
         self.assertIn("test_generated_template_context_prefers_state_for_change_id", generated)
@@ -1811,9 +1814,9 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                         "Testing review passed.",
                     ],
                     "open_questions": [
-                        "Brainstorming open_questions must be empty before OpenSpec formalization."
+                        "Brainstorming open_questions must be empty before implementation planning."
                     ],
-                    "ready_for_openspec": True,
+                    "ready_for_planning": True,
                 },
                 "artifacts": [],
                 "error": None,
@@ -1860,7 +1863,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         )
 
         self.assertEqual(response["kind"], "yield")
-        self.assertEqual(response["step_id"], "request_unblocking_input")
+        self.assertEqual(response["step_id"], "repair_and_resume")
         self.assertEqual(response["retry_context"]["category"], "blocked")
         self.assertEqual(
             response["retry_context"]["summary"],
@@ -1991,7 +1994,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
         self.assertIsNotNone(decision)
         assert decision is not None
-        self.assertEqual(decision.next_node, "request_unblocking_input")
+        self.assertEqual(decision.next_node, "repair_and_resume")
         self.assertEqual(decision.branch_kind, "repair")
         self.assertEqual(decision.metadata["max_steps"], 2)
 
@@ -2007,6 +2010,59 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         )
 
         self.assertIsNone(decision)
+
+    def test_ios_repair_blocked_before_threshold_stays_in_repair(self) -> None:
+        from workflows.ios_ai_assisted_development_flow import graphbuilder_runtime
+        from workflows.ios_ai_assisted_development_flow.state import make_initial_state
+
+        state = make_initial_state(
+            {
+                "task_input": {"goal": "repair threshold"},
+                "context": {"repo_root": str(REPO_ROOT)},
+                "constraints": {},
+            }
+        )
+        state.return_stage_id = "verify_completion"
+        result = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id="repair_and_resume",
+            observation={
+                "status": "blocked",
+                "summary": "Need approval before retry.",
+                "structured_output": {"missing_inputs": ["approval"]},
+            },
+            verifier_result=None,
+        )
+
+        self.assertEqual(result.step_id, "repair_and_resume")
+        self.assertEqual(result.branch_kind, "retry")
+
+    def test_ios_repair_blocked_after_threshold_requests_unblocking(self) -> None:
+        from workflows.ios_ai_assisted_development_flow import graphbuilder_runtime
+        from workflows.ios_ai_assisted_development_flow.state import make_initial_state
+
+        state = make_initial_state(
+            {
+                "task_input": {"goal": "repair threshold"},
+                "context": {"repo_root": str(REPO_ROOT)},
+                "constraints": {},
+            }
+        )
+        state.return_stage_id = "verify_completion"
+        state.attempt_counts["repair_and_resume"] = 2
+        result = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id="repair_and_resume",
+            observation={
+                "status": "blocked",
+                "summary": "Need approval before retry.",
+                "structured_output": {"missing_inputs": ["approval"]},
+            },
+            verifier_result=None,
+        )
+
+        self.assertEqual(result.step_id, "request_unblocking_input")
+        self.assertEqual(result.branch_kind, "repair")
 
     def test_shared_verifier_runner_executes_shell_command(self) -> None:
         from runtime.models import Observation, RunState
@@ -3303,6 +3359,8 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertIn("repair_structured_critique -->|recovery complete| run_structured_critique", flowchart_text)
             self.assertIn("unblock_loop[[request_unblocking_input]]", flowchart_text)
             self.assertIn("repair_loop[[repair_and_resume]]", flowchart_text)
+            self.assertIn("collect_review_context -.->|blocked| repair_loop", flowchart_text)
+            self.assertIn("repair_structured_critique -.->|blocked| repair_loop", flowchart_text)
             self.assertIn("collect_review_context -->|ready_for_critique is_false|", flowchart_text)
             self.assertIn("## Stage Responsibilities", flowchart_text)
             self.assertIn("collect_review_context[collect_review_context]", flowchart_text)
@@ -3324,7 +3382,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertIn("test_critique_partial_uses_shared_repair_default", generated_test_text)
             self.assertIn("test_recovery_success_returns_to_critique", generated_test_text)
             self.assertIn("test_generated_request_unblocking_input_resumes_to_return_stage", generated_test_text)
+            self.assertIn("test_generated_request_unblocking_input_returns_to_repair_owner", generated_test_text)
             self.assertIn("test_generated_repair_and_resume_without_return_stage_stays_put", generated_test_text)
+            self.assertIn("test_generated_repair_and_resume_blocked_before_threshold_retries_locally", generated_test_text)
+            self.assertIn("test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking", generated_test_text)
             self.assertIn(
                 "test_generated_blocked_repair_context_preserves_host_visible_summary",
                 generated_test_text,
@@ -3429,7 +3490,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(blocked_runtime_result.returncode, 0, msg=blocked_runtime_result.stderr)
             blocked_runtime_payload = json.loads(blocked_runtime_result.stdout)
             self.assertEqual(blocked_runtime_payload["kind"], "yield")
-            self.assertEqual(blocked_runtime_payload["step_id"], "request_unblocking_input")
+            self.assertEqual(blocked_runtime_payload["step_id"], "repair_and_resume")
             self.assertEqual(blocked_runtime_payload["retry_context"]["category"], "blocked")
             self.assertEqual(blocked_runtime_payload["retry_context"]["summary"], "awaiting manuscript")
             self.assertEqual(

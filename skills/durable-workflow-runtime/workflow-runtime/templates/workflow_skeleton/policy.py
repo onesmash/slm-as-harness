@@ -26,10 +26,19 @@ def choose_next_node(
 
     if current_step_id == "request_unblocking_input":
         if observation["status"] == "succeeded":
+            repair_context = state.get("repair_context") or {}
+            source_stage_id = repair_context.get("source_stage_id")
+            resume_target = "repair_and_resume" if source_stage_id == "repair_and_resume" else state.get("return_stage_id")
+            if not resume_target:
+                return TransitionDecision(
+                    next_node="request_unblocking_input",
+                    branch_kind="repair",
+                    reason="cannot resume because the next recovery target is missing",
+                )
             return TransitionDecision(
-                next_node=state.get("return_stage_id") or "run_primary_stage",
+                next_node=resume_target,
                 branch_kind="continue",
-                reason="user supplied the missing input and the original stage can resume",
+                reason="user supplied the missing input and the workflow can return to the recovery owner",
             )
         return TransitionDecision(
             next_node="request_unblocking_input",
@@ -39,14 +48,27 @@ def choose_next_node(
 
     if current_step_id == "repair_and_resume":
         if observation["status"] == "blocked":
+            repair_attempts = int((state.get("attempt_counts") or {}).get("repair_and_resume") or 0)
+            if repair_attempts < 3:
+                return TransitionDecision(
+                    next_node="repair_and_resume",
+                    branch_kind="retry",
+                    reason="repair must attempt self-repair at least 3 times before requesting external help",
+                )
             return TransitionDecision(
                 next_node="request_unblocking_input",
                 branch_kind="repair",
-                reason="retry is blocked and requires external help",
+                reason="repair exhausted 3 self-repair attempts and now requires external help before retry",
             )
         if observation["status"] == "succeeded":
+            if not state.get("return_stage_id"):
+                return TransitionDecision(
+                    next_node="repair_and_resume",
+                    branch_kind="retry",
+                    reason="cannot resume because return_stage_id is missing",
+                )
             return TransitionDecision(
-                next_node=state.get("return_stage_id") or "run_primary_stage",
+                next_node=state.get("return_stage_id"),
                 branch_kind="continue",
                 reason="repair work is complete and the original stage can resume",
             )
@@ -67,9 +89,9 @@ def _route_common_failure(
 ) -> TransitionDecision | None:
     if observation["status"] == "blocked":
         return TransitionDecision(
-            next_node="request_unblocking_input",
+            next_node="repair_and_resume",
             branch_kind="repair",
-            reason=f"{current_step_id} is blocked and needs user help",
+            reason=f"{current_step_id} is blocked and should be triaged by shared repair first",
         )
     if observation["status"] == "partial":
         return TransitionDecision(

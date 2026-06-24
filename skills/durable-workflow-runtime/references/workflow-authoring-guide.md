@@ -262,6 +262,9 @@ Rules:
 
 - repair prompts may explain what to fix, but they do not choose the next node
 - routing back to the original stage belongs in runtime policy via `return_stage_id`
+- normal blocked handling should enter `repair_and_resume` first; let shared repair decide whether external unblock input is actually required
+- shared repair should attempt self-repair three times before policy is allowed to escalate to `request_unblocking_input`
+- when `repair_and_resume` escalates to `request_unblocking_input`, a successful unblock returns to `repair_and_resume` first so repair can own the retry decision
 - if repair itself becomes blocked, it should still route through policy, not host improvisation
 - if `return_stage_id` is missing when a shared recovery helper succeeds, keep
   the workflow on the recovery node and fix state bookkeeping instead of

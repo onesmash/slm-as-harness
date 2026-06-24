@@ -1,4 +1,4 @@
-当前 `academic_research_pipeline` 被阻塞，需要用户输入或授权。
+当前 `academic_research_pipeline` 需要外部输入或授权才能解除阻塞；如果修复阶段仍拥有重试决策权，解除阻塞后应先返回修复阶段。
 
 研究目标：
 {{research_goal}}
@@ -20,5 +20,6 @@
 - 当前不能继续的原因。
 - 需要用户提供什么材料、确认或授权。
 - 用户下一条消息可以怎样回答。
+- 当前输入补齐后，workflow 会先回到哪个恢复拥有者来决定是否重试。
 
 不要自行假设缺失的研究材料、review decision、integrity gate ack 或格式选择。

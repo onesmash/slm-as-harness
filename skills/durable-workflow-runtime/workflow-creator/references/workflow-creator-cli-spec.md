@@ -212,7 +212,7 @@ dependency-free and easy to test.
   ],
   "shared_repair_helpers": {
     "request_unblocking_input": {
-      "prompt": "Request the exact external input needed to unblock the workflow and preserve the original return stage.",
+      "prompt": "Request the exact external input needed to unblock the workflow, then return control to the repair stage when repair still owns the retry.",
       "expected_artifact": "user action needed to unblock the workflow",
       "done_when": [
         "Identify the blocking reason",
@@ -225,7 +225,7 @@ dependency-free and easy to test.
       }
     },
     "repair_and_resume": {
-      "prompt": "Repair the previous workflow step using the persisted failure details and prepare a safe retry.",
+      "prompt": "Repair the previous workflow step using the persisted failure details, and decide whether the workflow can retry directly or must first ask for external unblocking input.",
       "expected_artifact": "repair actions needed before returning to the original stage",
       "done_when": [
         "Explain why the original step needs repair",
@@ -378,8 +378,9 @@ For each business stage, generated `policy.py` evaluates routing in this order:
 
 1. `stages[].outcome_routes` route declared `blocked`, `partial`, `failed`, or
    `verifier_failed` outcomes to business-specific recovery nodes.
-2. Common runtime outcomes not matched above route to the shared unblock or
-   repair nodes.
+2. Common runtime outcomes not matched above route to the shared repair path
+   first; `repair_and_resume` may then escalate to shared unblock only after
+   three blocked self-repair attempts when external input is truly required.
 3. `stages[].repair_conditions` route a successful observation into repair when
    the output is structurally present but not acceptable for continued business
    progress.
@@ -429,7 +430,9 @@ for an outcome, generated policy uses the shared default route.
 Required for `stage_kind: "recovery"`. On a successful recovery observation,
 generated policy returns to this node. Recovery stages default to retrying
 themselves for `partial`, `failed`, or failed verifier results, and route
-`blocked` to `request_unblocking_input`. This is separate from the shared
+`blocked` to `repair_and_resume`. Shared repair must attempt self-repair three
+times before its own `blocked` outcome may escalate to
+`request_unblocking_input`. This is separate from the shared
 recovery-helper path, which depends on `return_stage_id` recorded in workflow
 state.
 

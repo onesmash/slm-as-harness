@@ -52,7 +52,9 @@ flowchart TD
 - Review has one global decision point: accept goes to final integrity, minor or
   major revision enters the revision/re-review loop, and reject or unsupported
   decisions enter repair.
-- Any yielded stage can enter the shared repair loop on `blocked`, `partial`,
-  `failed`, or verifier failure.
-- Repair returns through `return_stage_id`; if that state is missing, policy
-  falls back to `plan_academic_pipeline`.
+- Any yielded stage first enters the shared repair loop on `blocked`,
+  `partial`, `failed`, or verifier failure; shared repair may then escalate to
+  `request_unblocking_input` when external help is truly required.
+- Repair returns through `return_stage_id`. When unblock was requested by
+  shared repair, a successful unblock returns to `repair_and_resume` first so
+  repair can own the retry decision.

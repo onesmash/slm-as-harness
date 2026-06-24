@@ -81,7 +81,7 @@ def max_steps_exceeded_decision(
         return None
 
     return TransitionDecision(
-        next_node="request_unblocking_input",
+        next_node="repair_and_resume",
         branch_kind="repair",
         reason=f"workflow reached max_steps={max_steps} after {total_attempts} observed step(s)",
         metadata={"max_steps": max_steps, "attempt_count": total_attempts},
