@@ -736,6 +736,24 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], False)
 
+    def test_release_qa_rejects_ship_with_blocked_checks(self):
+        result = verifiers.verify_run_agentic_release_qa(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='run_agentic_release_qa',
+            observation={'status': 'succeeded',
+ 'summary': 'Release QA tried to ship with blocked checks still open.',
+ 'structured_output': {'release_qa_target_scope': 'Changed meeting footer flow on iPhone simulator',
+                       'release_qa_summary': 'Core checks passed, but one visual confirmation is still blocked.',
+                       'release_qa_verdict': 'ship',
+                       'release_qa_executed_checks': ['Smoke', 'Regression'],
+                       'release_qa_blocked_checks': ['Final screenshot diff confirmation'],
+                       'release_qa_risk_next_steps': ['Resolve the blocked screenshot diff before shipping.'],
+                       'release_qa_artifacts': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
     def test_review_rejects_blank_findings(self):
         result = verifiers.verify_request_pre_merge_code_review(
             repo_root=str(REPO_ROOT),
@@ -786,6 +804,23 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             state={},
         )
         self.assertIs(result['passed'], True)
+
+    def test_review_rejects_approved_status_with_findings(self):
+        result = verifiers.verify_request_pre_merge_code_review(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='request_pre_merge_code_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Review tried to approve despite leaving one actionable finding.',
+ 'structured_output': {'review_status': 'approved',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'findings': ['low: rename the leaked presenter helper before merge'],
+                       'review_summary': 'Mostly ready, but one cleanup item remains.',
+                       'changes_requested': False,
+                       'missing_review_inputs': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
 
     def test_completion_verification_rejects_pass_with_remaining_risks(self):
         result = verifiers.verify_verify_completion(

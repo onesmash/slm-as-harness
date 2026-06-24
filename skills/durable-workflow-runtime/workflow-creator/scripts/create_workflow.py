@@ -290,6 +290,98 @@ def create_workflow_scaffold(
     }
 
 
+def migrate_legacy_custom_verifier_metadata(
+    *,
+    runtime_skill_root: str | Path,
+    workflow_id: str | None = None,
+) -> dict[str, Any]:
+    runtime_root = _resolve_runtime_skill_root(runtime_skill_root)
+    workflows_root = runtime_root / "workflow-runtime" / "workflows"
+    requested_workflow_ids = (
+        [_validate_workflow_id(workflow_id)]
+        if workflow_id is not None
+        else _discover_migratable_workflow_ids(workflows_root)
+    )
+
+    scanned_workflows: list[str] = []
+    migrated_workflows: list[str] = []
+    workflow_results: list[dict[str, Any]] = []
+    all_warnings: list[str] = []
+
+    for current_workflow_id in requested_workflow_ids:
+        workflow_dir = workflows_root / current_workflow_id
+        if not workflow_dir.exists():
+            raise WorkflowCreatorError(f"workflow does not exist: {current_workflow_id}")
+
+        scanned_workflows.append(current_workflow_id)
+        spec_path = workflow_dir / "spec.json"
+        verifiers_path = workflow_dir / "verifiers.py"
+        if not spec_path.exists() or not verifiers_path.exists():
+            warning = "Skipped workflow because spec.json or verifiers.py is missing."
+            workflow_results.append(
+                {
+                    "workflow_id": current_workflow_id,
+                    "migrated": False,
+                    "warnings": [warning],
+                }
+            )
+            all_warnings.append(f"{current_workflow_id}: {warning}")
+            continue
+
+        workflow_spec = _load_workflow_spec(
+            spec_file=spec_path,
+            workflow_id=current_workflow_id,
+            flow_description=None,
+        )
+        existing_verifiers_text = verifiers_path.read_text(encoding="utf-8")
+        rendered_verifiers_text, warnings = _render_verifiers_py(
+            workflow_spec,
+            existing_verifiers_text=existing_verifiers_text,
+        )
+        migration_warnings = [
+            warning
+            for warning in warnings
+            if warning.startswith(
+                "Migrated legacy custom verifier implementation without preservation metadata for "
+            )
+        ]
+        migrated = bool(migration_warnings)
+        if migrated and rendered_verifiers_text != existing_verifiers_text:
+            verifiers_path.write_text(rendered_verifiers_text, encoding="utf-8")
+            migrated_workflows.append(current_workflow_id)
+
+        workflow_results.append(
+            {
+                "workflow_id": current_workflow_id,
+                "migrated": migrated,
+                "warnings": warnings,
+            }
+        )
+        all_warnings.extend(f"{current_workflow_id}: {warning}" for warning in warnings)
+
+    return {
+        "kind": "legacy_custom_verifier_metadata_migration",
+        "runtime_skill_root": str(runtime_root),
+        "scanned_workflows": scanned_workflows,
+        "migrated_workflows": migrated_workflows,
+        "workflow_results": workflow_results,
+        "warnings": all_warnings,
+    }
+
+
+def _discover_migratable_workflow_ids(workflows_root: Path) -> list[str]:
+    workflow_ids: list[str] = []
+    for path in sorted(workflows_root.iterdir(), key=lambda item: item.name):
+        if not path.is_dir():
+            continue
+        if not (path / "spec.json").exists():
+            continue
+        if not (path / "verifiers.py").exists():
+            continue
+        workflow_ids.append(path.name)
+    return workflow_ids
+
+
 def _resolve_runtime_skill_root(runtime_skill_root: str | Path) -> Path:
     path = Path(runtime_skill_root).expanduser().resolve()
     required_paths = [
@@ -2609,7 +2701,8 @@ def _render_verifiers_py(
     existing_verifiers_text: str | None = None,
 ) -> tuple[str, list[str]]:
     preserved_blocks, preservation_warnings = _extract_preservable_custom_verifier_blocks(
-        existing_verifiers_text
+        existing_verifiers_text,
+        workflow_spec=workflow_spec,
     )
     lines = [
         "from __future__ import annotations",
@@ -3147,6 +3240,8 @@ def _normalize_for_custom_verifier_fingerprint(value: Any) -> Any:
 
 def _extract_preservable_custom_verifier_blocks(
     existing_verifiers_text: str | None,
+    *,
+    workflow_spec: dict[str, Any],
 ) -> tuple[dict[tuple[str, str], dict[str, Any]], list[str]]:
     if not existing_verifiers_text:
         return {}, []
@@ -3159,6 +3254,7 @@ def _extract_preservable_custom_verifier_blocks(
     lines = existing_verifiers_text.splitlines()
     blocks: dict[tuple[str, str], dict[str, Any]] = {}
     warnings: list[str] = []
+    legacy_function_metadata = _legacy_custom_verifier_function_metadata(workflow_spec)
     for node in module.body:
         if not isinstance(node, ast.FunctionDef):
             continue
@@ -3170,13 +3266,31 @@ def _extract_preservable_custom_verifier_blocks(
                 f"{node.name}"
             )
             continue
+        leading_comment_lines, _ = _leading_comment_lines_for_node(lines, node)
         metadata = _parse_custom_verifier_metadata(lines, node)
+        source_lines = lines[metadata["start_lineno"] - 1 : node.end_lineno] if metadata is not None else None
         if metadata is None:
+            if leading_comment_lines:
+                warnings.append(
+                    "Regenerated custom verifier scaffold because preservation metadata was missing "
+                    f"or malformed for {node.name}"
+                )
+                continue
+            legacy_metadata = legacy_function_metadata.get(node.name)
+            if legacy_metadata is None:
+                warnings.append(
+                    "Regenerated custom verifier scaffold because preservation metadata was missing "
+                    f"or malformed for {node.name}"
+                )
+                continue
+            metadata = dict(legacy_metadata)
+            source_lines = _custom_verifier_metadata_comment_lines(metadata) + lines[
+                node.lineno - 1 : node.end_lineno
+            ]
             warnings.append(
-                "Regenerated custom verifier scaffold because preservation metadata was missing "
-                f"or malformed for {node.name}"
+                "Migrated legacy custom verifier implementation without preservation metadata for "
+                f"{metadata['stage_id']}.{metadata['requirement_id']}"
             )
-            continue
         block_key = (metadata["stage_id"], metadata["requirement_id"])
         if block_key in blocks:
             warnings.append(
@@ -3184,7 +3298,6 @@ def _extract_preservable_custom_verifier_blocks(
                 f"{metadata['stage_id']}.{metadata['requirement_id']}"
             )
             continue
-        source_lines = lines[metadata["start_lineno"] - 1 : node.end_lineno]
         blocks[block_key] = {
             **metadata,
             "source_lines": source_lines,
@@ -3192,19 +3305,38 @@ def _extract_preservable_custom_verifier_blocks(
     return blocks, warnings
 
 
+def _legacy_custom_verifier_function_metadata(
+    workflow_spec: dict[str, Any],
+) -> dict[str, dict[str, Any]]:
+    metadata_by_name: dict[str, dict[str, Any]] = {}
+    for stage in workflow_spec["stages"]:
+        for requirement in stage.get("custom_verifier_requirements") or []:
+            function_name = _custom_verifier_requirement_function_name(
+                stage["step_id"],
+                requirement["id"],
+            )
+            metadata_by_name[function_name] = {
+                **_custom_verifier_requirement_metadata(stage, requirement),
+                "start_lineno": 0,
+            }
+    return metadata_by_name
+
+
+def _custom_verifier_metadata_comment_lines(metadata: dict[str, Any]) -> list[str]:
+    return [
+        f"# custom_verifier_stage_id: {metadata['stage_id']}",
+        f"# custom_verifier_requirement_id: {metadata['requirement_id']}",
+        f"# template_version: {metadata['template_version']}",
+        f"# spec_fingerprint: {metadata['spec_fingerprint']}",
+        f"# implementation_version: {_implementation_version_marker(metadata['implementation_version'])}",
+    ]
+
+
 def _parse_custom_verifier_metadata(lines: list[str], node: ast.FunctionDef) -> dict[str, Any] | None:
-    comment_lines: list[str] = []
-    line_index = node.lineno - 2
-    while line_index >= 0:
-        stripped = lines[line_index].strip()
-        if not stripped.startswith("#"):
-            break
-        comment_lines.append(stripped)
-        line_index -= 1
+    comment_lines, metadata_start_lineno = _leading_comment_lines_for_node(lines, node)
     if not comment_lines:
         return None
     comment_lines.reverse()
-    metadata_start_lineno = line_index + 2
     metadata: dict[str, str] = {}
     for comment_line in comment_lines:
         match = re.fullmatch(r"#\s*([a-z_]+):\s*(.+)", comment_line)
@@ -3237,6 +3369,21 @@ def _parse_custom_verifier_metadata(lines: list[str], node: ast.FunctionDef) -> 
         "spec_fingerprint": metadata["spec_fingerprint"],
         "implementation_version": implementation_version,
     }
+
+
+def _leading_comment_lines_for_node(
+    lines: list[str],
+    node: ast.FunctionDef,
+) -> tuple[list[str], int]:
+    comment_lines: list[str] = []
+    line_index = node.lineno - 2
+    while line_index >= 0:
+        stripped = lines[line_index].strip()
+        if not stripped.startswith("#"):
+            break
+        comment_lines.append(stripped)
+        line_index -= 1
+    return comment_lines, line_index + 2
 
 
 _INVALID_IMPLEMENTATION_VERSION = object()
@@ -3940,12 +4087,18 @@ def _remove_path(path: Path) -> None:
 def main(argv: list[str] | None = None) -> int:
     args = _build_parser().parse_args(argv)
     try:
-        payload = create_workflow_scaffold(
-            runtime_skill_root=args.runtime_skill_root,
-            workflow_id=args.workflow_id,
-            flow_description=args.flow_description,
-            force=args.force,
-        )
+        if args.migrate_legacy_custom_verifier_metadata:
+            payload = migrate_legacy_custom_verifier_metadata(
+                runtime_skill_root=args.runtime_skill_root,
+                workflow_id=args.workflow_id,
+            )
+        else:
+            payload = create_workflow_scaffold(
+                runtime_skill_root=args.runtime_skill_root,
+                workflow_id=args.workflow_id,
+                flow_description=args.flow_description,
+                force=args.force,
+            )
     except Exception as exc:
         print(str(exc), file=sys.stderr)
         return 1
@@ -3965,6 +4118,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Required when creating a new scaffold. Existing workflows regenerate from workflow-runtime/workflows/<workflow_id>/spec.json.",
     )
     parser.add_argument("--force", action="store_true")
+    parser.add_argument(
+        "--migrate-legacy-custom-verifier-metadata",
+        action="store_true",
+        help="Scan existing workflows and backfill preservation metadata for legacy custom verifier helpers that predate spec_fingerprint comments.",
+    )
     return parser
 
 

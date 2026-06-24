@@ -111,7 +111,12 @@ def verify_approve_subagent_review(
  'authorization_summary': 'string',
  'ready_for_spec_review': 'boolean'},
         optional_schema={},
-        verifier_rules=[{'output_key': 'authorization_summary',
+        verifier_rules=[{'output_key': 'subagent_review_approved',
+  'operator': 'is_true',
+  'value': None,
+  'message': 'The workflow must record an explicit approve-or-decline subagent review decision '
+             'before continuing or closing.'},
+ {'output_key': 'authorization_summary',
   'operator': 'truthy',
   'value': None,
   'message': "The workflow must record a summary of the user's subagent review authorization "
@@ -547,6 +552,11 @@ def _run_custom_verifier_requirements_run_spec_review(
         errors.append(message)
     return "; ".join(errors) if errors else None
 
+# custom_verifier_stage_id: run_spec_review
+# custom_verifier_requirement_id: spec_review_outputs_require_artifacts
+# template_version: 1
+# spec_fingerprint: b1bd1d14299261c3cbb486d71fe7ca5cfe6ae81022dbcc92abc6ef90f637f0ad
+# implementation_version: none
 def _custom_verifier_requirement_run_spec_review_spec_review_outputs_require_artifacts(
     *,
     output: dict,
@@ -607,6 +617,11 @@ def _run_custom_verifier_requirements_write_implementation_plan(
         errors.append(message)
     return "; ".join(errors) if errors else None
 
+# custom_verifier_stage_id: write_implementation_plan
+# custom_verifier_requirement_id: planning_requires_subagent_execution_mode
+# template_version: 1
+# spec_fingerprint: 4d55ba5eb104c127a1ac939bb251525ef50bc1e98eb8c256bc4c2c042acf422d
+# implementation_version: none
 def _custom_verifier_requirement_write_implementation_plan_planning_requires_subagent_execution_mode(
     *,
     output: dict,
@@ -663,6 +678,11 @@ def _run_custom_verifier_requirements_execute_implementation(
         errors.append(message)
     return "; ".join(errors) if errors else None
 
+# custom_verifier_stage_id: execute_implementation
+# custom_verifier_requirement_id: completed_tasks_consistency
+# template_version: 1
+# spec_fingerprint: 662255397991a8c36420c09c11b274ad4d0b65dbf89d48c47918f960d7017826
+# implementation_version: none
 def _custom_verifier_requirement_execute_implementation_completed_tasks_consistency(
     *,
     output: dict,
@@ -715,8 +735,20 @@ def _run_custom_verifier_requirements_run_agentic_release_qa(
     )
     if message:
         errors.append(message)
+    message = _custom_verifier_requirement_run_agentic_release_qa_ship_verdict_requires_no_blocked_checks(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
     return "; ".join(errors) if errors else None
 
+# custom_verifier_stage_id: run_agentic_release_qa
+# custom_verifier_requirement_id: ui_visual_qa_evidence
+# template_version: 1
+# spec_fingerprint: 4606d7538ed7f40b00173c64b06dad404a354f81d3ec170579fe313678109cbf
+# implementation_version: none
 def _custom_verifier_requirement_run_agentic_release_qa_ui_visual_qa_evidence(
     *,
     output: dict,
@@ -753,6 +785,11 @@ Test intent:
         return "UI-impacting release QA must report explicit visual comparison evidence"
     return None
 
+# custom_verifier_stage_id: run_agentic_release_qa
+# custom_verifier_requirement_id: release_qa_lists_require_meaningful_entries
+# template_version: 1
+# spec_fingerprint: 40cb637d49a39e4f1f564a44c5966d5411e9a8a45c2963617671dfcb6a8926f2
+# implementation_version: none
 def _custom_verifier_requirement_run_agentic_release_qa_release_qa_lists_require_meaningful_entries(
     *,
     output: dict,
@@ -784,6 +821,34 @@ Test intent:
         return "release QA blocked checks cannot be blank placeholders"
     return None
 
+# custom_verifier_stage_id: run_agentic_release_qa
+# custom_verifier_requirement_id: ship_verdict_requires_no_blocked_checks
+# template_version: 1
+# spec_fingerprint: cf8db0e1aa278387c8d5babe7cdf068f696b6b54a4655efe44f3a45046e79691
+# implementation_version: none
+def _custom_verifier_requirement_run_agentic_release_qa_ship_verdict_requires_no_blocked_checks(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+
+Requirement: A ship verdict must not carry unresolved blocked checks or other outstanding QA issues forward.
+Signals: release_qa_verdict, release_qa_blocked_checks
+Implementation surfaces: verifier, tests
+Hint pseudocode:
+- Trim blocked_checks before validation.
+- If release_qa_verdict is ship, require blocked_checks to be empty after trimming.
+Test intent:
+- Reject ship outputs that still include blocked checks.
+- Accept ship outputs only when blocked checks are empty."""
+    verdict = str(output.get("release_qa_verdict") or "").strip().lower()
+    blocked_checks = _meaningful_entries(output.get("release_qa_blocked_checks"))
+    if verdict == "ship" and blocked_checks:
+        return "release QA cannot return ship while blocked checks remain"
+    return None
+
 def _run_custom_verifier_requirements_request_pre_merge_code_review(
     *,
     output: dict,
@@ -805,8 +870,20 @@ def _run_custom_verifier_requirements_request_pre_merge_code_review(
     )
     if message:
         errors.append(message)
+    message = _custom_verifier_requirement_request_pre_merge_code_review_approved_review_requires_no_findings(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
     return "; ".join(errors) if errors else None
 
+# custom_verifier_stage_id: request_pre_merge_code_review
+# custom_verifier_requirement_id: findings_include_severity_grouping
+# template_version: 1
+# spec_fingerprint: 3b84742beebc9a12109887b903e69e70e9796c58d0b8fb5bac951fa28b13292c
+# implementation_version: none
 def _custom_verifier_requirement_request_pre_merge_code_review_findings_include_severity_grouping(
     *,
     output: dict,
@@ -834,6 +911,11 @@ Test intent:
             return "review findings must include an explicit severity marker"
     return None
 
+# custom_verifier_stage_id: request_pre_merge_code_review
+# custom_verifier_requirement_id: findings_require_meaningful_entries
+# template_version: 1
+# spec_fingerprint: 30b6c1be8813a69d6f16dda5b50146973b4341b4603f68ce17a7f5f279a070b9
+# implementation_version: none
 def _custom_verifier_requirement_request_pre_merge_code_review_findings_require_meaningful_entries(
     *,
     output: dict,
@@ -854,6 +936,34 @@ Test intent:
     findings_raw = output.get("findings") or []
     if review_status == "changes_requested" and not _meaningful_entries(findings_raw):
         return "changes_requested review output must include meaningful findings"
+    return None
+
+# custom_verifier_stage_id: request_pre_merge_code_review
+# custom_verifier_requirement_id: approved_review_requires_no_findings
+# template_version: 1
+# spec_fingerprint: 139801761cc44ce5025b1d59bfe8db77737228ed8a1fe3c5f9211c756a210f57
+# implementation_version: none
+def _custom_verifier_requirement_request_pre_merge_code_review_approved_review_requires_no_findings(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+
+Requirement: An approved pre-merge review must not leave actionable findings behind.
+Signals: review_status, findings
+Implementation surfaces: verifier, tests
+Hint pseudocode:
+- Trim each finding string before validation.
+- If review_status is approved, require findings to be empty after trimming.
+Test intent:
+- Reject approved review outputs that still include findings.
+- Accept approved review outputs only when findings are empty."""
+    review_status = str(output.get("review_status") or "").strip().lower()
+    findings = _meaningful_entries(output.get("findings"))
+    if review_status == "approved" and findings:
+        return "approved review output must not include remaining findings"
     return None
 
 def _run_custom_verifier_requirements_verify_completion(
@@ -879,6 +989,11 @@ def _run_custom_verifier_requirements_verify_completion(
         errors.append(message)
     return "; ".join(errors) if errors else None
 
+# custom_verifier_stage_id: verify_completion
+# custom_verifier_requirement_id: completion_evidence_lists_require_meaningful_entries
+# template_version: 1
+# spec_fingerprint: 462d7d54434103cde521ff7e6874c91bc755cb78994b06377bb01a7fa594152f
+# implementation_version: none
 def _custom_verifier_requirement_verify_completion_completion_evidence_lists_require_meaningful_entries(
     *,
     output: dict,
@@ -911,6 +1026,11 @@ Test intent:
             return "missing_verification_inputs cannot contain only blank placeholders"
     return None
 
+# custom_verifier_stage_id: verify_completion
+# custom_verifier_requirement_id: completion_requires_release_qa_and_review_approval
+# template_version: 1
+# spec_fingerprint: 53d6ce501f38df77f351dd6bf62e5020799ed908766ae7dbafda94381438e2f3
+# implementation_version: none
 def _custom_verifier_requirement_verify_completion_completion_requires_release_qa_and_review_approval(
     *,
     output: dict,
@@ -956,34 +1076,6 @@ Test intent:
     if risks_resolved and not risk_resolution_summary:
         return "resolved release QA risks require a risk resolution summary"
     return None
-
-
-def _meaningful_entries(value) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _path_has_prefix(path: Path, prefix: Path) -> bool:
-    try:
-        path.relative_to(prefix)
-        return True
-    except ValueError:
-        return False
-
-
-def _looks_like_visual_evidence(value: str) -> bool:
-    lowered = value.lower()
-    tokens = (
-        "visual",
-        "screenshot",
-        "pixel",
-        "diff",
-        "design comparison",
-        "snapshot",
-        "figma",
-    )
-    return any(token in lowered for token in tokens)
 
 def _verify_structured_output_schema(
     *,

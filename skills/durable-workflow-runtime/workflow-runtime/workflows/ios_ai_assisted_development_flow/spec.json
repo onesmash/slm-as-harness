@@ -541,7 +541,6 @@
           "operator": "non_empty",
           "value": null,
           "message": "The workflow must return the concrete subagent review artifact paths."
-        },
         }
       ],
       "verifier_templates": [
@@ -1225,6 +1224,7 @@
           "Do not claim runtime, device, integration, or performance checks passed unless they were actually executed.",
           "Do not stress production systems or require destructive QA data without explicit user approval.",
           "Normalize release_qa_verdict to one of: ship or do_not_ship when the QA pass completes.",
+          "Do not return release_qa_verdict=ship while blocked checks or other unresolved QA issues still remain.",
           "If required QA inputs are missing, return observation.status=blocked instead of encoding blocked as a succeeded release_qa_verdict.",
           "If ui_surface_affected is true and both design_comparison_source and runtime_visual_comparison_scope are available, include an explicit visual comparison pass and report the executed or blocked visual diff evidence.",
           "Return the concrete QA target scope or artifact under test so later stages know exactly what was validated."
@@ -1239,6 +1239,7 @@
         "Change-derived release risks are summarized.",
         "Executed checks and blocked checks are reported separately.",
         "The release QA verdict is ship or do_not_ship when the stage completes successfully.",
+        "A ship verdict means there are no blocked checks left in the QA result.",
         "Risk-based next steps are listed."
       ],
       "output_schema": {
@@ -1457,6 +1458,26 @@
             "Reject ship outputs with whitespace-only executed checks or next steps.",
             "Reject outputs with whitespace-only blocked checks."
           ]
+        },
+        {
+          "id": "ship_verdict_requires_no_blocked_checks",
+          "description": "A ship verdict must not carry unresolved blocked checks or other outstanding QA issues forward.",
+          "signals": [
+            "release_qa_verdict",
+            "release_qa_blocked_checks"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "tests"
+          ],
+          "hint_pseudocode": [
+            "Trim blocked_checks before validation.",
+            "If release_qa_verdict is ship, require blocked_checks to be empty after trimming."
+          ],
+          "test_intent": [
+            "Reject ship outputs that still include blocked checks.",
+            "Accept ship outputs only when blocked checks are empty."
+          ]
         }
       ]
     },
@@ -1485,6 +1506,7 @@
           "Use ios-best-practices as an explicit iOS review lens for Swift, Objective-C, UIKit, SwiftUI, memory, concurrency, security, and architecture concerns in the changed files.",
           "Prefer reviewing the current local git diff or branch state instead of requiring a published MR.",
           "If findings exist, group them by severity and make the severity obvious in the returned finding strings.",
+          "Do not return review_status=approved while any findings still require action.",
           "If required review inputs are missing, return observation.status=blocked instead of encoding blocked as a succeeded review_status.",
           "If a suitable git review range or snapshot cannot be determined because external review inputs are missing, block and request the missing review input."
         ],
@@ -1496,6 +1518,7 @@
       "done_when": [
         "Review snapshot is identified.",
         "Findings are grouped by severity or explicitly reported as none.",
+        "An approved review means no actionable findings remain.",
         "The review status is approved or changes_requested when the stage completes successfully."
       ],
       "output_schema": {
@@ -1716,6 +1739,26 @@
           ],
           "test_intent": [
             "Reject changes_requested outputs whose findings are only blank strings."
+          ]
+        },
+        {
+          "id": "approved_review_requires_no_findings",
+          "description": "An approved pre-merge review must not leave actionable findings behind.",
+          "signals": [
+            "review_status",
+            "findings"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "tests"
+          ],
+          "hint_pseudocode": [
+            "Trim each finding string before validation.",
+            "If review_status is approved, require findings to be empty after trimming."
+          ],
+          "test_intent": [
+            "Reject approved review outputs that still include findings.",
+            "Accept approved review outputs only when findings are empty."
           ]
         }
       ]
@@ -3234,6 +3277,33 @@
       }
     },
     {
+      "name": "release_qa_rejects_ship_with_blocked_checks",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA tried to ship with blocked checks still open.",
+        "structured_output": {
+          "release_qa_target_scope": "Changed meeting footer flow on iPhone simulator",
+          "release_qa_summary": "Core checks passed, but one visual confirmation is still blocked.",
+          "release_qa_verdict": "ship",
+          "release_qa_executed_checks": [
+            "Smoke",
+            "Regression"
+          ],
+          "release_qa_blocked_checks": [
+            "Final screenshot diff confirmation"
+          ],
+          "release_qa_risk_next_steps": [
+            "Resolve the blocked screenshot diff before shipping."
+          ],
+          "release_qa_artifacts": []
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
       "name": "review_rejects_blank_findings",
       "type": "verifier",
       "step_id": "request_pre_merge_code_review",
@@ -3294,6 +3364,27 @@
         }
       },
       "expected_passed": true,
+      "state": null
+    },
+    {
+      "name": "review_rejects_approved_status_with_findings",
+      "type": "verifier",
+      "step_id": "request_pre_merge_code_review",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Review tried to approve despite leaving one actionable finding.",
+        "structured_output": {
+          "review_status": "approved",
+          "reviewed_snapshot": "HEAD vs working tree",
+          "findings": [
+            "low: rename the leaked presenter helper before merge"
+          ],
+          "review_summary": "Mostly ready, but one cleanup item remains.",
+          "changes_requested": false,
+          "missing_review_inputs": []
+        }
+      },
+      "expected_passed": false,
       "state": null
     },
     {

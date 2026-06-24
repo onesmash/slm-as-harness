@@ -3936,6 +3936,199 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 regenerated_text,
             )
 
+    def test_workflow_creator_migrates_legacy_custom_verifier_without_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            create_result = self._create_creator_workflow_scaffold(
+                runtime_root,
+                workflow_id="legacy_metadata_flow",
+                flow_description="Exercise legacy custom verifier metadata migration.",
+            )
+            self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+
+            spec_payload = self._custom_verifier_workflow_spec(
+                workflow_id="legacy_metadata_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                    }
+                ],
+            )
+            first_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="legacy_metadata_flow",
+                spec_payload=spec_payload,
+            )
+            self.assertEqual(first_result.returncode, 0, msg=first_result.stderr)
+
+            verifier_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "legacy_metadata_flow"
+                / "verifiers.py"
+            )
+            legacy_lines = [
+                line
+                for line in verifier_path.read_text(encoding="utf-8").splitlines()
+                if not line.startswith("# custom_verifier_")
+                and not line.startswith("# template_version:")
+                and not line.startswith("# spec_fingerprint:")
+                and not line.startswith("# implementation_version:")
+            ]
+            legacy_text = "\n".join(legacy_lines) + "\n"
+            legacy_text = legacy_text.replace(
+                "    _ = output, state, repo_root\n"
+                "    # TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.\n",
+                "    _ = output, state, repo_root\n"
+                "    if output.get(\"design_ready\") and not output.get(\"design_doc_path\"):\n"
+                "        return \"design_doc_path is required when design_ready is true\"\n",
+                1,
+            )
+            verifier_path.write_text(legacy_text, encoding="utf-8")
+
+            second_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="legacy_metadata_flow",
+                spec_payload=spec_payload,
+            )
+            self.assertEqual(second_result.returncode, 0, msg=second_result.stderr)
+            payload = json.loads(second_result.stdout)
+            self.assertIn(
+                "Migrated legacy custom verifier implementation without preservation metadata for "
+                "review_design_doc.design_doc_matches_contract",
+                "\n".join(payload["warnings"]),
+            )
+            migrated_text = verifier_path.read_text(encoding="utf-8")
+            self.assertIn("# spec_fingerprint:", migrated_text)
+            self.assertIn(
+                'return "design_doc_path is required when design_ready is true"',
+                migrated_text,
+            )
+
+    def test_workflow_creator_cli_migrates_legacy_custom_verifier_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            create_result = self._create_creator_workflow_scaffold(
+                runtime_root,
+                workflow_id="legacy_metadata_cli_flow",
+                flow_description="Exercise CLI legacy custom verifier metadata migration.",
+            )
+            self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+
+            spec_payload = self._custom_verifier_workflow_spec(
+                workflow_id="legacy_metadata_cli_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                    }
+                ],
+            )
+            first_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="legacy_metadata_cli_flow",
+                spec_payload=spec_payload,
+            )
+            self.assertEqual(first_result.returncode, 0, msg=first_result.stderr)
+
+            verifier_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "legacy_metadata_cli_flow"
+                / "verifiers.py"
+            )
+            legacy_lines = [
+                line
+                for line in verifier_path.read_text(encoding="utf-8").splitlines()
+                if not line.startswith("# custom_verifier_")
+                and not line.startswith("# template_version:")
+                and not line.startswith("# spec_fingerprint:")
+                and not line.startswith("# implementation_version:")
+            ]
+            verifier_path.write_text("\n".join(legacy_lines) + "\n", encoding="utf-8")
+
+            migrate_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CREATE_WORKFLOW_PATH),
+                    "--runtime-skill-root",
+                    str(runtime_root),
+                    "--workflow-id",
+                    "legacy_metadata_cli_flow",
+                    "--migrate-legacy-custom-verifier-metadata",
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(migrate_result.returncode, 0, msg=migrate_result.stderr)
+            payload = json.loads(migrate_result.stdout)
+            self.assertEqual(payload["kind"], "legacy_custom_verifier_metadata_migration")
+            self.assertEqual(payload["migrated_workflows"], ["legacy_metadata_cli_flow"])
+            migrated_text = verifier_path.read_text(encoding="utf-8")
+            self.assertIn("# spec_fingerprint:", migrated_text)
+
+    def test_workflow_creator_cli_migration_scan_filters_to_workflow_dirs_with_spec_and_verifiers(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            create_result = self._create_creator_workflow_scaffold(
+                runtime_root,
+                workflow_id="eligible_flow",
+                flow_description="Exercise migration scan filtering.",
+            )
+            self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+
+            spec_payload = self._custom_verifier_workflow_spec(
+                workflow_id="eligible_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                    }
+                ],
+            )
+            regen_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="eligible_flow",
+                spec_payload=spec_payload,
+            )
+            self.assertEqual(regen_result.returncode, 0, msg=regen_result.stderr)
+
+            (runtime_root / "workflow-runtime" / "workflows" / "common").mkdir()
+            (runtime_root / "workflow-runtime" / "workflows" / "common" / "__init__.py").write_text(
+                "",
+                encoding="utf-8",
+            )
+            (runtime_root / "workflow-runtime" / "workflows" / "old_flow").mkdir()
+            (runtime_root / "workflow-runtime" / "workflows" / "old_flow" / "verifiers.py").write_text(
+                "from __future__ import annotations\n",
+                encoding="utf-8",
+            )
+
+            migrate_result = subprocess.run(
+                [
+                    sys.executable,
+                    str(CREATE_WORKFLOW_PATH),
+                    "--runtime-skill-root",
+                    str(runtime_root),
+                    "--migrate-legacy-custom-verifier-metadata",
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(migrate_result.returncode, 0, msg=migrate_result.stderr)
+            payload = json.loads(migrate_result.stdout)
+            self.assertEqual(payload["scanned_workflows"], ["eligible_flow"])
+            self.assertNotIn("common", payload["scanned_workflows"])
+            self.assertNotIn("old_flow", payload["scanned_workflows"])
+
     def test_workflow_creator_cli_rejects_existing_workflow_without_force(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
