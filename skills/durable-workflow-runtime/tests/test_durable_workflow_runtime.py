@@ -379,6 +379,32 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             text=True,
         )
 
+    def _custom_verifier_workflow_spec(
+        self,
+        *,
+        workflow_id: str,
+        requirements: list[dict],
+    ) -> dict:
+        return {
+            "workflow_id": workflow_id,
+            "flow_description": "Exercise custom verifier incremental regeneration.",
+            "stages": [
+                {
+                    "step_id": "review_design_doc",
+                    "intent": "review_design_doc",
+                    "expected_artifact": "design review summary",
+                    "prompt": "Review the design document and capture the result.",
+                    "done_when": ["The design review result is captured"],
+                    "output_schema": {
+                        "design_doc_path": "string",
+                        "design_ready": "boolean",
+                    },
+                    "failure_schema": {"blocked_reason": "string?"},
+                    "custom_verifier_requirements": requirements,
+                }
+            ],
+        }
+
     def _install_project_skill(self, skill_name: str, *, root: str = ".agents/skills") -> None:
         skill_dir = REPO_ROOT / root / skill_name
         skill_file = skill_dir / "SKILL.md"
@@ -1163,7 +1189,8 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             stage["custom_verifier_requirements"][0]["implementation_surface"],
             ["verifier", "tests"],
         )
-        rendered_verifiers = create_workflow._render_verifiers_py(workflow_spec)
+        rendered_verifiers, warnings = create_workflow._render_verifiers_py(workflow_spec)
+        self.assertEqual(warnings, [])
         self.assertIn(
             "def _run_custom_verifier_requirements_review_design_doc(",
             rendered_verifiers,
@@ -1260,7 +1287,8 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             ["development", "design", "testing"],
         )
 
-        rendered_verifiers = create_workflow._render_verifiers_py(workflow_spec)
+        rendered_verifiers, warnings = create_workflow._render_verifiers_py(workflow_spec)
+        self.assertEqual(warnings, [])
         self.assertIn("def _repo_path_policy_error(", rendered_verifiers)
         self.assertIn("def _required_set_members_error(", rendered_verifiers)
         self.assertNotIn("_custom_verifier_requirement_implementation_lines", rendered_verifiers)
@@ -3558,6 +3586,354 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertIn(
                 "overall_risk must be low, medium, or high",
                 verifier_runtime_payload["retry_context"]["requirements"][0],
+            )
+
+    def test_workflow_creator_preserves_custom_verifier_body_when_requirement_unchanged(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            create_result = self._create_creator_workflow_scaffold(
+                runtime_root,
+                workflow_id="incremental_verifier_flow",
+                flow_description="Exercise incremental verifier preservation.",
+            )
+            self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+
+            spec_payload = self._custom_verifier_workflow_spec(
+                workflow_id="incremental_verifier_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                        "signals": ["design_doc_path", "design_ready"],
+                        "implementation_surface": ["verifier", "tests"],
+                        "hint_pseudocode": [
+                            "if output.design_ready is true and design_doc_path is empty: fail",
+                        ],
+                        "test_intent": [
+                            "rejects ready outputs that omit the generated design doc path",
+                        ],
+                    }
+                ],
+            )
+            first_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="incremental_verifier_flow",
+                spec_payload=spec_payload,
+            )
+            self.assertEqual(first_result.returncode, 0, msg=first_result.stderr)
+
+            verifier_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "incremental_verifier_flow"
+                / "verifiers.py"
+            )
+            original_text = verifier_path.read_text(encoding="utf-8")
+            edited_text = original_text.replace(
+                "    _ = output, state, repo_root\n"
+                "    # TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.\n",
+                "    _ = output, state, repo_root\n"
+                "    if output.get(\"design_ready\") and not output.get(\"design_doc_path\"):\n"
+                "        return \"design_doc_path is required when design_ready is true\"\n",
+                1,
+            )
+            verifier_path.write_text(edited_text, encoding="utf-8")
+
+            second_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="incremental_verifier_flow",
+                spec_payload=spec_payload,
+            )
+            self.assertEqual(second_result.returncode, 0, msg=second_result.stderr)
+            payload = json.loads(second_result.stdout)
+            self.assertEqual(payload["warnings"], [])
+            preserved_text = verifier_path.read_text(encoding="utf-8")
+            self.assertIn(
+                'return "design_doc_path is required when design_ready is true"',
+                preserved_text,
+            )
+            self.assertIn("# spec_fingerprint:", preserved_text)
+            self.assertIn("# implementation_version: none", preserved_text)
+
+    def test_workflow_creator_regenerates_custom_verifier_body_when_requirement_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            create_result = self._create_creator_workflow_scaffold(
+                runtime_root,
+                workflow_id="changed_verifier_flow",
+                flow_description="Exercise verifier invalidation on spec change.",
+            )
+            self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+
+            base_spec = self._custom_verifier_workflow_spec(
+                workflow_id="changed_verifier_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                    }
+                ],
+            )
+            first_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="changed_verifier_flow",
+                spec_payload=base_spec,
+            )
+            self.assertEqual(first_result.returncode, 0, msg=first_result.stderr)
+
+            verifier_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "changed_verifier_flow"
+                / "verifiers.py"
+            )
+            edited_text = verifier_path.read_text(encoding="utf-8").replace(
+                "    _ = output, state, repo_root\n"
+                "    # TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.\n",
+                "    _ = output, state, repo_root\n"
+                "    return \"manual implementation that should be invalidated\"\n",
+                1,
+            )
+            verifier_path.write_text(edited_text, encoding="utf-8")
+
+            changed_spec = self._custom_verifier_workflow_spec(
+                workflow_id="changed_verifier_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a non-empty design doc path and matching readiness summary.",
+                    }
+                ],
+            )
+            second_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="changed_verifier_flow",
+                spec_payload=changed_spec,
+            )
+            self.assertEqual(second_result.returncode, 0, msg=second_result.stderr)
+            regenerated_text = verifier_path.read_text(encoding="utf-8")
+            self.assertNotIn("manual implementation that should be invalidated", regenerated_text)
+            self.assertIn(
+                "TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.",
+                regenerated_text,
+            )
+
+    def test_workflow_creator_regenerates_custom_verifier_body_when_implementation_version_changes(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            create_result = self._create_creator_workflow_scaffold(
+                runtime_root,
+                workflow_id="implementation_version_flow",
+                flow_description="Exercise explicit implementation version invalidation.",
+            )
+            self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+
+            spec_v1 = self._custom_verifier_workflow_spec(
+                workflow_id="implementation_version_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                        "implementation_version": 1,
+                    }
+                ],
+            )
+            first_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="implementation_version_flow",
+                spec_payload=spec_v1,
+            )
+            self.assertEqual(first_result.returncode, 0, msg=first_result.stderr)
+
+            verifier_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "implementation_version_flow"
+                / "verifiers.py"
+            )
+            edited_text = verifier_path.read_text(encoding="utf-8").replace(
+                "    _ = output, state, repo_root\n"
+                "    # TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.\n",
+                "    _ = output, state, repo_root\n"
+                "    return \"manual implementation for v1\"\n",
+                1,
+            )
+            verifier_path.write_text(edited_text, encoding="utf-8")
+
+            spec_v2 = self._custom_verifier_workflow_spec(
+                workflow_id="implementation_version_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                        "implementation_version": 2,
+                    }
+                ],
+            )
+            second_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="implementation_version_flow",
+                spec_payload=spec_v2,
+            )
+            self.assertEqual(second_result.returncode, 0, msg=second_result.stderr)
+            regenerated_text = verifier_path.read_text(encoding="utf-8")
+            self.assertNotIn("manual implementation for v1", regenerated_text)
+            self.assertIn("# implementation_version: 2", regenerated_text)
+
+    def test_workflow_creator_adds_and_removes_custom_verifier_scaffolds_incrementally(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            create_result = self._create_creator_workflow_scaffold(
+                runtime_root,
+                workflow_id="add_remove_verifier_flow",
+                flow_description="Exercise custom verifier add/remove behavior.",
+            )
+            self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+
+            initial_spec = self._custom_verifier_workflow_spec(
+                workflow_id="add_remove_verifier_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                    }
+                ],
+            )
+            first_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="add_remove_verifier_flow",
+                spec_payload=initial_spec,
+            )
+            self.assertEqual(first_result.returncode, 0, msg=first_result.stderr)
+
+            verifier_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "add_remove_verifier_flow"
+                / "verifiers.py"
+            )
+            edited_text = verifier_path.read_text(encoding="utf-8").replace(
+                "    _ = output, state, repo_root\n"
+                "    # TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.\n",
+                "    _ = output, state, repo_root\n"
+                "    return \"preserved implementation\"\n",
+                1,
+            )
+            verifier_path.write_text(edited_text, encoding="utf-8")
+
+            expanded_spec = self._custom_verifier_workflow_spec(
+                workflow_id="add_remove_verifier_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                    },
+                    {
+                        "id": "design_summary_exists",
+                        "description": "Require a design summary artifact before the review can pass.",
+                    },
+                ],
+            )
+            second_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="add_remove_verifier_flow",
+                spec_payload=expanded_spec,
+            )
+            self.assertEqual(second_result.returncode, 0, msg=second_result.stderr)
+            expanded_text = verifier_path.read_text(encoding="utf-8")
+            self.assertIn("preserved implementation", expanded_text)
+            self.assertIn(
+                "TODO(custom_verifier_requirement): Implement `design_summary_exists`.",
+                expanded_text,
+            )
+
+            reduced_spec = self._custom_verifier_workflow_spec(
+                workflow_id="add_remove_verifier_flow",
+                requirements=[
+                    {
+                        "id": "design_summary_exists",
+                        "description": "Require a design summary artifact before the review can pass.",
+                    }
+                ],
+            )
+            third_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="add_remove_verifier_flow",
+                spec_payload=reduced_spec,
+            )
+            self.assertEqual(third_result.returncode, 0, msg=third_result.stderr)
+            reduced_payload = json.loads(third_result.stdout)
+            reduced_text = verifier_path.read_text(encoding="utf-8")
+            self.assertNotIn("preserved implementation", reduced_text)
+            self.assertIn(
+                "Removed preserved custom verifier implementation because the requirement no longer exists in spec.json",
+                "\n".join(reduced_payload["warnings"]),
+            )
+
+    def test_workflow_creator_warns_and_regenerates_when_custom_verifier_metadata_is_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            create_result = self._create_creator_workflow_scaffold(
+                runtime_root,
+                workflow_id="malformed_metadata_flow",
+                flow_description="Exercise metadata upgrade fallback behavior.",
+            )
+            self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+
+            spec_payload = self._custom_verifier_workflow_spec(
+                workflow_id="malformed_metadata_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                    }
+                ],
+            )
+            first_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="malformed_metadata_flow",
+                spec_payload=spec_payload,
+            )
+            self.assertEqual(first_result.returncode, 0, msg=first_result.stderr)
+
+            verifier_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "malformed_metadata_flow"
+                / "verifiers.py"
+            )
+            malformed_text = verifier_path.read_text(encoding="utf-8").replace(
+                "# spec_fingerprint:",
+                "# spec_fingerprint_removed:",
+                1,
+            )
+            verifier_path.write_text(malformed_text, encoding="utf-8")
+
+            second_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="malformed_metadata_flow",
+                spec_payload=spec_payload,
+            )
+            self.assertEqual(second_result.returncode, 0, msg=second_result.stderr)
+            payload = json.loads(second_result.stdout)
+            self.assertIn(
+                "Regenerated custom verifier scaffold because preservation metadata was missing or malformed",
+                "\n".join(payload["warnings"]),
+            )
+            regenerated_text = verifier_path.read_text(encoding="utf-8")
+            self.assertIn(
+                "TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.",
+                regenerated_text,
             )
 
     def test_workflow_creator_cli_rejects_existing_workflow_without_force(self) -> None:

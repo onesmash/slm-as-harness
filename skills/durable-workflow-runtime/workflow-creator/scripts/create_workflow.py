@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import argparse
+import ast
+import hashlib
 import json
 import re
 import shutil
@@ -58,6 +60,7 @@ _SUPPORTED_OUTCOMES = {"blocked", "partial", "failed", "verifier_failed"}
 _REPAIR_STAGE_IDS = {"request_unblocking_input", "repair_and_resume"}
 _REPAIR_ATTEMPTS_BEFORE_UNBLOCK = 3
 _SKILL_CATALOG_SOURCE_PREFIX = "skill-catalog:"
+_CUSTOM_VERIFIER_TEMPLATE_VERSION = 1
 _DEFAULT_PROMPT_BOUNDARIES = [
     "Do not choose the next workflow stage; runtime policy owns routing.",
     "Do not continue by guessing when required input, approval, or artifacts are missing.",
@@ -186,6 +189,11 @@ def create_workflow_scaffold(
         workflow_id=requested_workflow_id,
         flow_description=flow_description,
     )
+    existing_verifiers_text = None
+    if target_exists:
+        existing_verifiers_path = target_workflow_dir / "verifiers.py"
+        if existing_verifiers_path.exists():
+            existing_verifiers_text = existing_verifiers_path.read_text(encoding="utf-8")
     resolved_workflow_id = workflow_spec["workflow_id"]
     if resolved_workflow_id != requested_workflow_id:
         raise WorkflowCreatorError(
@@ -198,8 +206,15 @@ def create_workflow_scaffold(
     _remove_path(backup_workflow_dir)
     shutil.copytree(skeleton_dir, temp_workflow_dir)
     _rewrite_scaffold_identifiers(temp_workflow_dir, resolved_workflow_id)
+    generation_warnings: list[str] = []
     if workflow_spec["stages"]:
-        _render_business_workflow(temp_workflow_dir, workflow_spec)
+        generation_warnings.extend(
+            _render_business_workflow(
+                temp_workflow_dir,
+                workflow_spec,
+                existing_verifiers_text=existing_verifiers_text,
+            )
+        )
     _write_spec_blueprint(temp_workflow_dir, workflow_spec)
     _write_agent_review_file(temp_workflow_dir, workflow_spec)
     _write_manifest(
@@ -270,6 +285,7 @@ def create_workflow_scaffold(
         ],
         "replaced_existing": replaced_existing,
         "created_files": created_files,
+        "warnings": generation_warnings,
         **shortcut_payload,
     }
 
@@ -1192,8 +1208,20 @@ def _validate_custom_verifier_requirements(value: Any, label: str) -> list[dict[
         )
         if test_intent:
             result["test_intent"] = test_intent
+        implementation_version = item.get("implementation_version")
+        if implementation_version is not None:
+            result["implementation_version"] = _validate_implementation_version(
+                implementation_version,
+                f"{item_label}.implementation_version",
+            )
         requirements.append(result)
     return requirements
+
+
+def _validate_implementation_version(value: Any, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+        raise WorkflowCreatorError(f"{label} must be a positive integer")
+    return value
 
 
 def _validate_stage_transition_targets(stages: list[dict[str, Any]], final_step_id: str) -> None:
@@ -1391,7 +1419,12 @@ def _workflow_class_prefix(workflow_id: str) -> str:
     return "".join(part.capitalize() for part in workflow_id.split("_") if part) + "Workflow"
 
 
-def _render_business_workflow(workflow_dir: Path, workflow_spec: dict[str, Any]) -> None:
+def _render_business_workflow(
+    workflow_dir: Path,
+    workflow_spec: dict[str, Any],
+    *,
+    existing_verifiers_text: str | None = None,
+) -> list[str]:
     prompts_dir = workflow_dir / "prompts"
     references_dir = workflow_dir / "references"
     shared_helpers = workflow_spec["shared_repair_helpers"]
@@ -1433,14 +1466,16 @@ def _render_business_workflow(workflow_dir: Path, workflow_spec: dict[str, Any])
         _render_graphbuilder_runtime_py(workflow_spec),
         encoding="utf-8",
     )
-    (workflow_dir / "verifiers.py").write_text(
-        _render_verifiers_py(workflow_spec),
-        encoding="utf-8",
+    verifiers_text, warnings = _render_verifiers_py(
+        workflow_spec,
+        existing_verifiers_text=existing_verifiers_text,
     )
+    (workflow_dir / "verifiers.py").write_text(verifiers_text, encoding="utf-8")
     (references_dir / "flowchart.md").write_text(
         _render_flowchart_md(workflow_spec),
         encoding="utf-8",
     )
+    return warnings
 
 
 def _write_agent_review_file(workflow_dir: Path, workflow_spec: dict[str, Any]) -> None:
@@ -2568,7 +2603,14 @@ def run_start_preview(
 '''
 
 
-def _render_verifiers_py(workflow_spec: dict[str, Any]) -> str:
+def _render_verifiers_py(
+    workflow_spec: dict[str, Any],
+    *,
+    existing_verifiers_text: str | None = None,
+) -> tuple[str, list[str]]:
+    preserved_blocks, preservation_warnings = _extract_preservable_custom_verifier_blocks(
+        existing_verifiers_text
+    )
     lines = [
         "from __future__ import annotations",
         "",
@@ -2626,7 +2668,10 @@ def _render_verifiers_py(workflow_spec: dict[str, Any]) -> str:
                 "",
             ]
         )
-    custom_verifier_lines = _render_custom_verifier_requirement_helpers(workflow_spec)
+    custom_verifier_lines, custom_warnings = _render_custom_verifier_requirement_helpers(
+        workflow_spec,
+        preserved_blocks=preserved_blocks,
+    )
     if custom_verifier_lines:
         lines.extend(custom_verifier_lines)
     lines.extend(
@@ -2865,15 +2910,22 @@ def _render_verifiers_py(workflow_spec: dict[str, Any]) -> str:
             "",
         ]
     )
-    return "\n".join(lines)
+    return "\n".join(lines), preservation_warnings + custom_warnings
 
 
-def _render_custom_verifier_requirement_helpers(workflow_spec: dict[str, Any]) -> list[str]:
+def _render_custom_verifier_requirement_helpers(
+    workflow_spec: dict[str, Any],
+    *,
+    preserved_blocks: dict[tuple[str, str], dict[str, Any]],
+) -> tuple[list[str], list[str]]:
     lines: list[str] = []
+    warnings: list[str] = []
+    current_requirement_keys: set[tuple[str, str]] = set()
     for stage in workflow_spec["stages"]:
         requirements = stage.get("custom_verifier_requirements") or []
         if not requirements:
             continue
+        stage_requirement_names: set[str] = set()
         runner_name = _custom_verifier_runner_name(stage["step_id"])
         lines.extend(
             [
@@ -2887,9 +2939,17 @@ def _render_custom_verifier_requirement_helpers(workflow_spec: dict[str, Any]) -
             ]
         )
         for requirement in requirements:
+            requirement_key = (stage["step_id"], requirement["id"])
+            current_requirement_keys.add(requirement_key)
             function_name = _custom_verifier_requirement_function_name(
                 stage["step_id"], requirement["id"]
             )
+            if function_name in stage_requirement_names:
+                raise WorkflowCreatorError(
+                    "generated helper naming collision for custom verifier requirement "
+                    f"{stage['step_id']}.{requirement['id']}"
+                )
+            stage_requirement_names.add(function_name)
             lines.extend(
                 [
                     f"    message = {function_name}(",
@@ -2908,65 +2968,28 @@ def _render_custom_verifier_requirement_helpers(workflow_spec: dict[str, Any]) -
             ]
         )
         for requirement in requirements:
+            requirement_key = (stage["step_id"], requirement["id"])
             function_name = _custom_verifier_requirement_function_name(
                 stage["step_id"], requirement["id"]
             )
-            doc_lines = _custom_requirement_doc_lines(requirement)
-            implementation_surface = requirement.get("implementation_surface") or []
-            hint_pseudocode = requirement.get("hint_pseudocode") or []
-            test_intent = requirement.get("test_intent") or []
-            lines.extend(
-                [
-                    f"def {function_name}(",
-                    "    *,",
-                    "    output: dict,",
-                    "    state: dict | None,",
-                    "    repo_root: str,",
-                    ") -> str | None:",
-                    f'    """{chr(10).join(doc_lines)}"""',
-                ]
-            )
-            lines.extend(
-                [
-                    "    _ = output, state, repo_root",
-                    f"    # TODO(custom_verifier_requirement): Implement `{requirement['id']}`.",
-                ]
-            )
-            if implementation_surface:
-                lines.append(
-                    f"    # Intended implementation surfaces: {', '.join(implementation_surface)}."
-                )
-                if "verifier" not in implementation_surface:
-                    lines.append(
-                        "    # Verifier scaffolding is provided as context only; implement the"
-                    )
-                    lines.append(
-                        "    # primary logic in the declared non-verifier surfaces as well."
-                    )
-            if hint_pseudocode:
-                lines.extend(
-                    [
-                        "    # Hint pseudocode:",
-                        *[f"    # - {step}" for step in hint_pseudocode],
-                    ]
-                )
-            if test_intent:
-                lines.extend(
-                    [
-                        "    # Test intent:",
-                        *[f"    # - {item}" for item in test_intent],
-                    ]
-                )
-            lines.extend(
-                [
-                    "    # This scaffold is generated during initial workflow authoring so the",
-                    "    # review pass can validate or refine concrete verifier logic instead",
-                    "    # of creating it from scratch.",
-                    "    return None",
-                    "",
-                ]
-            )
-    return lines
+            metadata = _custom_verifier_requirement_metadata(stage, requirement)
+            preserved = preserved_blocks.get(requirement_key)
+            if (
+                preserved is not None
+                and preserved["template_version"] == metadata["template_version"]
+                and preserved["spec_fingerprint"] == metadata["spec_fingerprint"]
+                and preserved["implementation_version"] == metadata["implementation_version"]
+            ):
+                lines.extend(preserved["source_lines"])
+                lines.append("")
+                continue
+            lines.extend(_render_custom_requirement_scaffold(stage, requirement, metadata))
+    for stale_key in sorted(set(preserved_blocks) - current_requirement_keys):
+        warnings.append(
+            "Removed preserved custom verifier implementation because the requirement no longer "
+            f"exists in spec.json: {stale_key[0]}.{stale_key[1]}"
+        )
+    return lines, warnings
 
 
 def _custom_verifier_runner_name(step_id: str) -> str:
@@ -3001,6 +3024,238 @@ def _custom_requirement_doc_lines(requirement: dict[str, Any]) -> list[str]:
         doc_lines.append("Test intent:")
         doc_lines.extend(f"- {item}" for item in test_intent)
     return doc_lines
+
+
+def _render_custom_requirement_scaffold(
+    stage: dict[str, Any],
+    requirement: dict[str, Any],
+    metadata: dict[str, Any],
+) -> list[str]:
+    function_name = _custom_verifier_requirement_function_name(
+        stage["step_id"],
+        requirement["id"],
+    )
+    doc_lines = _custom_requirement_doc_lines(requirement)
+    implementation_surface = requirement.get("implementation_surface") or []
+    hint_pseudocode = requirement.get("hint_pseudocode") or []
+    test_intent = requirement.get("test_intent") or []
+    lines = [
+        f"# custom_verifier_stage_id: {metadata['stage_id']}",
+        f"# custom_verifier_requirement_id: {metadata['requirement_id']}",
+        f"# template_version: {metadata['template_version']}",
+        f"# spec_fingerprint: {metadata['spec_fingerprint']}",
+        f"# implementation_version: {_implementation_version_marker(metadata['implementation_version'])}",
+        f"def {function_name}(",
+        "    *,",
+        "    output: dict,",
+        "    state: dict | None,",
+        "    repo_root: str,",
+        ") -> str | None:",
+        f'    """{chr(10).join(doc_lines)}"""',
+        "    _ = output, state, repo_root",
+        f"    # TODO(custom_verifier_requirement): Implement `{requirement['id']}`.",
+    ]
+    if implementation_surface:
+        lines.append(f"    # Intended implementation surfaces: {', '.join(implementation_surface)}.")
+        if "verifier" not in implementation_surface:
+            lines.append("    # Verifier scaffolding is provided as context only; implement the")
+            lines.append(
+                "    # primary logic in the declared non-verifier surfaces as well."
+            )
+    if hint_pseudocode:
+        lines.extend(
+            [
+                "    # Hint pseudocode:",
+                *[f"    # - {step}" for step in hint_pseudocode],
+            ]
+        )
+    if test_intent:
+        lines.extend(
+            [
+                "    # Test intent:",
+                *[f"    # - {item}" for item in test_intent],
+            ]
+        )
+    lines.extend(
+        [
+            "    # This scaffold is generated during initial workflow authoring so the",
+            "    # review pass can validate or refine concrete verifier logic instead",
+            "    # of creating it from scratch.",
+            "    return None",
+            "",
+        ]
+    )
+    return lines
+
+
+def _custom_verifier_requirement_metadata(
+    stage: dict[str, Any],
+    requirement: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "stage_id": stage["step_id"],
+        "requirement_id": requirement["id"],
+        "template_version": _CUSTOM_VERIFIER_TEMPLATE_VERSION,
+        "spec_fingerprint": _custom_requirement_spec_fingerprint(stage, requirement),
+        "implementation_version": requirement.get("implementation_version"),
+    }
+
+
+def _custom_requirement_spec_fingerprint(stage: dict[str, Any], requirement: dict[str, Any]) -> str:
+    payload = {
+        "id": requirement["id"],
+        "description": requirement["description"],
+        "signals": requirement.get("signals"),
+        "implementation_surface": requirement.get("implementation_surface"),
+        "implementation_notes": requirement.get("implementation_notes"),
+        "hint_pseudocode": requirement.get("hint_pseudocode"),
+        "test_intent": requirement.get("test_intent"),
+        "stage_contract_context": {
+            "step_id": stage["step_id"],
+            "output_schema": stage["output_schema"],
+            "custom_verifier_helper_signature": {
+                "parameters": ["output", "state", "repo_root"],
+                "return_type": "str | None",
+            },
+            "custom_verifier_runner_contract": {
+                "passes": ["output", "state", "repo_root"],
+                "aggregates": "join_non_empty_error_messages",
+            },
+        },
+    }
+    normalized = _normalize_for_custom_verifier_fingerprint(payload)
+    encoded = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _normalize_for_custom_verifier_fingerprint(value: Any) -> Any:
+    if isinstance(value, dict):
+        normalized_items: dict[str, Any] = {}
+        for key in sorted(value):
+            normalized_value = _normalize_for_custom_verifier_fingerprint(value[key])
+            if normalized_value is not None:
+                normalized_items[key] = normalized_value
+        return normalized_items or None
+    if isinstance(value, list):
+        return [_normalize_for_custom_verifier_fingerprint(item) for item in value]
+    if isinstance(value, str):
+        return value.strip()
+    if value is None:
+        return None
+    return value
+
+
+def _extract_preservable_custom_verifier_blocks(
+    existing_verifiers_text: str | None,
+) -> tuple[dict[tuple[str, str], dict[str, Any]], list[str]]:
+    if not existing_verifiers_text:
+        return {}, []
+
+    try:
+        module = ast.parse(existing_verifiers_text)
+    except SyntaxError as exc:
+        return {}, [f"Could not parse existing verifiers.py for preservation: {exc.msg}"]
+
+    lines = existing_verifiers_text.splitlines()
+    blocks: dict[tuple[str, str], dict[str, Any]] = {}
+    warnings: list[str] = []
+    for node in module.body:
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if not node.name.startswith("_custom_verifier_requirement_"):
+            continue
+        if node.decorator_list:
+            warnings.append(
+                "Skipped preserved custom verifier implementation with unsupported decorators: "
+                f"{node.name}"
+            )
+            continue
+        metadata = _parse_custom_verifier_metadata(lines, node)
+        if metadata is None:
+            warnings.append(
+                "Regenerated custom verifier scaffold because preservation metadata was missing "
+                f"or malformed for {node.name}"
+            )
+            continue
+        block_key = (metadata["stage_id"], metadata["requirement_id"])
+        if block_key in blocks:
+            warnings.append(
+                "Regenerated duplicate preserved custom verifier implementation mapping for "
+                f"{metadata['stage_id']}.{metadata['requirement_id']}"
+            )
+            continue
+        source_lines = lines[metadata["start_lineno"] - 1 : node.end_lineno]
+        blocks[block_key] = {
+            **metadata,
+            "source_lines": source_lines,
+        }
+    return blocks, warnings
+
+
+def _parse_custom_verifier_metadata(lines: list[str], node: ast.FunctionDef) -> dict[str, Any] | None:
+    comment_lines: list[str] = []
+    line_index = node.lineno - 2
+    while line_index >= 0:
+        stripped = lines[line_index].strip()
+        if not stripped.startswith("#"):
+            break
+        comment_lines.append(stripped)
+        line_index -= 1
+    if not comment_lines:
+        return None
+    comment_lines.reverse()
+    metadata_start_lineno = line_index + 2
+    metadata: dict[str, str] = {}
+    for comment_line in comment_lines:
+        match = re.fullmatch(r"#\s*([a-z_]+):\s*(.+)", comment_line)
+        if match is None:
+            return None
+        metadata[match.group(1)] = match.group(2).strip()
+    required_keys = {
+        "custom_verifier_stage_id",
+        "custom_verifier_requirement_id",
+        "template_version",
+        "spec_fingerprint",
+        "implementation_version",
+    }
+    if set(metadata) != required_keys:
+        return None
+    try:
+        template_version = int(metadata["template_version"])
+    except ValueError:
+        return None
+    implementation_version = _parse_implementation_version_marker(
+        metadata["implementation_version"]
+    )
+    if implementation_version is _INVALID_IMPLEMENTATION_VERSION:
+        return None
+    return {
+        "start_lineno": metadata_start_lineno,
+        "stage_id": metadata["custom_verifier_stage_id"],
+        "requirement_id": metadata["custom_verifier_requirement_id"],
+        "template_version": template_version,
+        "spec_fingerprint": metadata["spec_fingerprint"],
+        "implementation_version": implementation_version,
+    }
+
+
+_INVALID_IMPLEMENTATION_VERSION = object()
+
+
+def _parse_implementation_version_marker(value: str) -> int | None | object:
+    if value == "none":
+        return None
+    try:
+        parsed = int(value)
+    except ValueError:
+        return _INVALID_IMPLEMENTATION_VERSION
+    if parsed < 1:
+        return _INVALID_IMPLEMENTATION_VERSION
+    return parsed
+
+
+def _implementation_version_marker(value: int | None) -> str:
+    return "none" if value is None else str(value)
 
 
 def _split_required_optional_schema(output_schema: dict[str, str]) -> tuple[dict[str, str], dict[str, str]]:
