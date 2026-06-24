@@ -1301,6 +1301,19 @@ def _artifact_file_contains_sections_error(actual, template: dict, repo_root: st
     missing = [section for section in sections if section not in text]
     return None if not missing else f"{message}: missing sections {missing}"
 
+def _path_has_prefix(path, prefix) -> bool:
+    try:
+        Path(path).relative_to(prefix)
+        return True
+    except ValueError:
+        return False
+
+def _meaningful_entries(value) -> list:
+    """Return list items that are non-None non-empty strings."""
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item.strip()]
+
 
 def _fail(message: str, run_id: str, step_id: str, state: dict | None) -> VerifierResult:
     return make_verifier_result(
