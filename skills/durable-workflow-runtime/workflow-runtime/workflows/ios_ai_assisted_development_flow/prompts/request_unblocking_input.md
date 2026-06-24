@@ -1,4 +1,4 @@
-Request the exact external input needed to unblock the workflow and preserve the original return stage.
+Request the exact external input needed to unblock the workflow, then return control to the repair stage when repair still owns the retry.
 
 Stage Context:
 
@@ -8,14 +8,15 @@ Stage Context:
 - Repair category: {{repair_category}}
 - Repair summary: {{repair_summary}}
 - Required external inputs or approvals:
-{{repair_requirements}}
+- {{repair_requirements}}
 - Relevant evidence:
-{{repair_evidence}}
+- {{repair_evidence}}
 
 Stage Boundaries:
 
 - Do not resume the workflow until the exact missing external dependency is identified.
 - Do not invent files, credentials, or user decisions that are not already available.
+- If repair still owns the retry, preserve that repair owner instead of redirecting directly to the original business stage.
 
 Blocked Conditions:
 

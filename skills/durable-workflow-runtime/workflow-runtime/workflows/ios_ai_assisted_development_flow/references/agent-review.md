@@ -8,9 +8,8 @@ the right workflow.
 ## Generated Stage Path
 
 - `run_brainstorming`
-- `propose_openspec_change`
-- `refine_change_with_openspec`
-- `approve_refine`
+- `write_implementation_plan`
+- `approve_plan`
 - `execute_implementation`
 - `run_agentic_release_qa`
 - `request_pre_merge_code_review`
@@ -18,45 +17,34 @@ the right workflow.
 
 ## Declared Custom Verifier Requirements
 
-### `propose_openspec_change`
+### `write_implementation_plan`
 
-- `artifact_completeness`: OpenSpec proposal output must prove that proposal, tasks, and at least one durable design/spec artifact were created and reported consistently.
-  Signals: `created_artifacts`, `proposal_path`, `tasks_path`, `openspec_design_path`, `spec_paths`
+- `planning_requires_subagent_execution_mode`: This workflow may continue only when planning records subagent-driven execution as the selected approach.
+  Signals: `execution_mode`, `ready_for_implementation`, `plan_reviewed`
   Implementation surfaces: `verifier`, `tests`
   Hint pseudocode:
-    - Require created_artifacts to mention proposal and tasks artifacts.
-    - Require either openspec_design_path or spec_paths to provide at least one design/spec artifact path.
-    - Reject outputs where created_artifacts omits the durable design/spec surface even if raw files exist.
+    - Normalize execution_mode to lowercase.
+    - Accept only subagent-driven or subagent-driven-development as implementation-ready modes.
+    - If execution_mode is inline, reject the output or require ready_for_implementation to remain false.
+    - If plan_user_feedback, plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
   Test intent:
-    - Reject outputs that only report proposal/tasks and omit any design/spec artifact.
-    - Accept outputs that report proposal, tasks, and at least one design/spec artifact consistently.
-
-### `refine_change_with_openspec`
-
-- `talk_first_conversation_evidence`: OpenSpec refinement must prove that at least one real conversational exchange happened before the stage claimed readiness.
-  Signals: `user_discussion_summary`, `discussion_turn_count`, `unresolved_questions`, `ready_for_apply`
-  Implementation surfaces: `verifier`, `tests`
-  Hint pseudocode:
-    - Reject if discussion_turn_count is less than 1.
-    - Reject if user_discussion_summary is missing or looks empty after trimming.
-    - If unresolved_questions is empty and ready_for_apply is true, still require concrete conversation evidence instead of accepting a checklist-only output.
-  Test intent:
-    - Reject outputs that claim ready_for_apply without any discussion turn evidence.
-    - Accept outputs that record a user discussion summary and a positive discussion_turn_count.
+    - Reject planning outputs that pick inline execution while claiming implementation is ready.
+    - Accept planning outputs that record subagent-driven execution with a reviewed plan.
+    - Reject replanning output that ignores recorded user feedback or plan-update reasons when such context exists in state.
 
 ### `execute_implementation`
 
 - `completed_tasks_consistency`: Implementation success output must not claim tasks are complete while still listing remaining tasks.
-  Signals: `tasks_completed`, `remaining_tasks`, `completed_tasks`, `openspec_updates_required`
+  Signals: `tasks_completed`, `remaining_tasks`, `completed_tasks`, `plan_updates_required`, `verification_passed`
   Implementation surfaces: `verifier`, `tests`
   Hint pseudocode:
     - If tasks_completed is true, require remaining_tasks to be empty.
-    - If tasks_completed is false and openspec_updates_required is not true, require remaining_tasks to be non-empty so the retry reason is concrete.
-    - If verification_passed is false and openspec_updates_required is not true, reject the output so plain failing implementation cannot continue.
+    - If tasks_completed is false and plan_updates_required is not true, require remaining_tasks to be non-empty so the retry reason is concrete.
+    - If verification_passed is false and plan_updates_required is not true, reject the output so plain failing implementation cannot continue.
   Test intent:
     - Reject outputs that set tasks_completed=true while still listing remaining_tasks.
-    - Reject unfinished implementation outputs that provide neither a remaining task list nor an OpenSpec refinement reason.
-    - Reject implementation outputs that fail verification without explicitly routing back for OpenSpec updates.
+    - Reject unfinished implementation outputs that provide neither a remaining task list nor a planning reason.
+    - Reject implementation outputs that fail verification without explicitly routing back for plan updates.
 
 ### `run_agentic_release_qa`
 
@@ -70,6 +58,17 @@ the right workflow.
   Test intent:
     - Reject UI-impacting release QA output that omits all visual comparison evidence despite having comparison inputs.
     - Accept UI-impacting release QA output when visual comparison evidence appears in executed checks, blocked checks, or artifacts.
+- `release_qa_lists_require_meaningful_entries`: Release QA evidence lists must contain meaningful non-empty entries, not whitespace-only placeholders.
+  Signals: `release_qa_verdict`, `release_qa_executed_checks`, `release_qa_blocked_checks`, `release_qa_risk_next_steps`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Trim each list entry before validation.
+    - Reject ship outputs whose executed checks become empty after trimming.
+    - Reject any verdict whose risk next steps become empty after trimming.
+    - If blocked_checks is present, reject blocked_checks that only contain blank placeholders.
+  Test intent:
+    - Reject ship outputs with whitespace-only executed checks or next steps.
+    - Reject outputs with whitespace-only blocked checks.
 
 ### `request_pre_merge_code_review`
 
@@ -82,19 +81,42 @@ the right workflow.
   Test intent:
     - Reject change-requested findings that omit any severity marker.
     - Accept findings that carry an explicit severity prefix.
+- `findings_require_meaningful_entries`: Review findings must contain meaningful non-empty entries when findings are provided.
+  Signals: `review_status`, `findings`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - Trim each finding string before validation.
+    - If review_status is changes_requested, reject findings that become empty after trimming.
+  Test intent:
+    - Reject changes_requested outputs whose findings are only blank strings.
 
 ### `verify_completion`
 
-- `ship_with_risks_requires_resolution_before_pass`: If persisted release QA ended in ship_with_risks, final completion verification may pass only after those residual risks are explicitly resolved with fresh evidence.
-  Signals: `state.release_qa_verdict`, `state.release_qa_blocked_checks`, `verification_passed`, `verification_evidence`, `remaining_risks`, `release_qa_risks_resolved`, `release_qa_risk_resolution_summary`
+- `completion_evidence_lists_require_meaningful_entries`: Completion evidence and risk lists must contain meaningful non-empty entries after trimming whitespace.
+  Signals: `verification_passed`, `verification_evidence`, `remaining_risks`, `missing_verification_inputs`
   Implementation surfaces: `verifier`, `tests`
   Hint pseudocode:
-    - Read release_qa_verdict and release_qa_blocked_checks from persisted state.
-    - If release_qa_verdict is ship_with_risks and verification_passed is true, require release_qa_risks_resolved to be true, a non-empty release_qa_risk_resolution_summary, and fresh verification evidence that resolves the prior risk.
-    - If release_qa_verdict is ship_with_risks and verification_passed is false, require remaining_risks or missing_verification_inputs to carry the residual risk forward.
+    - Trim each list entry before validation.
+    - Reject verification_evidence that becomes empty after trimming.
+    - If verification_passed is false, reject remaining_risks and missing_verification_inputs when they contain only blank placeholders.
   Test intent:
-    - Reject passing completion output that ignores prior ship_with_risks residual QA risk.
-    - Accept passing completion output only when it explicitly resolves the prior residual QA risk with fresh evidence.
+    - Reject passing completion output with blank evidence items.
+    - Reject failed completion output whose remaining_risks are only blank placeholders.
+- `completion_requires_release_qa_and_review_approval`: Completion may pass only after release QA reached ship and pre-merge review reached approved; otherwise the workflow must keep iterating.
+  Signals: `state.release_qa_verdict`, `state.review_status`, `verification_passed`, `state.open_issues`, `state.release_qa_blocked_checks`, `state.release_qa_risk_next_steps`, `release_qa_risks_resolved`
+  Implementation surfaces: `verifier`, `tests`
+  Hint pseudocode:
+    - If verification_passed is true, require persisted state.release_qa_verdict == ship.
+    - If verification_passed is true, require persisted state.review_status == approved.
+    - If verification_passed is true, reject the output when persisted open_issues is non-empty.
+    - If verification_passed is true and persisted release_qa_blocked_checks is non-empty, require release_qa_risks_resolved == true.
+    - If verification_passed is true and persisted release_qa_risk_next_steps still contains unresolved remediation work, require release_qa_risks_resolved == true and a non-empty release_qa_risk_resolution_summary.
+  Test intent:
+    - Reject passing completion output when release QA did not end in ship.
+    - Reject passing completion output when pre-merge review did not end in approved.
+    - Reject passing completion output when unresolved open_issues are still recorded in state.
+    - Reject passing completion output when release QA blocked checks are still unresolved.
+    - Accept passing completion output when release QA blocked checks were rechecked and explicitly resolved.
 
 
 ## What The Script Generated

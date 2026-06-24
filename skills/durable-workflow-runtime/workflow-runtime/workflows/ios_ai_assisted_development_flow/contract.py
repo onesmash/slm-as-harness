@@ -5,10 +5,7 @@ WORKFLOW_ID = 'ios_ai_assisted_development_flow'
 
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     task_input_schema={'goal': 'string', 'preferred_change_name': 'string?'},
-    context_schema={'repo_root': 'string',
- 'source_doc_url': 'string?',
- 'source_skill_url': 'string?',
- 'openspec_source_url': 'string?'},
+    context_schema={'repo_root': 'string', 'source_doc_url': 'string?', 'source_skill_url': 'string?'},
     constraints_schema={'max_steps': 'integer?', 'require_user_approval': 'boolean?'},
 )
 
@@ -22,7 +19,8 @@ RUN_BRAINSTORMING_ROUTE_1 = SkillRoute(
         file_patterns=['docs/superpowers/specs/*.md'],
     ),
     usage_notes=['Primary owner for the pre-implementation approval gate.',
- 'Owns the required development, design, and testing spec review loop before the stage completes.'],
+ 'Owns the approved design package and the required development, design, and testing spec review '
+ 'loop before the stage completes.'],
 )
 
 RUN_BRAINSTORMING_ROUTE_2 = SkillRoute(
@@ -71,7 +69,7 @@ RUN_BRAINSTORMING = StepContract(
  'spec_review_findings_summary': 'string',
  'spec_review_subagent_summaries': 'string[]',
  'open_questions': 'string[]',
- 'ready_for_openspec': 'boolean'},
+ 'ready_for_planning': 'boolean'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
     skill_routing=[RUN_BRAINSTORMING_ROUTE_1, RUN_BRAINSTORMING_ROUTE_2, RUN_BRAINSTORMING_ROUTE_3],
     verifier=StepVerifier(
@@ -82,19 +80,17 @@ RUN_BRAINSTORMING = StepContract(
     ),
 )
 
-PROPOSE_OPENSPEC_CHANGE_ROUTE_1 = SkillRoute(
-    skill='openspec-propose',
+WRITE_IMPLEMENTATION_PLAN_ROUTE_1 = SkillRoute(
+    skill='writing-plans',
     use_when=SkillUseWhen(
-        operations=['change creation', 'proposal artifact generation', 'design/spec/tasks artifact generation'],
-        file_patterns=['openspec/changes/**/proposal.md',
- 'openspec/changes/**/design.md',
- 'openspec/changes/**/tasks.md',
- 'openspec/changes/**/specs/**/*.md'],
+        operations=['implementation plan authoring', 'task decomposition', 'execution handoff selection'],
+        file_patterns=['docs/superpowers/plans/*.md', 'docs/superpowers/specs/*.md'],
     ),
-    usage_notes=['Primary owner for creating the durable OpenSpec change contract.'],
+    usage_notes=['Primary owner for turning the approved design into a detailed implementation plan.',
+ 'Must capture the selected subagent-driven execution mode required by this workflow.'],
 )
 
-PROPOSE_OPENSPEC_CHANGE_ROUTE_2 = SkillRoute(
+WRITE_IMPLEMENTATION_PLAN_ROUTE_2 = SkillRoute(
     skill='code-kb-workflow',
     use_when=SkillUseWhen(
         operations=['knowledge-base context lookup'],
@@ -103,99 +99,75 @@ PROPOSE_OPENSPEC_CHANGE_ROUTE_2 = SkillRoute(
     usage_notes=['Supporting context layer for existing terminology and workflow docs.'],
 )
 
-PROPOSE_OPENSPEC_CHANGE = StepContract(
-    done_when=['The OpenSpec change directory exists.',
- 'Proposal, design/spec, and tasks artifacts are identified.',
- 'The change artifacts are formalized and the current apply-readiness is reported.',
- 'Artifact completeness is explicit enough to know whether proposal, design/spec, and tasks are '
- 'all present.'],
-    output_schema={'change_name': 'string',
- 'change_path': 'string',
- 'proposal_path': 'string',
- 'openspec_design_path': 'string?',
- 'tasks_path': 'string',
- 'spec_paths': 'string[]',
- 'created_artifacts': 'string[]',
- 'apply_ready': 'boolean'},
-    failure_schema={'blocked_reason': 'string?',
- 'error_message': 'string?',
- 'missing_inputs': 'string[]?',
- 'missing_artifacts': 'string[]?'},
-    skill_routing=[PROPOSE_OPENSPEC_CHANGE_ROUTE_1, PROPOSE_OPENSPEC_CHANGE_ROUTE_2],
+WRITE_IMPLEMENTATION_PLAN = StepContract(
+    done_when=['The implementation plan exists under docs/superpowers/plans/.',
+ 'The plan summary is recorded.',
+ 'The user has reviewed the written plan.',
+ 'The execution mode is selected and is ready for implementation.'],
+    output_schema={'plan_summary': 'string',
+ 'plan_path': 'string',
+ 'plan_reviewed': 'boolean',
+ 'execution_mode': 'string',
+ 'open_questions': 'string[]',
+ 'ready_for_implementation': 'boolean',
+ 'plan_revision_reason': 'string?'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[WRITE_IMPLEMENTATION_PLAN_ROUTE_1, WRITE_IMPLEMENTATION_PLAN_ROUTE_2],
     verifier=StepVerifier(
         kind="python_callable",
-        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_propose_openspec_change",
+        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_write_implementation_plan",
         timeout_seconds=15,
         run_on_status=["succeeded"],
     ),
 )
 
-REFINE_CHANGE_WITH_OPENSPEC_ROUTE_1 = SkillRoute(
-    skill='openspec-explore',
-    use_when=SkillUseWhen(
-        operations=['artifact refinement', 'design ambiguity resolution', 'scope adjustment discussion'],
-        file_patterns=['openspec/changes/**/*.md'],
-    ),
-    usage_notes=['Primary owner for thinking and refining after proposal, before apply.'],
-)
-
-REFINE_CHANGE_WITH_OPENSPEC_ROUTE_2 = SkillRoute(
-    skill='code-kb-workflow',
-    use_when=SkillUseWhen(
-        operations=['knowledge-base context lookup'],
-        file_patterns=['knowledge-base/llms.txt', 'knowledge-base/**/*.md'],
-    ),
-    usage_notes=['Supporting context layer during OpenSpec refinement.'],
-)
-
-REFINE_CHANGE_WITH_OPENSPEC = StepContract(
-    done_when=['At least one exploratory conversation turn has occurred with the user.',
- 'Risks, ambiguities, and open questions have been surfaced and discussed.',
- 'The conversation evidence is summarized instead of jumping straight to structured output.',
- 'Unresolved questions are documented (even if empty, with user confirmation).',
- 'The change is confirmed ready for apply after conversation.'],
-    output_schema={'refinement_summary': 'string',
- 'user_discussion_summary': 'string',
- 'discussion_turn_count': 'integer',
- 'changed_artifacts': 'string[]',
- 'unresolved_questions': 'string[]',
- 'ready_for_apply': 'boolean'},
-    failure_schema={'blocked_reason': 'string?',
- 'error_message': 'string?',
- 'missing_inputs': 'string[]?',
- 'missing_artifacts': 'string[]?'},
-    skill_routing=[REFINE_CHANGE_WITH_OPENSPEC_ROUTE_1, REFINE_CHANGE_WITH_OPENSPEC_ROUTE_2],
-    verifier=StepVerifier(
-        kind="python_callable",
-        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_refine_change_with_openspec",
-        timeout_seconds=15,
-        run_on_status=["succeeded"],
-    ),
-)
-
-APPROVE_REFINE = StepContract(
-    done_when=['The user has reviewed the refinement summary.',
- 'The user has explicitly approved implementation or requested another refinement pass.'],
-    output_schema={'user_approved': 'boolean', 'user_feedback': 'string?', 'additional_refinement_needed': 'boolean'},
+APPROVE_PLAN = StepContract(
+    done_when=['The user has reviewed the plan summary.',
+ 'The user has explicitly approved implementation or requested another planning pass.'],
+    output_schema={'user_approved': 'boolean', 'user_feedback': 'string?', 'additional_planning_needed': 'boolean'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
     verifier=StepVerifier(
         kind="python_callable",
-        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_approve_refine",
+        ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_approve_plan",
         timeout_seconds=15,
         run_on_status=["succeeded"],
     ),
 )
 
 EXECUTE_IMPLEMENTATION_ROUTE_1 = SkillRoute(
-    skill='openspec-apply-change',
+    skill='subagent-driven-development',
     use_when=SkillUseWhen(
-        operations=['task implementation', 'task checkbox updates', 'verification evidence capture'],
-        file_patterns=['openspec/changes/**/*.md', 'Zoom/**/*', 'Modules/**/*', 'MobileRTC/**/*'],
+        operations=['plan execution', 'task-by-task implementation', 'review-driven iteration'],
+        file_patterns=['docs/superpowers/plans/*.md',
+ '**/*.m',
+ '**/*.mm',
+ '**/*.h',
+ '**/*.swift',
+ '*.xcodeproj',
+ '*.xcworkspace'],
     ),
-    usage_notes=['Primary owner for executing the OpenSpec tasks.'],
+    usage_notes=['Primary owner for executing the approved implementation plan.'],
 )
 
 EXECUTE_IMPLEMENTATION_ROUTE_2 = SkillRoute(
+    skill='test-driven-development',
+    use_when=SkillUseWhen(
+        operations=['red-green-refactor loops', 'regression test creation'],
+        file_patterns=['**/test*.py', '**/*test*.*', '**/*.swift', '**/*.m', '**/*.mm'],
+    ),
+    usage_notes=['Auxiliary owner for behavior-changing implementation work before production edits.'],
+)
+
+EXECUTE_IMPLEMENTATION_ROUTE_3 = SkillRoute(
+    skill='systematic-debugging',
+    use_when=SkillUseWhen(
+        operations=['root cause investigation', 'verification failure diagnosis'],
+        file_patterns=['**/*.m', '**/*.mm', '**/*.h', '**/*.swift', '**/*test*.*'],
+    ),
+    usage_notes=['Auxiliary owner whenever tests, builds, or runtime verification fail during implementation.'],
+)
+
+EXECUTE_IMPLEMENTATION_ROUTE_4 = SkillRoute(
     skill='code-kb-workflow',
     use_when=SkillUseWhen(
         operations=['knowledge-base context lookup'],
@@ -204,7 +176,7 @@ EXECUTE_IMPLEMENTATION_ROUTE_2 = SkillRoute(
     usage_notes=['Supporting context layer for existing terminology and workflow docs.'],
 )
 
-EXECUTE_IMPLEMENTATION_ROUTE_3 = SkillRoute(
+EXECUTE_IMPLEMENTATION_ROUTE_5 = SkillRoute(
     skill='xcodebuildmcp-cli',
     use_when=SkillUseWhen(
         operations=['iOS build verification',
@@ -222,7 +194,7 @@ EXECUTE_IMPLEMENTATION_ROUTE_3 = SkillRoute(
  'fallback.'],
 )
 
-EXECUTE_IMPLEMENTATION_ROUTE_4 = SkillRoute(
+EXECUTE_IMPLEMENTATION_ROUTE_6 = SkillRoute(
     skill='manipulate-xcodeproj',
     use_when=SkillUseWhen(
         operations=['Xcode project file manipulation',
@@ -241,10 +213,10 @@ EXECUTE_IMPLEMENTATION_ROUTE_4 = SkillRoute(
 )
 
 EXECUTE_IMPLEMENTATION = StepContract(
-    done_when=['All selected OpenSpec implementation tasks are complete or the remaining blocked tasks are '
- 'reported.',
+    done_when=['All selected implementation tasks are complete or the remaining blocked tasks are reported.',
  'Changed files are summarized.',
- 'Verification commands and outcomes are reported.'],
+ 'Verification commands and outcomes are reported.',
+ 'Any debugging or plan-update requirement is summarized explicitly.'],
     output_schema={'tasks_completed': 'boolean',
  'implementation_summary': 'string',
  'changed_files': 'string[]',
@@ -253,14 +225,11 @@ EXECUTE_IMPLEMENTATION = StepContract(
  'verification_commands': 'string[]',
  'verification_passed': 'boolean',
  'open_issues': 'string[]',
- 'openspec_updates_required': 'boolean?',
- 'openspec_update_summary': 'string?'},
-    failure_schema={'blocked_reason': 'string?',
- 'error_message': 'string?',
- 'missing_inputs': 'string[]?',
- 'missing_artifacts': 'string[]?',
- 'failed_commands': 'string[]?'},
-    skill_routing=[EXECUTE_IMPLEMENTATION_ROUTE_1, EXECUTE_IMPLEMENTATION_ROUTE_2, EXECUTE_IMPLEMENTATION_ROUTE_3, EXECUTE_IMPLEMENTATION_ROUTE_4],
+ 'debugging_summary': 'string?',
+ 'plan_updates_required': 'boolean?',
+ 'plan_update_summary': 'string?'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[EXECUTE_IMPLEMENTATION_ROUTE_1, EXECUTE_IMPLEMENTATION_ROUTE_2, EXECUTE_IMPLEMENTATION_ROUTE_3, EXECUTE_IMPLEMENTATION_ROUTE_4, EXECUTE_IMPLEMENTATION_ROUTE_5, EXECUTE_IMPLEMENTATION_ROUTE_6],
     verifier=StepVerifier(
         kind="python_callable",
         ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_execute_implementation",
@@ -302,14 +271,15 @@ RUN_AGENTIC_RELEASE_QA = StepContract(
     done_when=['The QA pass identifies the code range or artifact under test.',
  'Change-derived release risks are summarized.',
  'Executed checks and blocked checks are reported separately.',
- 'The release QA verdict is ship, ship_with_risks, do_not_ship, or blocked.',
+ 'The release QA verdict is ship or do_not_ship when the stage completes successfully.',
  'Risk-based next steps are listed.'],
     output_schema={'release_qa_verdict': 'string',
  'release_qa_summary': 'string',
  'release_qa_executed_checks': 'string[]',
  'release_qa_blocked_checks': 'string[]',
  'release_qa_risk_next_steps': 'string[]',
- 'release_qa_artifacts': 'string[]'},
+ 'release_qa_artifacts': 'string[]',
+ 'release_qa_target_scope': 'string'},
     failure_schema={'blocked_reason': 'string?',
  'error_message': 'string?',
  'missing_inputs': 'string[]?',
@@ -360,7 +330,7 @@ REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_3 = SkillRoute(
 REQUEST_PRE_MERGE_CODE_REVIEW = StepContract(
     done_when=['Review snapshot is identified.',
  'Findings are grouped by severity or explicitly reported as none.',
- 'The review status is approved, changes_requested, or blocked.'],
+ 'The review status is approved or changes_requested when the stage completes successfully.'],
     output_schema={'review_status': 'string',
  'reviewed_snapshot': 'string',
  'findings': 'string[]',
@@ -434,9 +404,8 @@ REPAIR_AND_RESUME = StepContract(
 
 STEP_CONTRACTS = {
     "run_brainstorming": RUN_BRAINSTORMING,
-    "propose_openspec_change": PROPOSE_OPENSPEC_CHANGE,
-    "refine_change_with_openspec": REFINE_CHANGE_WITH_OPENSPEC,
-    "approve_refine": APPROVE_REFINE,
+    "write_implementation_plan": WRITE_IMPLEMENTATION_PLAN,
+    "approve_plan": APPROVE_PLAN,
     "execute_implementation": EXECUTE_IMPLEMENTATION,
     "run_agentic_release_qa": RUN_AGENTIC_RELEASE_QA,
     "request_pre_merge_code_review": REQUEST_PRE_MERGE_CODE_REVIEW,

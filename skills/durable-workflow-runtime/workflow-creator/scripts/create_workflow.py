@@ -56,6 +56,7 @@ _SUPPORTED_VERIFIER_TEMPLATES = {
 _SUPPORTED_STAGE_KINDS = {"main", "recovery"}
 _SUPPORTED_OUTCOMES = {"blocked", "partial", "failed", "verifier_failed"}
 _REPAIR_STAGE_IDS = {"request_unblocking_input", "repair_and_resume"}
+_REPAIR_ATTEMPTS_BEFORE_UNBLOCK = 3
 _SKILL_CATALOG_SOURCE_PREFIX = "skill-catalog:"
 _DEFAULT_PROMPT_BOUNDARIES = [
     "Do not choose the next workflow stage; runtime policy owns routing.",
@@ -82,9 +83,9 @@ def _default_shared_repair_helpers() -> dict[str, dict[str, Any]]:
         "request_unblocking_input": {
             "intent": "request_unblocking_input",
             "expected_artifact": "user action needed to unblock the workflow",
-            "prompt": "Request the exact external input needed to unblock the workflow and preserve the original return stage.",
+            "prompt": "Request the exact external input needed to unblock the workflow, then return control to the repair stage when repair still owns the retry.",
             "prompt_sections": {
-                "stage_goal": "Identify the exact external input, approval, credential, file, or decision required to unblock the workflow without losing the original return stage.",
+                "stage_goal": "Identify the exact external input, approval, credential, file, or decision required to unblock the workflow, while preserving whether the next hop should return to repair or directly to the original stage.",
                 "context": [
                     "Current step: {{current_step_id}}",
                     "Return stage: {{return_stage_id}}",
@@ -99,6 +100,7 @@ def _default_shared_repair_helpers() -> dict[str, dict[str, Any]]:
                 "boundaries": [
                     "Do not resume the workflow until the exact missing external dependency is identified.",
                     "Do not invent files, credentials, or user decisions that are not already available.",
+                    f"Use this helper only after repair has already attempted self-repair {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} times and still requires external help.",
                 ],
                 "blocked_conditions": [
                     "Stay blocked if the missing external input still cannot be named concretely.",
@@ -118,9 +120,9 @@ def _default_shared_repair_helpers() -> dict[str, dict[str, Any]]:
         "repair_and_resume": {
             "intent": "repair_and_resume",
             "expected_artifact": "repair actions needed before returning to the original stage",
-            "prompt": "Repair the previous workflow step using the persisted failure details and prepare a safe retry.",
+            "prompt": "Repair the previous workflow step using the persisted failure details, and decide whether the workflow can retry directly or must first ask for external unblocking input.",
             "prompt_sections": {
-                "stage_goal": "Use the persisted repair context to explain what failed, propose concrete repair actions, and prepare the workflow to retry the original stage safely.",
+                "stage_goal": "Use the persisted repair context to explain what failed, propose concrete repair actions, and decide whether the workflow can retry the original stage safely or must first request external help.",
                 "context": [
                     "Current step: {{current_step_id}}",
                     "Return stage: {{return_stage_id}}",
@@ -135,9 +137,10 @@ def _default_shared_repair_helpers() -> dict[str, dict[str, Any]]:
                 "boundaries": [
                     "Keep the retry scoped to the original return stage instead of changing workflow routing.",
                     "Base the repair plan on the persisted repair requirements rather than generic retries.",
+                    f"Attempt self-repair up to {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} times before escalating to request_unblocking_input.",
                 ],
                 "blocked_conditions": [
-                    "Return blocked if repair cannot proceed without additional external input or approval.",
+                    f"Return blocked only when repair still cannot proceed after {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} self-repair attempts and now requires external input or approval.",
                 ],
             },
             "done_when": [
@@ -1499,7 +1502,7 @@ def _request_unblocking_prompt() -> str:
 
 def _repair_prompt() -> str:
     return (
-        "Repair the previous workflow step and prepare a safe retry.\n\n"
+        "Repair the previous workflow step and decide whether it can retry directly or must first request external help.\n\n"
         "Current step: {{current_step_id}}\n"
         "Return stage: {{return_stage_id}}\n"
         "Repair category: {{repair_category}}\n"
@@ -1842,11 +1845,9 @@ def determine_return_stage_id(
     current_step_id: str,
     existing_return_stage_id: str | None,
 ) -> str | None:
-    if current_step_id in MAIN_STAGE_IDS:
-        return current_step_id
     if current_step_id in REPAIR_STAGE_IDS:
         return existing_return_stage_id
-    return MAIN_STAGE_IDS[0]
+    return current_step_id
 
 
 def determine_transition_reason(
@@ -2099,9 +2100,9 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                 *(_policy_outcome_route_lines(stage) if stage["outcome_routes"] else []),
                 '        if observation["status"] == "blocked":',
                 "            return TransitionDecision(",
-                '                next_node="request_unblocking_input",',
+                '                next_node="repair_and_resume",',
                 '                branch_kind="repair",',
-                f'                reason="{stage["step_id"]} is blocked and needs user help",',
+                f'                reason="{stage["step_id"]} is blocked and should be triaged by shared repair first",',
                 "            )",
                 '        if verifier_result is not None and not verifier_result["passed"]:',
                 "            return TransitionDecision(",
@@ -2134,16 +2135,19 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
             '    if current_step_id == "request_unblocking_input":',
             '        if observation["status"] == "succeeded":',
             '            return_stage_id = state.get("return_stage_id")',
-            '            if not return_stage_id:',
+            '            repair_context = state.get("repair_context") or {}',
+            '            source_stage_id = repair_context.get("source_stage_id")',
+            '            resume_target = "repair_and_resume" if source_stage_id == "repair_and_resume" else return_stage_id',
+            '            if not resume_target:',
             "                return TransitionDecision(",
             '                    next_node="request_unblocking_input",',
             '                    branch_kind="repair",',
-            '                    reason="cannot resume because return_stage_id is missing",',
+            '                    reason="cannot resume because the next recovery target is missing",',
             "                )",
             "            return TransitionDecision(",
-            '                next_node=return_stage_id,',
+            '                next_node=resume_target,',
             '                branch_kind="continue",',
-            '                reason="user supplied the missing input and the original stage can resume",',
+            '                reason="user supplied the missing input and the workflow can return to the recovery owner",',
             "            )",
             "        return TransitionDecision(",
             '            next_node="request_unblocking_input",',
@@ -2153,10 +2157,17 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
             "",
             '    if current_step_id == "repair_and_resume":',
             '        if observation["status"] == "blocked":',
+            '            repair_attempts = int((state.get("attempt_counts") or {}).get("repair_and_resume") or 0)',
+            f'            if repair_attempts < {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK}:',
+            "                return TransitionDecision(",
+            '                    next_node="repair_and_resume",',
+            '                    branch_kind="retry",',
+            f'                    reason="repair must attempt self-repair at least {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} times before requesting external help",',
+            "                )",
             "            return TransitionDecision(",
             '                next_node="request_unblocking_input",',
             '                branch_kind="repair",',
-            '                reason="retry is blocked and requires external help",',
+            f'                reason="repair exhausted {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} self-repair attempts and now requires external help before retry",',
             "            )",
             '        if observation["status"] == "succeeded":',
             '            return_stage_id = state.get("return_stage_id")',
@@ -2188,9 +2199,9 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
             ") -> TransitionDecision | None:",
             '    if observation["status"] == "blocked":',
             "        return TransitionDecision(",
-            '            next_node="request_unblocking_input",',
+            '            next_node="repair_and_resume",',
             '            branch_kind="repair",',
-            '            reason=f"{current_step_id} is blocked and needs user help",',
+            '            reason=f"{current_step_id} is blocked and should be triaged by shared repair first",',
             "        )",
             '    if observation["status"] == "partial":',
             "        return TransitionDecision(",
@@ -3087,25 +3098,25 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
             target = _render_transition_target(stage["recovery_return_node"], workflow_spec)
             lines.append(f"    {stage['step_id']} -->|recovery complete| {target}")
             lines.append(f"    {stage['step_id']} -.->|partial / failed / verifier| {stage['step_id']}")
-            lines.append(f"    {stage['step_id']} -.->|blocked| request_unblocking_input")
+            lines.append(f"    {stage['step_id']} -.->|blocked| repair_loop")
     lines.append("    unblock_loop[[request_unblocking_input]]")
     lines.append("    repair_loop[[repair_and_resume]]")
     lines.append("    resume_target[[return_stage_id / originating stage]]")
     for stage in main_stages:
-        lines.append(f"    {stage['step_id']} -.->|blocked| unblock_loop")
+        lines.append(f"    {stage['step_id']} -.->|blocked| repair_loop")
         lines.append(
             f"    {stage['step_id']} -.->|{_main_stage_repair_loop_label(stage)}| repair_loop"
         )
     lines.extend(
         [
-            "    unblock_loop -.->|resume via return_stage_id when present| resume_target",
+            "    unblock_loop -.->|resume via repair owner or return_stage_id| resume_target",
             "    unblock_loop -.->|stay when return_stage_id missing| unblock_loop",
-            "    repair_loop -.->|blocked| unblock_loop",
+            f"    repair_loop -.->|blocked after {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} tries| unblock_loop",
             "    repair_loop -.->|retry via return_stage_id when repair succeeds| resume_target",
-            "    repair_loop -.->|partial / failed / missing return_stage_id| repair_loop",
+            f"    repair_loop -.->|blocked before {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} tries / partial / failed / missing return_stage_id| repair_loop",
             "```",
             "",
-            "Global note: if `max_steps` is exceeded, runtime policy preempts normal business routing and sends the workflow to `request_unblocking_input` while preserving `return_stage_id`.",
+            f"Global note: if `max_steps` is exceeded, runtime policy preempts normal business routing and sends the workflow to `repair_and_resume`; that shared repair stage may escalate to `request_unblocking_input` only after {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} blocked self-repair attempts while preserving `return_stage_id`.",
             "",
         ]
     )
@@ -3364,10 +3375,11 @@ def _render_regression_tests_py(workflow_spec: dict[str, Any]) -> str:
         "",
         "RUNTIME_ROOT = Path(__file__).resolve().parents[3]",
         "SKILL_ROOT = RUNTIME_ROOT.parent",
-        "REPO_ROOT = SKILL_ROOT.parents[2]",
-        "VENV_SITE_PACKAGES = next((REPO_ROOT / '.venv' / 'lib').glob('python*/site-packages'), None)",
-        "if VENV_SITE_PACKAGES is not None and str(VENV_SITE_PACKAGES) not in sys.path:",
-        "    sys.path.insert(0, str(VENV_SITE_PACKAGES))",
+        "REPO_ROOT = SKILL_ROOT.parents[1]",
+        "for _lib_root in (REPO_ROOT / '.venv' / 'lib', SKILL_ROOT / '.venv' / 'lib', REPO_ROOT.parent / '.venv' / 'lib'):",
+        "    _site_packages = next(_lib_root.glob('python*/site-packages'), None)",
+        "    if _site_packages is not None and str(_site_packages) not in sys.path:",
+        "        sys.path.insert(0, str(_site_packages))",
         "if str(RUNTIME_ROOT) not in sys.path:",
         "    sys.path.insert(0, str(RUNTIME_ROOT))",
         "",
@@ -3441,6 +3453,7 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "    def test_generated_request_unblocking_input_resumes_to_return_stage(self):",
                 "        state = self._make_state(None)",
                 f"        state.return_stage_id = {resume_target!r}",
+                "        state.repair_context = {'source_stage_id': 'request_unblocking_input'}",
                 "        result = graphbuilder_runtime.run_transition_preview(",
                 "            state=state,",
                 '            current_step_id="request_unblocking_input",',
@@ -3459,6 +3472,19 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "        )",
                 '        self.assertEqual(result.step_id, "request_unblocking_input")',
                 '        self.assertEqual(result.branch_kind, "repair")',
+                "",
+                "    def test_generated_request_unblocking_input_returns_to_repair_owner(self):",
+                "        state = self._make_state(None)",
+                f"        state.return_stage_id = {resume_target!r}",
+                "        state.repair_context = {'source_stage_id': 'repair_and_resume'}",
+                "        result = graphbuilder_runtime.run_transition_preview(",
+                "            state=state,",
+                '            current_step_id="request_unblocking_input",',
+                "            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {}},",
+                "            verifier_result=None,",
+                "        )",
+                '        self.assertEqual(result.step_id, "repair_and_resume")',
+                '        self.assertEqual(result.branch_kind, "continue")',
                 "",
                 "    def test_generated_repair_and_resume_resumes_to_return_stage(self):",
                 "        state = self._make_state(None)",
@@ -3482,8 +3508,21 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 '        self.assertEqual(result.step_id, "repair_and_resume")',
                 '        self.assertEqual(result.branch_kind, "retry")',
                 "",
-                "    def test_generated_repair_and_resume_blocked_preserves_return_stage(self):",
+                "    def test_generated_repair_and_resume_blocked_before_threshold_retries_locally(self):",
                 "        state = self._make_state(None)",
+                f"        state.return_stage_id = {preserved_return_stage!r}",
+                "        result = graphbuilder_runtime.run_transition_preview(",
+                "            state=state,",
+                '            current_step_id="repair_and_resume",',
+                "            observation={'status': 'blocked', 'summary': 'Repair still needs external input.', 'structured_output': {'missing_inputs': ['approval']}},",
+                "            verifier_result=None,",
+                "        )",
+                '        self.assertEqual(result.step_id, "repair_and_resume")',
+                '        self.assertEqual(result.branch_kind, "retry")',
+                f"        self.assertEqual(state.return_stage_id, {preserved_return_stage!r})",
+                "",
+                "    def test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking(self):",
+                "        state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})",
                 f"        state.return_stage_id = {preserved_return_stage!r}",
                 "        result = graphbuilder_runtime.run_transition_preview(",
                 "            state=state,",
@@ -3521,7 +3560,7 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "        self.assertEqual(response['retry_context']['summary'], 'awaiting approval')",
                 "        self.assertEqual(response['retry_context']['requirements'], ['approval'])",
                 "",
-                "    def test_generated_max_steps_preserves_return_stage_for_unblocking(self):",
+                "    def test_generated_max_steps_preserves_return_stage_for_repair(self):",
                 "        state = self._make_state({'constraints': {'max_steps': 1}, 'attempt_counts': {}})",
                 f"        expected_return_stage = {preserved_return_stage!r}",
                 "        result = graphbuilder_runtime.run_transition_preview(",
@@ -3530,7 +3569,7 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "            observation={'status': 'succeeded', 'summary': 'Workflow hit max steps.', 'structured_output': {}},",
                 "            verifier_result={'passed': True, 'checks': []},",
                 "        )",
-                '        self.assertEqual(result.step_id, "request_unblocking_input")',
+                '        self.assertEqual(result.step_id, "repair_and_resume")',
                 '        self.assertEqual(result.branch_kind, "repair")',
                 "        self.assertEqual(state.return_stage_id, expected_return_stage)",
                 "",

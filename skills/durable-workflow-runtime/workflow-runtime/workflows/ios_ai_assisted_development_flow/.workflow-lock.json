@@ -5,114 +5,114 @@
     {
       "id": "brainstorming",
       "type": "skill",
-      "scope": "global",
-      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/common/skills/brainstorming?ref_type=heads",
-      "recorded_at": "2026-06-23T15:52:52Z",
-      "recorded_by": "bridge.py preflight"
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/brainstorming",
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
-      "id": "openspec",
-      "type": "cli",
-      "scope": "global",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-23T15:52:52Z",
-      "recorded_by": "bridge.py preflight"
-    },
-    {
-      "id": "openspec-propose",
+      "id": "writing-plans",
       "type": "skill",
-      "scope": "global",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-23T15:52:52Z",
-      "recorded_by": "bridge.py preflight"
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/writing-plans",
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
-      "id": "openspec-explore",
+      "id": "subagent-driven-development",
       "type": "skill",
-      "scope": "global",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-23T15:52:52Z",
-      "recorded_by": "bridge.py preflight"
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/subagent-driven-development",
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
-      "id": "openspec-apply-change",
+      "id": "test-driven-development",
       "type": "skill",
-      "scope": "global",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-23T15:52:52Z",
-      "recorded_by": "bridge.py preflight"
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/test-driven-development",
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "systematic-debugging",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "xcodebuildmcp-cli",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:xcodebuildmcp-cli",
-      "recorded_at": "2026-06-23T15:52:52Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "manipulate-xcodeproj",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:manipulate-xcodeproj",
-      "recorded_at": "2026-06-23T15:52:52Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "agentic-release-qa",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:agentic-release-qa",
-      "recorded_at": "2026-06-23T15:52:52Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "pixel-diff",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:pixel-diff",
-      "recorded_at": "2026-06-23T15:52:52Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "requesting-code-review",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "https://github.com/obra/superpowers/tree/main/skills/requesting-code-review",
-      "recorded_at": "2026-06-23T15:52:53Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "verification-before-completion",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "https://github.com/obra/superpowers/tree/main/skills/verification-before-completion",
-      "recorded_at": "2026-06-23T15:52:53Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "ios-best-practices",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:ios-best-practices",
-      "recorded_at": "2026-06-23T15:52:53Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "code-kb-workflow",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:code-kb-workflow",
-      "recorded_at": "2026-06-23T15:52:53Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "software-design-philosophy",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:software-design-philosophy",
-      "recorded_at": "2026-06-23T15:52:53Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
     }
   ]
 }

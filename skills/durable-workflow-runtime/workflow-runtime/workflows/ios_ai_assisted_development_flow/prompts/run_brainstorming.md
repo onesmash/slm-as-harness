@@ -1,4 +1,4 @@
-/brainstorming {{goal}} in {{repo_root}}; use knowledge-base as supporting context, complete clarification and approval, write the approved design under docs/superpowers/specs/, and complete the required spec review loop.
+/brainstorming {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce an approved design package under docs/superpowers/specs/ that is ready for implementation planning.
 
 Stage Context:
 
@@ -9,18 +9,15 @@ Stage Context:
 Stage Boundaries:
 
 - Do not implement code in this stage.
-- Do not create or apply OpenSpec artifacts until the design direction is approved.
+- Do not write the implementation plan until the design direction is approved.
 - Keep knowledge-base usage as context lookup, not as separate user-visible stages.
 - Follow the normal design-approval flow before writing or finalizing the approved spec document.
 - Write the approved brainstorming design as a Markdown document under docs/superpowers/specs/.
-- Do not use openspec/changes/** artifacts as the brainstorming design document.
+- Do not use implementation plan documents as the brainstorming design document.
 - If the approved request affects a user-visible UI surface, the spec must include implementation-ready visual detail: view hierarchy, per-element properties, typography, colors, spacing, padding, alignment, sizing, constraints, states, assets, interaction behavior, layout relationships, and measurable expectations detailed enough to support code generation and visual verification without guessing.
 - If the approved request affects a user-visible UI surface, the spec must name the design-comparison source for visual QA, such as a Figma frame, approved mock, or reference screenshot, and describe the expected app screenshot/view scope to capture for runtime visual comparison.
-- Complete the spec review loop before handing back from this stage.
-- The spec review loop must launch three independent review subagents from development, design, and testing perspectives before the requirement stage can finish.
-- The development perspective must evaluate whether the spec follows /software-design-philosophy, records key design decisions, records impact scope, and is implementation-ready for Dev.
-- The design perspective must evaluate whether the spec accurately captures the Figma or approved design source, provides implementation-ready visual detail, and is concrete enough for Dev to build the UI without guessing.
-- The testing perspective must evaluate whether the spec defines adequate unit-test expectations, explicit regression cases, and enough behavior detail for QA/Dev to verify the change.
+- Complete the required spec review loop before handing back from this stage.
+- The review loop must include independent development, design, and testing perspectives, but the workflow prompt should describe that durable requirement without teaching each review lens its internal SOP.
 
 Blocked Conditions:
 

@@ -1,8 +1,9 @@
-/agentic-release-qa run a change-aware release QA pass for {{change_name}} in {{repo_root}} using changed files {{changed_files}}, implementation evidence {{implementation_summary}}, and verification commands {{verification_commands}}.
+/agentic-release-qa run a change-aware release QA pass for {{preferred_change_name}} in {{repo_root}} using changed files {{changed_files}}, implementation evidence {{implementation_summary}}, and verification commands {{verification_commands}}.
 
 Stage Context:
 
-- Change name: {{change_name}}
+- Preferred change name: {{preferred_change_name}}
+- Workflow goal: {{goal}}
 - Repository root: {{repo_root}}
 - Changed files: {{changed_files}}
 - Implementation summary: {{implementation_summary}}
@@ -18,8 +19,10 @@ Stage Boundaries:
 - Separate executed QA evidence from blocked or recommended checks.
 - Do not claim runtime, device, integration, or performance checks passed unless they were actually executed.
 - Do not stress production systems or require destructive QA data without explicit user approval.
-- Normalize release_qa_verdict to one of: ship, ship_with_risks, do_not_ship, blocked.
+- Normalize release_qa_verdict to one of: ship or do_not_ship when the QA pass completes.
+- If required QA inputs are missing, return observation.status=blocked instead of encoding blocked as a succeeded release_qa_verdict.
 - If ui_surface_affected is true and both design_comparison_source and runtime_visual_comparison_scope are available, include an explicit visual comparison pass and report the executed or blocked visual diff evidence.
+- Return the concrete QA target scope or artifact under test so later stages know exactly what was validated.
 
 Blocked Conditions:
 

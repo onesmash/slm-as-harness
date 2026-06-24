@@ -22,7 +22,7 @@ def choose_next_node(
             return TransitionDecision(
                 next_node='run_brainstorming',
                 branch_kind='retry',
-                reason='Brainstorming clarification and approval gates must pass before OpenSpec formalization.',
+                reason='Brainstorming clarification and approval gates must pass before implementation planning.',
             )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
@@ -32,26 +32,12 @@ def choose_next_node(
         if status_decision is not None:
             return status_decision
         return TransitionDecision(
-            next_node="propose_openspec_change",
+            next_node="write_implementation_plan",
             branch_kind="continue",
-            reason="run_brainstorming completed; continue to propose_openspec_change",
+            reason="run_brainstorming completed; continue to write_implementation_plan",
         )
 
-    if current_step_id == "propose_openspec_change":
-        status_decision = _route_common_failure(
-            current_step_id=current_step_id,
-            observation=observation,
-            verifier_result=verifier_result,
-        )
-        if status_decision is not None:
-            return status_decision
-        return TransitionDecision(
-            next_node="refine_change_with_openspec",
-            branch_kind="continue",
-            reason="propose_openspec_change completed; continue to refine_change_with_openspec",
-        )
-
-    if current_step_id == "refine_change_with_openspec":
+    if current_step_id == "write_implementation_plan":
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,
@@ -61,19 +47,19 @@ def choose_next_node(
             return status_decision
         structured_output = observation.get("structured_output") or {}
         if isinstance(structured_output, dict):
-            if condition_matches(structured_output.get('ready_for_apply'), 'is_false', None):
+            if condition_matches(structured_output.get('ready_for_implementation'), 'is_false', None):
                 return TransitionDecision(
-                    next_node='refine_change_with_openspec',
+                    next_node='write_implementation_plan',
                     branch_kind='retry',
-                    reason='OpenSpec refinement is not ready for implementation yet.',
+                    reason='Implementation planning is not ready yet and needs another pass.',
                 )
         return TransitionDecision(
-            next_node="approve_refine",
+            next_node="approve_plan",
             branch_kind="continue",
-            reason="refine_change_with_openspec completed; continue to approve_refine",
+            reason="write_implementation_plan completed; continue to approve_plan",
         )
 
-    if current_step_id == "approve_refine":
+    if current_step_id == "approve_plan":
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,
@@ -87,18 +73,18 @@ def choose_next_node(
                 return TransitionDecision(
                     next_node='execute_implementation',
                     branch_kind='continue',
-                    reason='User approved refinement; proceeding to implementation.',
+                    reason='User approved the plan; proceeding to implementation.',
                 )
-            if condition_matches(structured_output.get('additional_refinement_needed'), 'is_true', None):
+            if condition_matches(structured_output.get('additional_planning_needed'), 'is_true', None):
                 return TransitionDecision(
-                    next_node='refine_change_with_openspec',
+                    next_node='write_implementation_plan',
                     branch_kind='retry',
-                    reason='User requested additional refinement before implementation.',
+                    reason='User requested additional planning before implementation.',
                 )
         return TransitionDecision(
             next_node="execute_implementation",
             branch_kind="continue",
-            reason="approve_refine completed; continue to execute_implementation",
+            reason="approve_plan completed; continue to execute_implementation",
         )
 
     if current_step_id == "execute_implementation":
@@ -111,11 +97,11 @@ def choose_next_node(
             return status_decision
         structured_output = observation.get("structured_output") or {}
         if isinstance(structured_output, dict):
-            if condition_matches(structured_output.get('openspec_updates_required'), 'is_true', None):
+            if condition_matches(structured_output.get('plan_updates_required'), 'is_true', None):
                 return TransitionDecision(
-                    next_node='refine_change_with_openspec',
+                    next_node='write_implementation_plan',
                     branch_kind='retry',
-                    reason='Implementation revealed an OpenSpec or design issue that must be refined before execution can continue.',
+                    reason='Implementation revealed a plan or design issue that must be resolved before execution can continue.',
                 )
             if condition_matches(structured_output.get('tasks_completed'), 'is_false', None):
                 return TransitionDecision(
@@ -145,14 +131,6 @@ def choose_next_node(
             return status_decision
         structured_output = observation.get("structured_output") or {}
         if isinstance(structured_output, dict):
-            if condition_matches(structured_output.get('release_qa_verdict'), 'equals', 'blocked'):
-                return TransitionDecision(
-                    next_node='request_unblocking_input',
-                    branch_kind='repair',
-                    reason='Release QA was blocked and needs missing QA environment, artifact, credential, device, or baseline input.',
-                )
-        structured_output = observation.get("structured_output") or {}
-        if isinstance(structured_output, dict):
             if condition_matches(structured_output.get('release_qa_verdict'), 'equals', 'do_not_ship'):
                 return TransitionDecision(
                     next_node='execute_implementation',
@@ -173,14 +151,6 @@ def choose_next_node(
         )
         if status_decision is not None:
             return status_decision
-        structured_output = observation.get("structured_output") or {}
-        if isinstance(structured_output, dict):
-            if condition_matches(structured_output.get('review_status'), 'equals', 'blocked'):
-                return TransitionDecision(
-                    next_node='request_unblocking_input',
-                    branch_kind='repair',
-                    reason='Pre-merge code review reported a blocked status and needs the missing review input.',
-                )
         structured_output = observation.get("structured_output") or {}
         if isinstance(structured_output, dict):
             if condition_matches(structured_output.get('changes_requested'), 'is_true', None):
@@ -205,14 +175,6 @@ def choose_next_node(
             return status_decision
         structured_output = observation.get("structured_output") or {}
         if isinstance(structured_output, dict):
-            if condition_matches(structured_output.get('missing_verification_inputs'), 'non_empty', None):
-                return TransitionDecision(
-                    next_node='request_unblocking_input',
-                    branch_kind='repair',
-                    reason='Final completion verification is blocked on missing verification inputs or external evidence.',
-                )
-        structured_output = observation.get("structured_output") or {}
-        if isinstance(structured_output, dict):
             if condition_matches(structured_output.get('verification_passed'), 'is_false', None):
                 return TransitionDecision(
                     next_node='execute_implementation',
@@ -228,16 +190,19 @@ def choose_next_node(
     if current_step_id == "request_unblocking_input":
         if observation["status"] == "succeeded":
             return_stage_id = state.get("return_stage_id")
-            if not return_stage_id:
+            repair_context = state.get("repair_context") or {}
+            source_stage_id = repair_context.get("source_stage_id")
+            resume_target = "repair_and_resume" if source_stage_id == "repair_and_resume" else return_stage_id
+            if not resume_target:
                 return TransitionDecision(
                     next_node="request_unblocking_input",
                     branch_kind="repair",
-                    reason="cannot resume because return_stage_id is missing",
+                    reason="cannot resume because the next recovery target is missing",
                 )
             return TransitionDecision(
-                next_node=return_stage_id,
+                next_node=resume_target,
                 branch_kind="continue",
-                reason="user supplied the missing input and the original stage can resume",
+                reason="user supplied the missing input and the workflow can return to the recovery owner",
             )
         return TransitionDecision(
             next_node="request_unblocking_input",
@@ -247,10 +212,17 @@ def choose_next_node(
 
     if current_step_id == "repair_and_resume":
         if observation["status"] == "blocked":
+            repair_attempts = int((state.get("attempt_counts") or {}).get("repair_and_resume") or 0)
+            if repair_attempts < 3:
+                return TransitionDecision(
+                    next_node="repair_and_resume",
+                    branch_kind="retry",
+                    reason="repair must attempt self-repair at least 3 times before requesting external help",
+                )
             return TransitionDecision(
                 next_node="request_unblocking_input",
                 branch_kind="repair",
-                reason="retry is blocked and requires external help",
+                reason="repair exhausted 3 self-repair attempts and now requires external help before retry",
             )
         if observation["status"] == "succeeded":
             return_stage_id = state.get("return_stage_id")
@@ -282,9 +254,9 @@ def _route_common_failure(
 ) -> TransitionDecision | None:
     if observation["status"] == "blocked":
         return TransitionDecision(
-            next_node="request_unblocking_input",
+            next_node="repair_and_resume",
             branch_kind="repair",
-            reason=f"{current_step_id} is blocked and needs user help",
+            reason=f"{current_step_id} is blocked and should be triaged by shared repair first",
         )
     if observation["status"] == "partial":
         return TransitionDecision(

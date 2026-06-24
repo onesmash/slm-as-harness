@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "workflow_id": "ios_ai_assisted_development_flow",
-  "description": "Run the iOS Client AI-assisted development path from brainstorming through OpenSpec artifacts, implementation, and pre-merge code review, with knowledge-base available as supporting context throughout.",
+  "description": "Run the iOS Client AI-assisted development path from superpowers brainstorming through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -10,8 +10,7 @@
     "context": {
       "repo_root": "string",
       "source_doc_url": "string?",
-      "source_skill_url": "string?",
-      "openspec_source_url": "string?"
+      "source_skill_url": "string?"
     },
     "constraints": {
       "max_steps": "integer?",
@@ -24,42 +23,40 @@
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/common/skills/brainstorming?ref_type=heads",
-      "purpose": "Run the pre-implementation requirement clarification and design approval gate.",
-      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill brainstorming -g -y --agent claude-code cursor codex"
+      "source": "https://github.com/obra/superpowers/tree/main/skills/brainstorming",
+      "purpose": "Run the pre-implementation requirement clarification and design approval gate."
     },
     {
-      "id": "openspec",
-      "type": "cli",
-      "required": true,
-      "scope": "either",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "purpose": "Create, inspect, and apply durable OpenSpec change artifacts.",
-      "command": "openspec"
-    },
-    {
-      "id": "openspec-propose",
+      "id": "writing-plans",
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "purpose": "Create proposal, design/spec, and task artifacts for a new OpenSpec change."
+      "source": "https://github.com/obra/superpowers/tree/main/skills/writing-plans",
+      "purpose": "Turn the approved design into a detailed implementation plan and execution handoff."
     },
     {
-      "id": "openspec-explore",
+      "id": "subagent-driven-development",
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "purpose": "Refine OpenSpec artifacts before implementation when design ambiguity remains."
+      "source": "https://github.com/obra/superpowers/tree/main/skills/subagent-driven-development",
+      "purpose": "Execute the approved implementation plan task by task with built-in review loops."
     },
     {
-      "id": "openspec-apply-change",
+      "id": "test-driven-development",
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "purpose": "Implement the selected OpenSpec tasks and report verification evidence."
+      "source": "https://github.com/obra/superpowers/tree/main/skills/test-driven-development",
+      "purpose": "Require red-green-refactor discipline before behavior-changing production edits."
+    },
+    {
+      "id": "systematic-debugging",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
+      "purpose": "Require root-cause investigation before implementation fixes when verification fails."
     },
     {
       "id": "xcodebuildmcp-cli",
@@ -128,7 +125,7 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:code-kb-workflow",
-      "purpose": "Read durable knowledge-base context during brainstorming, OpenSpec, implementation, and review stages.",
+      "purpose": "Read durable knowledge-base context during brainstorming, planning, implementation, and review stages.",
       "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill code-kb-workflow -g -y --agent claude-code cursor codex"
     },
     {

@@ -29,8 +29,8 @@ Then make these replacements first:
 What this skeleton already demonstrates:
 
 - one main yielded stage: `run_primary_stage`
-- one unblock repair stage: `request_unblocking_input`
-- one retry repair stage: `repair_and_resume`
+- one shared unblock helper: `request_unblocking_input`
+- one shared repair owner: `repair_and_resume`
 - one explicit final node: `finalize_summary`
 - start-time input contract
 - yielded-step contracts

@@ -1,25 +1,19 @@
 import sys
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[3]
 SKILL_ROOT = RUNTIME_ROOT.parent
-REPO_ROOT = SKILL_ROOT.parents[2]
-VENV_SITE_PACKAGES = next((REPO_ROOT / '.venv' / 'lib').glob('python*/site-packages'), None)
-if VENV_SITE_PACKAGES is not None and str(VENV_SITE_PACKAGES) not in sys.path:
-    sys.path.insert(0, str(VENV_SITE_PACKAGES))
+REPO_ROOT = SKILL_ROOT.parents[1]
+for _lib_root in (REPO_ROOT / '.venv' / 'lib', SKILL_ROOT / '.venv' / 'lib', REPO_ROOT.parent / '.venv' / 'lib'):
+    _site_packages = next(_lib_root.glob('python*/site-packages'), None)
+    if _site_packages is not None and str(_site_packages) not in sys.path:
+        sys.path.insert(0, str(_site_packages))
 if str(RUNTIME_ROOT) not in sys.path:
     sys.path.insert(0, str(RUNTIME_ROOT))
 
-from workflows.common.prompting import build_prompt_envelope
-from workflows.ios_ai_assisted_development_flow import (
-    contract as workflow_contract,
-    graphbuilder_runtime,
-    state as workflow_state,
-    verifiers,
-)
+from workflows.ios_ai_assisted_development_flow import graphbuilder_runtime, state as workflow_state, verifiers
 
 
 class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
@@ -49,7 +43,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'design_approved': True,
                        'approved_design_summary': 'Approved design summary.',
                        'open_questions': [],
-                       'ready_for_openspec': True}},
+                       'ready_for_planning': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -70,7 +64,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'approved_design_summary': 'Approved design summary.',
                        'approved_design_path': 'docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md',
                        'open_questions': [],
-                       'ready_for_openspec': True}},
+                       'ready_for_planning': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -99,7 +93,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                                                           'Design review passed.',
                                                           'Testing review passed.'],
                        'open_questions': [],
-                       'ready_for_openspec': True}},
+                       'ready_for_planning': True}},
             state={},
         )
         self.assertIs(result['passed'], True)
@@ -128,7 +122,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                                                           'Design review passed.',
                                                           'Testing review passed.'],
                        'open_questions': [],
-                       'ready_for_openspec': True}},
+                       'ready_for_planning': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -156,18 +150,18 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                                                           'Testing review passed.',
                                                           'Second testing review passed.'],
                        'open_questions': [],
-                       'ready_for_openspec': True}},
+                       'ready_for_planning': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
 
-    def test_brainstorming_rejects_openspec_design_path(self):
+    def test_brainstorming_rejects_non_spec_doc_path(self):
         result = verifiers.verify_run_brainstorming(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='run_brainstorming',
             observation={'status': 'succeeded',
- 'summary': 'Brainstorming tried to reuse an OpenSpec design document.',
+ 'summary': 'Brainstorming tried to reuse a plan document as the design spec.',
  'structured_output': {'clarification_questions': ['What user-visible behavior should change?'],
                        'clarification_answers_summary': 'The user confirmed behavior, scope, and '
                                                         'success criteria.',
@@ -175,9 +169,9 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'user_approved_design': True,
                        'design_approved': True,
                        'approved_design_summary': 'Approved design summary.',
-                       'approved_design_path': 'openspec/changes/example-change/design.md',
+                       'approved_design_path': 'docs/superpowers/plans/2026-06-24-sample-plan.md',
                        'open_questions': [],
-                       'ready_for_openspec': True}},
+                       'ready_for_planning': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -196,7 +190,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'approved_design_summary': 'Approved design summary.',
                        'approved_design_path': 'docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md',
                        'open_questions': [],
-                       'ready_for_openspec': True}},
+                       'ready_for_planning': True}},
             verifier_result={'passed': False,
  'checks': [{'name': 'clarification_questions',
              'passed': False,
@@ -206,76 +200,150 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, 'run_brainstorming')
         self.assertEqual(result.branch_kind, 'retry')
 
-    def test_refinement_not_ready_retries_refinement(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='refine_change_with_openspec',
-            observation={'status': 'succeeded',
- 'summary': 'Refinement found an unresolved architecture decision.',
- 'structured_output': {'refinement_summary': 'Need to confirm API ownership.',
-                       'changed_artifacts': [],
-                       'unresolved_questions': ['Who owns the bridge contract?'],
-                       'ready_for_apply': False}},
-            verifier_result={'passed': True, 'checks': []},
-        )
-        self.assertEqual(result.step_id, 'refine_change_with_openspec')
-        self.assertEqual(result.branch_kind, 'retry')
-
-    def test_refinement_rejects_missing_conversation_evidence(self):
-        result = verifiers.verify_refine_change_with_openspec(
+    def test_plan_requires_written_plan_path(self):
+        result = verifiers.verify_write_implementation_plan(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
-            step_id='refine_change_with_openspec',
+            step_id='write_implementation_plan',
             observation={'status': 'succeeded',
- 'summary': 'Refinement skipped the talk-first discussion and jumped to output.',
- 'structured_output': {'refinement_summary': 'Need to confirm API ownership.',
-                       'user_discussion_summary': '',
-                       'discussion_turn_count': 0,
-                       'changed_artifacts': [],
-                       'unresolved_questions': ['Who owns the bridge contract?'],
-                       'ready_for_apply': False}},
+ 'summary': 'Planning finished without recording the plan path.',
+ 'structured_output': {'plan_summary': 'Plan summary.',
+                       'plan_path': '',
+                       'plan_reviewed': True,
+                       'execution_mode': 'subagent-driven',
+                       'open_questions': [],
+                       'ready_for_implementation': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
 
-    def test_refinement_accepts_recorded_conversation_evidence(self):
-        result = verifiers.verify_refine_change_with_openspec(
+    def test_plan_rejects_missing_review(self):
+        result = verifiers.verify_write_implementation_plan(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
-            step_id='refine_change_with_openspec',
+            step_id='write_implementation_plan',
             observation={'status': 'succeeded',
- 'summary': 'Refinement discussed risks with the user before finishing.',
- 'structured_output': {'refinement_summary': 'Confirmed API ownership and narrowed the apply '
-                                             'scope.',
-                       'user_discussion_summary': 'Discussed API ownership, rollout boundaries, '
-                                                  'and whether the bridge contract needed a '
-                                                  'compatibility note.',
-                       'discussion_turn_count': 2,
-                       'changed_artifacts': ['openspec/changes/example-change/design.md'],
-                       'unresolved_questions': [],
-                       'ready_for_apply': True}},
+ 'summary': 'Planning skipped the user review gate.',
+ 'structured_output': {'plan_summary': 'Plan summary.',
+                       'plan_path': 'docs/superpowers/plans/2026-06-24-ios-change.md',
+                       'plan_reviewed': False,
+                       'execution_mode': 'subagent-driven',
+                       'open_questions': [],
+                       'ready_for_implementation': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_plan_rejects_inline_execution_mode(self):
+        result = verifiers.verify_write_implementation_plan(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='write_implementation_plan',
+            observation={'status': 'succeeded',
+ 'summary': 'Planning picked inline execution while claiming readiness.',
+ 'structured_output': {'plan_summary': 'Plan summary.',
+                       'plan_path': 'docs/superpowers/plans/2026-06-24-ios-change.md',
+                       'plan_reviewed': True,
+                       'execution_mode': 'inline',
+                       'open_questions': [],
+                       'ready_for_implementation': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_plan_accepts_subagent_execution_mode(self):
+        result = verifiers.verify_write_implementation_plan(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='write_implementation_plan',
+            observation={'status': 'succeeded',
+ 'summary': 'Planning completed with a reviewed plan and subagent-driven execution.',
+ 'structured_output': {'plan_summary': 'Plan summary.',
+                       'plan_path': 'docs/superpowers/plans/2026-06-24-ios-change.md',
+                       'plan_reviewed': True,
+                       'execution_mode': 'subagent-driven',
+                       'open_questions': [],
+                       'ready_for_implementation': True}},
             state={},
         )
         self.assertIs(result['passed'], True)
 
-    def test_implementation_rejects_failed_verification(self):
-        result = verifiers.verify_execute_implementation(
+    def test_plan_rejects_replanning_without_reason(self):
+        result = verifiers.verify_write_implementation_plan(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
-            step_id='execute_implementation',
+            step_id='write_implementation_plan',
             observation={'status': 'succeeded',
- 'summary': 'Implementation finished but tests failed.',
- 'structured_output': {'tasks_completed': True,
-                       'implementation_summary': 'Implemented tasks.',
-                       'changed_files': ['Zoom/Classes/Example.mm'],
-                       'completed_tasks': ['Task 1'],
-                       'remaining_tasks': [],
-                       'verification_commands': ['unit-test => failed'],
-                       'verification_passed': False,
-                       'open_issues': ['unit-test failed']}},
+ 'summary': 'Planning revised the plan without acknowledging recorded replanning context.',
+ 'structured_output': {'plan_summary': 'Plan summary.',
+                       'plan_path': 'docs/superpowers/plans/2026-06-24-ios-change.md',
+                       'plan_reviewed': True,
+                       'execution_mode': 'subagent-driven',
+                       'open_questions': [],
+                       'ready_for_implementation': True}},
+            state={'plan_user_feedback': 'Need clearer rollback steps.',
+ 'plan_update_summary': 'The prior implementation pass exposed a missing owner.'},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_planning_not_ready_retries_planning(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='write_implementation_plan',
+            observation={'status': 'succeeded',
+ 'summary': 'Planning still needs user review.',
+ 'structured_output': {'plan_summary': 'Need another review pass.',
+                       'plan_path': 'docs/superpowers/plans/2026-06-24-ios-change.md',
+                       'plan_reviewed': False,
+                       'execution_mode': 'subagent-driven',
+                       'open_questions': ['Confirm rollout constraints.'],
+                       'ready_for_implementation': False}},
+            verifier_result={'passed': True, 'checks': []},
+        )
+        self.assertEqual(result.step_id, 'write_implementation_plan')
+        self.assertEqual(result.branch_kind, 'retry')
+
+    def test_approve_plan_approved_routes_to_implementation(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='approve_plan',
+            observation={'status': 'succeeded',
+ 'summary': 'User approved the plan.',
+ 'structured_output': {'user_approved': True,
+                       'user_feedback': 'Proceed with execution.',
+                       'additional_planning_needed': False}},
+            verifier_result={'passed': True, 'checks': []},
+        )
+        self.assertEqual(result.step_id, 'execute_implementation')
+        self.assertEqual(result.branch_kind, 'continue')
+
+    def test_approve_plan_rejects_approved_with_additional_planning(self):
+        result = verifiers.verify_approve_plan(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='approve_plan',
+            observation={'status': 'succeeded',
+ 'summary': 'Approval output contradicts itself.',
+ 'structured_output': {'user_approved': True,
+                       'user_feedback': 'Looks good.',
+                       'additional_planning_needed': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
+
+    def test_approve_plan_rejected_retries_planning(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='approve_plan',
+            observation={'status': 'succeeded',
+ 'summary': 'User requested another planning pass.',
+ 'structured_output': {'user_approved': False,
+                       'user_feedback': 'Need clearer rollback steps.',
+                       'additional_planning_needed': True}},
+            verifier_result={'passed': True, 'checks': []},
+        )
+        self.assertEqual(result.step_id, 'write_implementation_plan')
+        self.assertEqual(result.branch_kind, 'retry')
 
     def test_implementation_requires_verification_commands(self):
         result = verifiers.verify_execute_implementation(
@@ -283,10 +351,10 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             run_id="generated-test-run",
             step_id='execute_implementation',
             observation={'status': 'succeeded',
- 'summary': 'Implementation claims verification passed without commands.',
+ 'summary': 'Implementation finished without verification commands.',
  'structured_output': {'tasks_completed': True,
-                       'implementation_summary': 'Implemented tasks.',
-                       'changed_files': ['Zoom/Classes/Example.mm'],
+                       'implementation_summary': 'Implemented the requested change.',
+                       'changed_files': ['Zoom/Foo.swift'],
                        'completed_tasks': ['Task 1'],
                        'remaining_tasks': [],
                        'verification_commands': [],
@@ -301,44 +369,43 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             state=self._make_state(None),
             current_step_id='execute_implementation',
             observation={'status': 'succeeded',
- 'summary': 'Implementation finished with verification evidence.',
+ 'summary': 'Implementation completed successfully.',
  'structured_output': {'tasks_completed': True,
-                       'implementation_summary': 'Implemented tasks.',
-                       'changed_files': ['Zoom/Classes/Example.mm'],
+                       'implementation_summary': 'Implemented the requested change.',
+                       'changed_files': ['Zoom/Foo.swift'],
                        'completed_tasks': ['Task 1'],
                        'remaining_tasks': [],
-                       'verification_commands': ['unit-test => passed'],
+                       'verification_commands': ['xcodebuild test -scheme ZoomClient'],
                        'verification_passed': True,
-                       'open_issues': []}},
-            verifier_result=None,
+                       'open_issues': [],
+                       'debugging_summary': 'No debugging detours were needed.',
+                       'plan_updates_required': False}},
+            verifier_result={'passed': True, 'checks': []},
         )
         self.assertEqual(result.step_id, 'run_agentic_release_qa')
         self.assertEqual(result.branch_kind, 'continue')
 
-    def test_implementation_design_issue_routes_back_to_refinement(self):
+    def test_implementation_plan_issue_routes_back_to_planning(self):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
             current_step_id='execute_implementation',
             observation={'status': 'succeeded',
- 'summary': 'Implementation found a spec gap that requires refinement.',
+ 'summary': 'Implementation found a missing architecture decision.',
  'structured_output': {'tasks_completed': False,
-                       'implementation_summary': 'Started implementation, but discovered the '
-                                                 'OpenSpec task does not define the fallback UI '
-                                                 'state clearly enough.',
-                       'changed_files': ['Zoom/Classes/Example.mm'],
+                       'implementation_summary': 'Stopped when the plan exposed an ownership gap.',
+                       'changed_files': ['Zoom/Foo.swift'],
                        'completed_tasks': [],
-                       'remaining_tasks': ['Clarify fallback UI state in the OpenSpec design '
-                                           'before finishing implementation.'],
-                       'verification_commands': ['unit-test => not-run'],
-                       'verification_passed': False,
-                       'open_issues': ['OpenSpec design does not define the fallback UI state.'],
-                       'openspec_updates_required': True,
-                       'openspec_update_summary': 'The approved design and OpenSpec tasks need a '
-                                                  'fallback UI state clarification before '
-                                                  'implementation can continue safely.'}},
-            verifier_result=None,
+                       'remaining_tasks': ['Clarify owner for shared presenter.'],
+                       'verification_commands': ['xcodebuild test -scheme ZoomClient'],
+                       'verification_passed': True,
+                       'open_issues': ['Ownership of shared presenter is unclear.'],
+                       'debugging_summary': 'Root cause traced to an unresolved plan assumption.',
+                       'plan_updates_required': True,
+                       'plan_update_summary': 'The plan needs an explicit owner for the shared '
+                                              'presenter before implementation can continue.'}},
+            verifier_result={'passed': True, 'checks': []},
         )
-        self.assertEqual(result.step_id, 'refine_change_with_openspec')
+        self.assertEqual(result.step_id, 'write_implementation_plan')
         self.assertEqual(result.branch_kind, 'retry')
 
     def test_implementation_rejects_completed_with_remaining_tasks(self):
@@ -347,15 +414,34 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             run_id="generated-test-run",
             step_id='execute_implementation',
             observation={'status': 'succeeded',
- 'summary': 'Implementation claimed completion while still listing remaining tasks.',
+ 'summary': 'Implementation claims completion with remaining tasks.',
  'structured_output': {'tasks_completed': True,
-                       'implementation_summary': 'Implemented most tasks.',
-                       'changed_files': ['Zoom/Classes/Example.mm'],
+                       'implementation_summary': 'Implemented most of the change.',
+                       'changed_files': ['Zoom/Foo.swift'],
                        'completed_tasks': ['Task 1'],
                        'remaining_tasks': ['Task 2'],
-                       'verification_commands': ['unit-test => passed'],
+                       'verification_commands': ['xcodebuild test -scheme ZoomClient'],
                        'verification_passed': True,
                        'open_issues': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_implementation_rejects_failed_verification(self):
+        result = verifiers.verify_execute_implementation(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='execute_implementation',
+            observation={'status': 'succeeded',
+ 'summary': 'Implementation failed verification without routing detail.',
+ 'structured_output': {'tasks_completed': False,
+                       'implementation_summary': 'Implementation is incomplete.',
+                       'changed_files': ['Zoom/Foo.swift'],
+                       'completed_tasks': [],
+                       'remaining_tasks': ['Fix failing tests.'],
+                       'verification_commands': ['xcodebuild test -scheme ZoomClient'],
+                       'verification_passed': False,
+                       'open_issues': ['Tests are failing.']}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -367,11 +453,12 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             step_id='run_agentic_release_qa',
             observation={'status': 'succeeded',
  'summary': 'Release QA returned an unknown verdict.',
- 'structured_output': {'release_qa_verdict': 'maybe_ship',
-                       'release_qa_summary': 'QA found ambiguous risk.',
-                       'release_qa_executed_checks': ['Reviewed changed files.'],
+ 'structured_output': {'release_qa_target_scope': 'Changed meeting footer flow',
+                       'release_qa_summary': 'QA pass summary.',
+                       'release_qa_verdict': 'unknown',
+                       'release_qa_executed_checks': ['Smoke test'],
                        'release_qa_blocked_checks': [],
-                       'release_qa_risk_next_steps': ['Normalize verdict before continuing.'],
+                       'release_qa_risk_next_steps': ['Clarify verdict.'],
                        'release_qa_artifacts': []}},
             state={},
         )
@@ -381,20 +468,13 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
             current_step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA could not run because device access is missing.',
- 'structured_output': {'release_qa_verdict': 'blocked',
-                       'release_qa_summary': 'Device QA could not run.',
-                       'release_qa_executed_checks': ['Inspected changed files and local '
-                                                      'verification evidence.'],
-                       'release_qa_blocked_checks': ['Run on an iOS device with the release build '
-                                                     'installed.'],
-                       'release_qa_risk_next_steps': ['Provide device access or release build '
-                                                      'artifact.'],
-                       'release_qa_artifacts': []}},
-            verifier_result=None,
+            observation={'status': 'blocked',
+ 'summary': 'QA environment is unavailable.',
+ 'structured_output': {'blocked_reason': 'Simulator unavailable',
+                       'missing_inputs': ['Working simulator environment']}},
+            verifier_result={'passed': True, 'checks': []},
         )
-        self.assertEqual(result.step_id, 'request_unblocking_input')
+        self.assertEqual(result.step_id, 'repair_and_resume')
         self.assertEqual(result.branch_kind, 'repair')
 
     def test_release_qa_do_not_ship_routes_to_implementation(self):
@@ -402,16 +482,15 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             state=self._make_state(None),
             current_step_id='run_agentic_release_qa',
             observation={'status': 'succeeded',
- 'summary': 'Release QA found a blocking regression.',
- 'structured_output': {'release_qa_verdict': 'do_not_ship',
-                       'release_qa_summary': 'A stateful regression was found in the changed flow.',
-                       'release_qa_executed_checks': ['Ran targeted regression scenario for the '
-                                                      'changed flow.'],
+ 'summary': 'Release QA found a ship blocker.',
+ 'structured_output': {'release_qa_target_scope': 'Crash flow on iPad simulator',
+                       'release_qa_summary': 'A crash reproduces in the target flow.',
+                       'release_qa_verdict': 'do_not_ship',
+                       'release_qa_executed_checks': ['Crash reproduction'],
                        'release_qa_blocked_checks': [],
-                       'release_qa_risk_next_steps': ['Fix the regression and rerun implementation '
-                                                      'verification.'],
-                       'release_qa_artifacts': ['logs/release-qa-regression.txt']}},
-            verifier_result=None,
+                       'release_qa_risk_next_steps': ['Fix the crash before ship.'],
+                       'release_qa_artifacts': []}},
+            verifier_result={'passed': True, 'checks': []},
         )
         self.assertEqual(result.step_id, 'execute_implementation')
         self.assertEqual(result.branch_kind, 'retry')
@@ -421,15 +500,15 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             state=self._make_state(None),
             current_step_id='run_agentic_release_qa',
             observation={'status': 'succeeded',
- 'summary': 'Release QA passed with no blocking risks.',
- 'structured_output': {'release_qa_verdict': 'ship',
-                       'release_qa_summary': 'Targeted release QA found no blocking risk.',
-                       'release_qa_executed_checks': ['Ran targeted regression scenario for the '
-                                                      'changed flow.'],
+ 'summary': 'Release QA is ready for review.',
+ 'structured_output': {'release_qa_target_scope': 'Changed meeting footer flow on iPhone simulator',
+                       'release_qa_summary': 'All targeted checks passed.',
+                       'release_qa_verdict': 'ship',
+                       'release_qa_executed_checks': ['Smoke', 'Regression'],
                        'release_qa_blocked_checks': [],
-                       'release_qa_risk_next_steps': ['No additional release QA action required.'],
+                       'release_qa_risk_next_steps': ['Proceed to code review.'],
                        'release_qa_artifacts': []}},
-            verifier_result=None,
+            verifier_result={'passed': True, 'checks': []},
         )
         self.assertEqual(result.step_id, 'request_pre_merge_code_review')
         self.assertEqual(result.branch_kind, 'continue')
@@ -439,99 +518,199 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             state=self._make_state(None),
             current_step_id='request_pre_merge_code_review',
             observation={'status': 'succeeded',
- 'summary': 'Review found a regression.',
+ 'summary': 'Review requested changes.',
  'structured_output': {'review_status': 'changes_requested',
-                       'reviewed_snapshot': 'base_sha:abc123..head_sha:def456',
-                       'findings': ['major | Zoom/Classes/Example.mm | Missing lifecycle guard. | '
-                                    'Add lifecycle guard before shipping.'],
-                       'review_summary': 'Changes requested.',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'review_summary': 'One high-severity issue must be fixed.',
+                       'findings': ['high: fix retain cycle in meeting footer'],
                        'changes_requested': True,
                        'missing_review_inputs': []}},
-            verifier_result=None,
+            verifier_result={'passed': True, 'checks': []},
         )
         self.assertEqual(result.step_id, 'execute_implementation')
         self.assertEqual(result.branch_kind, 'retry')
 
-    def test_review_blocked_routes_to_unblocking(self):
+    def test_completion_verification_failed_routes_to_implementation(self):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
-            current_step_id='request_pre_merge_code_review',
+            current_step_id='verify_completion',
             observation={'status': 'succeeded',
- 'summary': 'Review could not run because the git review base is missing.',
- 'structured_output': {'review_status': 'blocked',
-                       'reviewed_snapshot': 'missing',
-                       'findings': [],
-                       'review_summary': 'Missing review base.',
-                       'changes_requested': False,
-                       'missing_review_inputs': ['base_sha']}},
-            verifier_result=None,
+ 'summary': 'Final verification found unresolved issues.',
+ 'structured_output': {'verification_passed': False,
+                       'verification_summary': 'Need one more regression pass.',
+                       'verification_evidence': ['xcodebuild test still missing target case'],
+                       'remaining_risks': ['Target regression case not re-run'],
+                       'missing_verification_inputs': [],
+                       'release_qa_risks_resolved': False}},
+            verifier_result={'passed': True, 'checks': []},
         )
-        self.assertEqual(result.step_id, 'request_unblocking_input')
-        self.assertEqual(result.branch_kind, 'repair')
+        self.assertEqual(result.step_id, 'execute_implementation')
+        self.assertEqual(result.branch_kind, 'retry')
 
-    def test_review_changes_requested_requires_findings(self):
+    def test_completion_verification_requires_evidence(self):
+        result = verifiers.verify_verify_completion(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='verify_completion',
+            observation={'status': 'succeeded',
+ 'summary': 'Verification claimed success without evidence.',
+ 'structured_output': {'verification_passed': True,
+                       'verification_summary': 'Everything looks good.',
+                       'verification_evidence': [],
+                       'remaining_risks': [],
+                       'missing_verification_inputs': [],
+                       'release_qa_risks_resolved': True,
+                       'release_qa_risk_resolution_summary': 'Resolved residual QA risks.'}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_completion_verification_success_completes_workflow(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='verify_completion',
+            observation={'status': 'succeeded',
+ 'summary': 'Final verification passed with fresh evidence.',
+ 'structured_output': {'verification_passed': True,
+                       'verification_summary': 'All completion checks passed.',
+                       'verification_evidence': ['xcodebuild test -scheme ZoomClient',
+                                                 'Manual smoke test on updated screen'],
+                       'remaining_risks': [],
+                       'missing_verification_inputs': [],
+                       'release_qa_risks_resolved': True,
+                       'release_qa_risk_resolution_summary': 'Residual release QA risks were '
+                                                             'rechecked and cleared.'}},
+            verifier_result={'passed': True, 'checks': []},
+        )
+        self.assertEqual(result.step_id, 'finalize_delivery_summary')
+        self.assertEqual(result.branch_kind, 'complete')
+
+    def test_completion_verification_accepts_ship_handoff_next_steps_without_resolution_override(self):
+        result = verifiers.verify_verify_completion(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='verify_completion',
+            observation={'status': 'succeeded',
+ 'summary': 'Final verification passed after normal ship handoff guidance.',
+ 'structured_output': {'verification_passed': True,
+                       'verification_summary': 'All completion checks passed.',
+                       'verification_evidence': ['xcodebuild test -scheme ZoomClient',
+                                                 'Manual smoke test on updated screen'],
+                       'remaining_risks': [],
+                       'missing_verification_inputs': []}},
+            state={'release_qa_verdict': 'ship',
+ 'review_status': 'approved',
+ 'open_issues': [],
+ 'release_qa_blocked_checks': [],
+ 'release_qa_risk_next_steps': ['Proceed to code review.']},
+        )
+        self.assertIs(result['passed'], True)
+
+    def test_release_qa_rejects_ship_with_risks_verdict(self):
+        result = verifiers.verify_run_agentic_release_qa(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='run_agentic_release_qa',
+            observation={'status': 'succeeded',
+ 'summary': 'Release QA returned a forbidden residual-risk verdict.',
+ 'structured_output': {'release_qa_target_scope': 'Meeting footer flow',
+                       'release_qa_summary': 'Core checks passed with unresolved residual risk.',
+                       'release_qa_verdict': 'ship_with_risks',
+                       'release_qa_executed_checks': ['Smoke', 'Regression'],
+                       'release_qa_blocked_checks': ['Long-run soak'],
+                       'release_qa_risk_next_steps': ['Resolve soak gap.'],
+                       'release_qa_artifacts': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_release_qa_requires_target_scope(self):
+        result = verifiers.verify_run_agentic_release_qa(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='run_agentic_release_qa',
+            observation={'status': 'succeeded',
+ 'summary': 'Release QA omitted target scope.',
+ 'structured_output': {'release_qa_target_scope': '',
+                       'release_qa_summary': 'QA pass summary.',
+                       'release_qa_verdict': 'ship',
+                       'release_qa_executed_checks': ['Smoke'],
+                       'release_qa_blocked_checks': [],
+                       'release_qa_risk_next_steps': ['Proceed'],
+                       'release_qa_artifacts': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_release_qa_rejects_blank_executed_checks(self):
+        result = verifiers.verify_run_agentic_release_qa(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='run_agentic_release_qa',
+            observation={'status': 'succeeded',
+ 'summary': 'Release QA used blank executed checks.',
+ 'structured_output': {'release_qa_target_scope': 'Meeting footer flow',
+                       'release_qa_summary': 'QA pass summary.',
+                       'release_qa_verdict': 'ship',
+                       'release_qa_executed_checks': ['   '],
+                       'release_qa_blocked_checks': [],
+                       'release_qa_risk_next_steps': ['   '],
+                       'release_qa_artifacts': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_release_qa_rejects_blank_blocked_checks(self):
+        result = verifiers.verify_run_agentic_release_qa(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='run_agentic_release_qa',
+            observation={'status': 'succeeded',
+ 'summary': 'Release QA used blank blocked checks placeholders.',
+ 'structured_output': {'release_qa_target_scope': 'Meeting footer flow',
+                       'release_qa_summary': 'QA pass summary.',
+                       'release_qa_verdict': 'do_not_ship',
+                       'release_qa_executed_checks': ['Smoke'],
+                       'release_qa_blocked_checks': ['   '],
+                       'release_qa_risk_next_steps': ['Capture the missing soak-test result.'],
+                       'release_qa_artifacts': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_release_qa_rejects_missing_visual_evidence_when_ui_comparison_is_required(self):
+        result = verifiers.verify_run_agentic_release_qa(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='run_agentic_release_qa',
+            observation={'status': 'succeeded',
+ 'summary': 'Release QA omitted visual comparison evidence for a UI-affecting change.',
+ 'structured_output': {'release_qa_target_scope': 'Meeting footer flow',
+                       'release_qa_summary': 'Smoke and regression checks passed.',
+                       'release_qa_verdict': 'ship',
+                       'release_qa_executed_checks': ['Smoke test on updated meeting footer',
+                                                      'Regression pass on navigation flow'],
+                       'release_qa_blocked_checks': [],
+                       'release_qa_risk_next_steps': ['Proceed to code review.'],
+                       'release_qa_artifacts': []}},
+            state={'ui_surface_affected': True,
+ 'design_comparison_source': 'figma://meeting-footer',
+ 'runtime_visual_comparison_scope': 'Meeting footer on updated screen'},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_review_rejects_blank_findings(self):
         result = verifiers.verify_request_pre_merge_code_review(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='request_pre_merge_code_review',
             observation={'status': 'succeeded',
- 'summary': 'Review requested changes without findings.',
+ 'summary': 'Review findings were blank placeholders.',
  'structured_output': {'review_status': 'changes_requested',
-                       'reviewed_snapshot': 'base_sha:abc123..head_sha:def456',
-                       'findings': [],
-                       'review_summary': 'Changes requested.',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'findings': ['   '],
+                       'review_summary': 'Need changes.',
                        'changes_requested': True,
-                       'missing_review_inputs': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_review_approved_requires_changes_flag_false(self):
-        result = verifiers.verify_request_pre_merge_code_review(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='request_pre_merge_code_review',
-            observation={'status': 'succeeded',
- 'summary': 'Review approved with inconsistent flag.',
- 'structured_output': {'review_status': 'approved',
-                       'reviewed_snapshot': 'base_sha:abc123..head_sha:def456',
-                       'findings': [],
-                       'review_summary': 'Approved.',
-                       'changes_requested': True,
-                       'missing_review_inputs': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_review_approved_rejects_missing_review_inputs(self):
-        result = verifiers.verify_request_pre_merge_code_review(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='request_pre_merge_code_review',
-            observation={'status': 'succeeded',
- 'summary': 'Review approved while still reporting missing inputs.',
- 'structured_output': {'review_status': 'approved',
-                       'reviewed_snapshot': 'base_sha:abc123..head_sha:def456',
-                       'findings': [],
-                       'review_summary': 'Approved.',
-                       'changes_requested': False,
-                       'missing_review_inputs': ['base_sha']}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_review_blocked_requires_missing_review_inputs(self):
-        result = verifiers.verify_request_pre_merge_code_review(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='request_pre_merge_code_review',
-            observation={'status': 'succeeded',
- 'summary': 'Review blocked without identifying any missing input.',
- 'structured_output': {'review_status': 'blocked',
-                       'reviewed_snapshot': 'missing',
-                       'findings': [],
-                       'review_summary': 'Review could not run.',
-                       'changes_requested': False,
                        'missing_review_inputs': []}},
             state={},
         )
@@ -543,572 +722,202 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             run_id="generated-test-run",
             step_id='request_pre_merge_code_review',
             observation={'status': 'succeeded',
- 'summary': 'Review returned findings but did not label their severity.',
+ 'summary': 'Review findings omitted severity labels.',
  'structured_output': {'review_status': 'changes_requested',
-                       'reviewed_snapshot': 'base_sha:abc123..head_sha:def456',
-                       'findings': ['Zoom/Classes/Example.mm | Missing lifecycle guard. | Add '
-                                    'lifecycle guard before shipping.'],
-                       'review_summary': 'Changes requested.',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'findings': ['Fix retain cycle in meeting footer presenter'],
+                       'review_summary': 'One issue must be fixed.',
                        'changes_requested': True,
                        'missing_review_inputs': []}},
             state={},
         )
         self.assertIs(result['passed'], False)
 
-    def test_propose_rejects_missing_tasks_path(self):
-        result = verifiers.verify_propose_openspec_change(
+    def test_review_accepts_findings_with_supported_severity(self):
+        result = verifiers.verify_request_pre_merge_code_review(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
-            step_id='propose_openspec_change',
+            step_id='request_pre_merge_code_review',
             observation={'status': 'succeeded',
- 'summary': 'OpenSpec proposal omitted tasks path.',
- 'structured_output': {'change_name': 'ios-ai-assisted-development-flow',
-                       'change_path': 'openspec/changes/example-change',
-                       'proposal_path': 'openspec/changes/example-change/proposal.md',
-                       'tasks_path': '',
-                       'spec_paths': [],
-                       'created_artifacts': ['proposal.md'],
-                       'apply_ready': True}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_propose_rejects_missing_design_or_spec_artifact(self):
-        result = verifiers.verify_propose_openspec_change(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='propose_openspec_change',
-            observation={'status': 'succeeded',
- 'summary': 'OpenSpec proposal omitted any durable design or spec artifact.',
- 'structured_output': {'change_name': 'ios-ai-assisted-development-flow',
-                       'change_path': 'openspec/changes/example-change',
-                       'proposal_path': 'openspec/changes/example-change/proposal.md',
-                       'tasks_path': 'openspec/changes/example-change/tasks.md',
-                       'spec_paths': [],
-                       'created_artifacts': ['proposal.md', 'tasks.md'],
-                       'apply_ready': True}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_review_approved_completes_workflow(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='request_pre_merge_code_review',
-            observation={'status': 'succeeded',
- 'summary': 'Review approved final state.',
- 'structured_output': {'review_status': 'approved',
-                       'reviewed_snapshot': 'base_sha:abc123..head_sha:def456',
-                       'findings': [],
-                       'review_summary': 'No findings.',
-                       'changes_requested': False,
+ 'summary': 'Review findings included supported severity labels.',
+ 'structured_output': {'review_status': 'changes_requested',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'findings': ['medium: fix retain cycle in meeting footer presenter'],
+                       'review_summary': 'One medium-severity issue must be fixed.',
+                       'changes_requested': True,
                        'missing_review_inputs': []}},
-            verifier_result=None,
+            state={},
         )
-        self.assertEqual(result.step_id, 'verify_completion')
-        self.assertEqual(result.branch_kind, 'continue')
+        self.assertIs(result['passed'], True)
 
-    def test_completion_verification_failed_routes_to_implementation(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='verify_completion',
-            observation={'status': 'succeeded',
- 'summary': 'Final verification found incomplete evidence.',
- 'structured_output': {'verification_passed': False,
-                       'verification_summary': 'Final verification failed because release notes '
-                                               'and one verification rerun are missing.',
-                       'verification_evidence': ['unit-test rerun missing',
-                                                 'release QA evidence reviewed'],
-                       'remaining_risks': ['Need one fresh test rerun before claiming completion.'],
-                       'missing_verification_inputs': []}},
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, 'execute_implementation')
-        self.assertEqual(result.branch_kind, 'retry')
-
-    def test_completion_verification_requires_evidence(self):
+    def test_completion_verification_rejects_pass_with_remaining_risks(self):
         result = verifiers.verify_verify_completion(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='verify_completion',
             observation={'status': 'succeeded',
- 'summary': 'Final verification passed without recording evidence.',
+ 'summary': 'Verification passed with remaining risks still listed.',
  'structured_output': {'verification_passed': True,
-                       'verification_summary': 'Verified.',
-                       'verification_evidence': [],
-                       'remaining_risks': [],
-                       'missing_verification_inputs': []}},
+                       'verification_summary': 'Looks done.',
+                       'verification_evidence': ['xcodebuild test'],
+                       'remaining_risks': ['Residual issue'],
+                       'missing_verification_inputs': [],
+                       'release_qa_risks_resolved': False}},
             state={},
         )
         self.assertIs(result['passed'], False)
 
-    def test_completion_verification_success_completes_workflow(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='verify_completion',
-            observation={'status': 'succeeded',
- 'summary': 'Final verification gathered enough evidence to claim completion.',
- 'structured_output': {'verification_passed': True,
-                       'verification_summary': 'Fresh tests, release QA review, and pre-merge '
-                                               'review evidence all support completion.',
-                       'verification_evidence': ['Re-ran final verification command suite '
-                                                 'successfully.',
-                                                 'Reviewed release QA verdict and blocked checks.',
-                                                 'Confirmed pre-merge review status approved.'],
-                       'remaining_risks': [],
-                       'missing_verification_inputs': []}},
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, 'finalize_delivery_summary')
-        self.assertEqual(result.branch_kind, 'complete')
-
-    def test_completion_verification_rejects_unresolved_ship_with_risks(self):
+    def test_completion_verification_rejects_pass_with_missing_inputs(self):
         result = verifiers.verify_verify_completion(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='verify_completion',
             observation={'status': 'succeeded',
- 'summary': 'Final verification tried to pass without resolving prior release QA residual risks.',
+ 'summary': 'Verification passed with missing inputs still listed.',
  'structured_output': {'verification_passed': True,
-                       'verification_summary': 'Fresh verification passed, but the prior residual '
-                                               'QA risk was not revisited explicitly.',
-                       'verification_evidence': ['Re-ran final verification command suite '
-                                                 'successfully.'],
+                       'verification_summary': 'Looks done.',
+                       'verification_evidence': ['xcodebuild test'],
+                       'remaining_risks': [],
+                       'missing_verification_inputs': ['Need one more artifact'],
+                       'release_qa_risks_resolved': False}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_completion_verification_rejects_blank_evidence_items(self):
+        result = verifiers.verify_verify_completion(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='verify_completion',
+            observation={'status': 'succeeded',
+ 'summary': 'Verification used blank evidence placeholders.',
+ 'structured_output': {'verification_passed': True,
+                       'verification_summary': 'Looks done.',
+                       'verification_evidence': ['   '],
                        'remaining_risks': [],
                        'missing_verification_inputs': [],
                        'release_qa_risks_resolved': False}},
-            state={'release_qa_verdict': 'ship_with_risks',
- 'release_qa_blocked_checks': ['Full device matrix was not available.']},
+            state={'release_qa_verdict': 'ship', 'review_status': 'approved', 'open_issues': []},
         )
         self.assertIs(result['passed'], False)
 
-    def test_completion_verification_accepts_resolved_ship_with_risks(self):
+    def test_completion_verification_requires_release_qa_ship_state(self):
         result = verifiers.verify_verify_completion(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='verify_completion',
             observation={'status': 'succeeded',
- 'summary': 'Final verification resolved the prior release QA residual risk with fresh evidence.',
+ 'summary': 'Verification passed even though release QA did not end in ship.',
  'structured_output': {'verification_passed': True,
-                       'verification_summary': 'Fresh verification reran the previously blocked '
-                                               'visual and device checks and resolved the residual '
-                                               'release QA risk.',
-                       'verification_evidence': ['Re-ran final verification command suite '
-                                                 'successfully.',
-                                                 'Executed the previously blocked device-matrix '
-                                                 'spot check and visual comparison.'],
+                       'verification_summary': 'Completion looks ready.',
+                       'verification_evidence': ['xcodebuild test -scheme ZoomClient'],
+                       'remaining_risks': [],
+                       'missing_verification_inputs': [],
+                       'release_qa_risks_resolved': False}},
+            state={'release_qa_verdict': 'do_not_ship', 'review_status': 'approved', 'open_issues': []},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_completion_verification_requires_review_approved_state(self):
+        result = verifiers.verify_verify_completion(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='verify_completion',
+            observation={'status': 'succeeded',
+ 'summary': 'Verification passed even though code review still requested changes.',
+ 'structured_output': {'verification_passed': True,
+                       'verification_summary': 'Completion looks ready.',
+                       'verification_evidence': ['xcodebuild test -scheme ZoomClient'],
+                       'remaining_risks': [],
+                       'missing_verification_inputs': [],
+                       'release_qa_risks_resolved': False}},
+            state={'release_qa_verdict': 'ship', 'review_status': 'changes_requested', 'open_issues': []},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_completion_verification_rejects_pass_with_open_issues_in_state(self):
+        result = verifiers.verify_verify_completion(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='verify_completion',
+            observation={'status': 'succeeded',
+ 'summary': 'Verification passed while open issues are still recorded.',
+ 'structured_output': {'verification_passed': True,
+                       'verification_summary': 'Completion looks ready.',
+                       'verification_evidence': ['xcodebuild test -scheme ZoomClient'],
+                       'remaining_risks': [],
+                       'missing_verification_inputs': [],
+                       'release_qa_risks_resolved': False}},
+            state={'release_qa_verdict': 'ship',
+ 'review_status': 'approved',
+ 'open_issues': ['Known crash in edge case']},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_completion_verification_requires_release_qa_risk_resolution(self):
+        result = verifiers.verify_verify_completion(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='verify_completion',
+            observation={'status': 'succeeded',
+ 'summary': 'Verification passed even though release QA blocked checks were not marked resolved.',
+ 'structured_output': {'verification_passed': True,
+                       'verification_summary': 'Completion looks ready.',
+                       'verification_evidence': ['xcodebuild test -scheme ZoomClient'],
+                       'remaining_risks': [],
+                       'missing_verification_inputs': [],
+                       'release_qa_risks_resolved': False}},
+            state={'release_qa_verdict': 'ship',
+ 'review_status': 'approved',
+ 'open_issues': [],
+ 'release_qa_blocked_checks': ['Need final screenshot diff confirmation'],
+ 'release_qa_risk_next_steps': ['Re-run screenshot diff and confirm no visual regression.']},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_completion_verification_accepts_resolved_release_qa_risks(self):
+        result = verifiers.verify_verify_completion(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='verify_completion',
+            observation={'status': 'succeeded',
+ 'summary': 'Verification passed after release QA blocked checks were explicitly resolved.',
+ 'structured_output': {'verification_passed': True,
+                       'verification_summary': 'Completion looks ready.',
+                       'verification_evidence': ['xcodebuild test -scheme ZoomClient',
+                                                 'Re-ran screenshot diff and compared against '
+                                                 'approved mock.'],
                        'remaining_risks': [],
                        'missing_verification_inputs': [],
                        'release_qa_risks_resolved': True,
-                       'release_qa_risk_resolution_summary': 'Resolved the prior ship_with_risks '
-                                                             'release QA hold by rerunning the '
-                                                             'blocked visual and device checks '
-                                                             'with fresh evidence.'}},
-            state={'release_qa_verdict': 'ship_with_risks',
- 'release_qa_blocked_checks': ['Full device matrix was not available.']},
+                       'release_qa_risk_resolution_summary': 'Re-ran the screenshot diff and '
+                                                             'cleared the last release QA blocked '
+                                                             'check.'}},
+            state={'release_qa_verdict': 'ship',
+ 'review_status': 'approved',
+ 'open_issues': [],
+ 'release_qa_blocked_checks': ['Need final screenshot diff confirmation'],
+ 'release_qa_risk_next_steps': ['Re-run screenshot diff and confirm no visual regression.']},
         )
         self.assertIs(result['passed'], True)
 
-    def test_brainstorming_rejects_non_spec_doc_path(self):
-        result = verifiers.verify_run_brainstorming(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_brainstorming',
-            observation={'status': 'succeeded',
- 'summary': 'Brainstorming pointed at a non-spec document path.',
- 'structured_output': {'clarification_questions': ['What user-visible behavior should change?'],
-                       'clarification_answers_summary': 'The user confirmed behavior, scope, and '
-                                                        'success criteria.',
-                       'design_presented': True,
-                       'user_approved_design': True,
-                       'design_approved': True,
-                       'approved_design_summary': 'Approved design summary.',
-                       'approved_design_path': 'README.md',
-                       'open_questions': [],
-                       'ready_for_openspec': True}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_release_qa_accepts_ship_output(self):
-        result = verifiers.verify_run_agentic_release_qa(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA passed.',
- 'structured_output': {'release_qa_verdict': 'ship',
-                       'release_qa_summary': 'Targeted release QA found no blocking risk.',
-                       'release_qa_executed_checks': ['Ran targeted regression scenario for the '
-                                                      'changed flow.'],
-                       'release_qa_blocked_checks': [],
-                       'release_qa_risk_next_steps': ['No additional release QA action required.'],
-                       'release_qa_artifacts': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], True)
-
-    def test_release_qa_accepts_ship_with_risks_output(self):
-        result = verifiers.verify_run_agentic_release_qa(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA passed with risks.',
- 'structured_output': {'release_qa_verdict': 'ship_with_risks',
-                       'release_qa_summary': 'Targeted release QA found non-blocking residual '
-                                             'risk.',
-                       'release_qa_executed_checks': ['Inspected changed files and ran targeted '
-                                                      'regression scenario.'],
-                       'release_qa_blocked_checks': ['Full device matrix was not available.'],
-                       'release_qa_risk_next_steps': ['Review residual device-matrix risk during '
-                                                      'pre-merge code review.'],
-                       'release_qa_artifacts': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], True)
-
-    def test_release_qa_rejects_ship_without_executed_checks(self):
-        result = verifiers.verify_run_agentic_release_qa(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA claimed ship without executed checks.',
- 'structured_output': {'release_qa_verdict': 'ship',
-                       'release_qa_summary': 'Targeted release QA found no blocking risk.',
-                       'release_qa_executed_checks': [],
-                       'release_qa_blocked_checks': [],
-                       'release_qa_risk_next_steps': ['No additional release QA action required.'],
-                       'release_qa_artifacts': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_release_qa_rejects_blocked_without_blocked_checks(self):
-        result = verifiers.verify_run_agentic_release_qa(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA reported blocked without listing blocked checks.',
- 'structured_output': {'release_qa_verdict': 'blocked',
-                       'release_qa_summary': 'QA environment is unavailable.',
-                       'release_qa_executed_checks': ['Reviewed changed files.'],
-                       'release_qa_blocked_checks': [],
-                       'release_qa_risk_next_steps': ['Provide the missing QA environment.'],
-                       'release_qa_artifacts': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_release_qa_rejects_do_not_ship_without_next_steps(self):
-        result = verifiers.verify_run_agentic_release_qa(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA reported do_not_ship without remediation next steps.',
- 'structured_output': {'release_qa_verdict': 'do_not_ship',
-                       'release_qa_summary': 'A blocking regression was found.',
-                       'release_qa_executed_checks': ['Ran a targeted regression scenario.'],
-                       'release_qa_blocked_checks': [],
-                       'release_qa_risk_next_steps': [],
-                       'release_qa_artifacts': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_release_qa_rejects_ship_with_risks_without_executed_checks(self):
-        result = verifiers.verify_run_agentic_release_qa(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA reported ship_with_risks without executed checks.',
- 'structured_output': {'release_qa_verdict': 'ship_with_risks',
-                       'release_qa_summary': 'Residual non-blocking risk remains.',
-                       'release_qa_executed_checks': [],
-                       'release_qa_blocked_checks': ['Full device matrix was not available.'],
-                       'release_qa_risk_next_steps': ['Review residual risk during pre-merge '
-                                                      'review.'],
-                       'release_qa_artifacts': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_release_qa_rejects_ui_change_without_visual_evidence(self):
-        result = verifiers.verify_run_agentic_release_qa(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA skipped explicit visual comparison evidence for a UI change.',
- 'structured_output': {'release_qa_verdict': 'ship_with_risks',
-                       'release_qa_summary': 'Release QA ran targeted checks but omitted the '
-                                             'visual comparison evidence.',
-                       'release_qa_executed_checks': ['Ran targeted regression scenario for the '
-                                                      'changed flow.'],
-                       'release_qa_blocked_checks': ['Full device matrix was not available.'],
-                       'release_qa_risk_next_steps': ['Resolve the missing visual comparison '
-                                                      'evidence before delivery.'],
-                       'release_qa_artifacts': []}},
-            state={'ui_surface_affected': True,
- 'design_comparison_source': 'Figma frame: MeetingToolbar/Updated',
- 'runtime_visual_comparison_scope': 'Meeting toolbar visible in the active-call screen'},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_release_qa_accepts_ui_change_with_visual_evidence(self):
-        result = verifiers.verify_run_agentic_release_qa(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA included the visual comparison evidence for a UI change.',
- 'structured_output': {'release_qa_verdict': 'ship_with_risks',
-                       'release_qa_summary': 'Release QA found one non-blocking residual risk '
-                                             'after visual comparison.',
-                       'release_qa_executed_checks': ['Ran targeted regression scenario for the '
-                                                      'changed flow.',
-                                                      'Compared the approved Figma frame against '
-                                                      'the runtime toolbar screenshot with pixel '
-                                                      'diff.'],
-                       'release_qa_blocked_checks': ['Full device matrix was not available.'],
-                       'release_qa_risk_next_steps': ['Review the residual device-matrix risk '
-                                                      'during pre-merge review.'],
-                       'release_qa_artifacts': ['artifacts/pixel-diff/meeting-toolbar-diff.png']}},
-            state={'ui_surface_affected': True,
- 'design_comparison_source': 'Figma frame: MeetingToolbar/Updated',
- 'runtime_visual_comparison_scope': 'Meeting toolbar visible in the active-call screen'},
-        )
-        self.assertIs(result['passed'], True)
-
-    def test_release_qa_ship_with_risks_routes_to_final_review(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='run_agentic_release_qa',
-            observation={'status': 'succeeded',
- 'summary': 'Release QA found non-blocking risks.',
- 'structured_output': {'release_qa_verdict': 'ship_with_risks',
-                       'release_qa_summary': 'Targeted release QA found non-blocking residual '
-                                             'risk.',
-                       'release_qa_executed_checks': ['Inspected changed files and ran targeted '
-                                                      'regression scenario.'],
-                       'release_qa_blocked_checks': ['Full device matrix was not available.'],
-                       'release_qa_risk_next_steps': ['Review residual device-matrix risk during '
-                                                      'pre-merge code review.'],
-                       'release_qa_artifacts': []}},
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, 'request_pre_merge_code_review')
-        self.assertEqual(result.branch_kind, 'continue')
-
-    def test_max_steps_routes_to_unblocking(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state({'constraints': {'max_steps': 1}, 'attempt_counts': {}}),
-            current_step_id='execute_implementation',
-            observation={'status': 'succeeded',
- 'summary': 'Implementation finished but workflow reached max steps.',
- 'structured_output': {'tasks_completed': True,
-                       'implementation_summary': 'Implemented tasks.',
-                       'changed_files': ['Zoom/Classes/Example.mm'],
-                       'completed_tasks': ['Task 1'],
-                       'remaining_tasks': [],
-                       'verification_commands': ['unit-test => passed'],
-                       'verification_passed': True,
-                       'open_issues': []}},
-            verifier_result={'passed': True, 'checks': []},
-        )
-        self.assertEqual(result.step_id, 'request_unblocking_input')
-        self.assertEqual(result.branch_kind, 'repair')
-
-    def test_approve_refine_approved_routes_to_implementation(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='approve_refine',
-            observation={'status': 'succeeded',
- 'summary': 'User approved the refinement.',
- 'structured_output': {'user_approved': True,
-                       'user_feedback': 'Looks good, proceed.',
-                       'additional_refinement_needed': False}},
-            verifier_result={'passed': True, 'checks': []},
-        )
-        self.assertEqual(result.step_id, 'execute_implementation')
-        self.assertEqual(result.branch_kind, 'continue')
-
-    def test_approve_refine_rejects_approved_with_additional_refinement(self):
-        result = verifiers.verify_approve_refine(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='approve_refine',
-            observation={'status': 'succeeded',
- 'summary': 'Approval output was internally inconsistent.',
- 'structured_output': {'user_approved': True,
-                       'user_feedback': 'Proceed.',
-                       'additional_refinement_needed': True}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_approve_refine_rejects_rejection_without_refinement_request(self):
-        result = verifiers.verify_approve_refine(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='approve_refine',
-            observation={'status': 'succeeded',
- 'summary': 'User did not approve but no refinement request was recorded.',
- 'structured_output': {'user_approved': False,
-                       'user_feedback': 'Not ready yet.',
-                       'additional_refinement_needed': False}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_approve_refine_rejected_retries_refinement(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id='approve_refine',
-            observation={'status': 'succeeded',
- 'summary': 'User requested additional refinement.',
- 'structured_output': {'user_approved': False,
-                       'user_feedback': 'Need to reconsider the approach.',
-                       'additional_refinement_needed': True}},
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, 'refine_change_with_openspec')
-        self.assertEqual(result.branch_kind, 'retry')
-
-    def test_start_prompt_prepends_runtime_checklist(self):
-        result = graphbuilder_runtime.run_start_preview(
-            state=self._make_state(None),
-            run_id="generated-test-run",
-            workflow_id="ios_ai_assisted_development_flow",
-            workflow_version=graphbuilder_runtime.WORKFLOW_VERSION,
-        )
-        prompt = result.prompt_envelope.prompt
-        self.assertTrue(prompt.startswith("## Checklist\n\n"))
-        self.assertIn("1. Current stage (`run_brainstorming`)", prompt)
-        self.assertIn("2. durable-workflow-runtime run_id（`generated-test-run`）", prompt)
-
-    def test_approve_refine_prompt_prepends_runtime_checklist(self):
-        state = self._make_state(None)
-        node_definition = graphbuilder_runtime.get_node_definition("approve_refine")
-        contract = workflow_contract.get_step_contract("approve_refine")
-        prompt_envelope = build_prompt_envelope(
-            run_id="generated-test-run",
-            step_id=node_definition.step_id,
-            prompt_asset_path=node_definition.prompt_asset_path,
-            intent=node_definition.intent,
-            expected_artifact=node_definition.expected_artifact,
-            done_when=contract.done_when,
-            output_schema=contract.output_schema,
-            failure_schema=contract.failure_schema,
-            resume_instructions=node_definition.resume_instructions,
-            skill_routing=contract.skill_routing,
-            metadata={
-                "workflow_id": "ios_ai_assisted_development_flow",
-                "workflow_version": graphbuilder_runtime.WORKFLOW_VERSION,
-            },
-            template_context=graphbuilder_runtime.build_template_context(
-                step_id="approve_refine",
-                run_state=SimpleNamespace(graph_state=workflow_state.serialize_state(state)),
-            ),
-        )
-        prompt = prompt_envelope.prompt
-        self.assertTrue(prompt.startswith("## Checklist\n\n"))
-        self.assertIn("1. Current stage (`approve_refine`)", prompt)
-        self.assertIn("2. durable-workflow-runtime run_id（`generated-test-run`）", prompt)
-
-    def test_completion_verification_missing_inputs_route_to_unblocking(self):
+    def test_completion_verification_missing_inputs_blocks_to_repair(self):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
             current_step_id='verify_completion',
-            observation={'status': 'succeeded',
- 'summary': 'Final verification is blocked on missing evidence inputs.',
- 'structured_output': {'verification_passed': False,
-                       'verification_summary': 'Need one more external verification artifact '
-                                               'before completion can be claimed.',
-                       'verification_evidence': ['Reviewed existing release QA and review '
-                                                 'evidence.'],
-                       'remaining_risks': ['Completion evidence is incomplete.'],
-                       'missing_verification_inputs': ['final device screenshot']}},
-            verifier_result=None,
+            observation={'status': 'blocked',
+ 'summary': 'Final verification cannot proceed without missing evidence.',
+ 'structured_output': {'blocked_reason': 'Missing production screenshot comparison',
+                       'missing_inputs': ['Production screenshot comparison']}},
+            verifier_result={'passed': True, 'checks': []},
         )
-        self.assertEqual(result.step_id, 'request_unblocking_input')
+        self.assertEqual(result.step_id, 'repair_and_resume')
         self.assertEqual(result.branch_kind, 'repair')
-
-    def test_completion_verification_rejects_failed_without_remaining_risks(self):
-        result = verifiers.verify_verify_completion(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='verify_completion',
-            observation={'status': 'succeeded',
- 'summary': 'Final verification failed without listing remaining risks.',
- 'structured_output': {'verification_passed': False,
-                       'verification_summary': 'Verification is still incomplete.',
-                       'verification_evidence': ['Reviewed prior evidence.'],
-                       'remaining_risks': [],
-                       'missing_verification_inputs': []}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
-    def test_repair_context_keeps_precise_verifier_requirements(self):
-        state = self._make_state(None)
-        workflow_state.record_observation(
-            state,
-            current_step_id='verify_completion',
-            observation={
-                'status': 'succeeded',
-                'summary': 'Final verification passed without fresh evidence.',
-                'structured_output': {
-                    'verification_passed': True,
-                    'verification_summary': 'Verified.',
-                    'verification_evidence': [],
-                    'remaining_risks': [],
-                    'missing_verification_inputs': [],
-                },
-            },
-            verifier_result={
-                'passed': False,
-                'message': 'Completion verification must record at least one fresh evidence item.',
-                'details': {},
-            },
-        )
-        repair_payload = state.repair_context.get('repair_payload') or {}
-        self.assertEqual(state.repair_context.get('transition_reason'), 'verifier_failed')
-        self.assertEqual(repair_payload.get('category'), 'verifier_failed')
-        self.assertEqual(
-            repair_payload.get('requirements'),
-            ['Completion verification must record at least one fresh evidence item.'],
-        )
-
-    def test_repair_template_context_uses_trimmed_payload_fields(self):
-        state = self._make_state(None)
-        state.return_stage_id = 'verify_completion'
-        state.repair_context = {
-            'source_stage_id': 'verify_completion',
-            'return_stage_id': 'verify_completion',
-            'transition_reason': 'blocked',
-            'repair_payload': {
-                'category': 'blocked',
-                'summary': 'Final completion verification needs external verification inputs before completion can be claimed.',
-                'requirements': ['final device screenshot'],
-                'evidence': ['Completion evidence is incomplete.'],
-            },
-        }
-        context = graphbuilder_runtime.build_template_context(
-            step_id='request_unblocking_input',
-            run_state=SimpleNamespace(graph_state=workflow_state.serialize_state(state)),
-        )
-        self.assertEqual(context['repair_category'], 'blocked')
-        self.assertIn('final device screenshot', context['repair_requirements'])
-        self.assertEqual(context['repair_evidence'], '- Completion evidence is incomplete.')
 
     def test_generated_request_unblocking_input_resumes_to_return_stage(self):
         state = self._make_state(None)
         state.return_stage_id = 'run_brainstorming'
+        state.repair_context = {'source_stage_id': 'request_unblocking_input'}
         result = graphbuilder_runtime.run_transition_preview(
             state=state,
             current_step_id="request_unblocking_input",
@@ -1127,6 +936,19 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertEqual(result.step_id, "request_unblocking_input")
         self.assertEqual(result.branch_kind, "repair")
+
+    def test_generated_request_unblocking_input_returns_to_repair_owner(self):
+        state = self._make_state(None)
+        state.return_stage_id = 'run_brainstorming'
+        state.repair_context = {'source_stage_id': 'repair_and_resume'}
+        result = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id="request_unblocking_input",
+            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {}},
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, "repair_and_resume")
+        self.assertEqual(result.branch_kind, "continue")
 
     def test_generated_repair_and_resume_resumes_to_return_stage(self):
         state = self._make_state(None)
@@ -1150,8 +972,21 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, "repair_and_resume")
         self.assertEqual(result.branch_kind, "retry")
 
-    def test_generated_repair_and_resume_blocked_preserves_return_stage(self):
+    def test_generated_repair_and_resume_blocked_before_threshold_retries_locally(self):
         state = self._make_state(None)
+        state.return_stage_id = 'verify_completion'
+        result = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id="repair_and_resume",
+            observation={'status': 'blocked', 'summary': 'Repair still needs external input.', 'structured_output': {'missing_inputs': ['approval']}},
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, "repair_and_resume")
+        self.assertEqual(result.branch_kind, "retry")
+        self.assertEqual(state.return_stage_id, 'verify_completion')
+
+    def test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking(self):
+        state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})
         state.return_stage_id = 'verify_completion'
         result = graphbuilder_runtime.run_transition_preview(
             state=state,
@@ -1163,7 +998,162 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.branch_kind, "repair")
         self.assertEqual(state.return_stage_id, 'verify_completion')
 
-    def test_generated_max_steps_preserves_return_stage_for_unblocking(self):
+    def test_generated_request_unblocking_input_blocked_then_success_preserves_repair_owner(self):
+        state = self._make_state(None)
+        state.return_stage_id = 'verify_completion'
+        state.repair_context = {
+            'source_stage_id': 'repair_and_resume',
+            'return_stage_id': 'verify_completion',
+            'transition_reason': 'blocked',
+            'repair_payload': {'summary': 'Need user approval'},
+        }
+        workflow_state.record_observation(
+            state,
+            current_step_id='request_unblocking_input',
+            observation={
+                'status': 'blocked',
+                'summary': 'Still waiting on approval.',
+                'structured_output': {'missing_inputs': ['approval']},
+            },
+            verifier_result=None,
+        )
+        self.assertEqual(state.repair_context.get('source_stage_id'), 'repair_and_resume')
+        result = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id='request_unblocking_input',
+            observation={
+                'status': 'succeeded',
+                'summary': 'Received the approval.',
+                'structured_output': {
+                    'blocking_reason': 'Awaiting approval',
+                    'user_action_needed': 'Use the provided approval and continue.',
+                },
+            },
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'continue')
+
+    def test_generated_real_repair_escalation_preserves_repair_owner(self):
+        state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})
+        state.return_stage_id = 'verify_completion'
+        state.repair_context = {
+            'source_stage_id': 'verify_completion',
+            'return_stage_id': 'verify_completion',
+            'transition_reason': 'blocked',
+            'repair_payload': {'summary': 'Need screenshot approval'},
+        }
+        workflow_state.record_observation(
+            state,
+            current_step_id='repair_and_resume',
+            observation={
+                'status': 'blocked',
+                'summary': 'Repair exhausted local attempts and needs approval.',
+                'structured_output': {'missing_inputs': ['approval']},
+            },
+            verifier_result=None,
+        )
+        self.assertEqual(state.repair_context.get('source_stage_id'), 'repair_and_resume')
+        escalate = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id='repair_and_resume',
+            observation={
+                'status': 'blocked',
+                'summary': 'Repair exhausted local attempts and needs approval.',
+                'structured_output': {'missing_inputs': ['approval']},
+            },
+            verifier_result=None,
+        )
+        self.assertEqual(escalate.step_id, 'request_unblocking_input')
+        resume = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id='request_unblocking_input',
+            observation={
+                'status': 'succeeded',
+                'summary': 'Received the required approval.',
+                'structured_output': {
+                    'blocking_reason': 'Awaiting approval',
+                    'user_action_needed': 'Use the approval and resume repair.',
+                },
+            },
+            verifier_result=None,
+        )
+        self.assertEqual(resume.step_id, 'repair_and_resume')
+        self.assertEqual(resume.branch_kind, 'continue')
+
+    def test_generated_repair_attempt_threshold_resets_between_repair_episodes(self):
+        state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})
+        state.return_stage_id = 'verify_completion'
+        workflow_state.apply_transition(
+            state,
+            current_step_id='repair_and_resume',
+            next_step_id='verify_completion',
+        )
+        self.assertEqual(state.attempt_counts.get('repair_and_resume'), 0)
+        state.return_stage_id = 'verify_completion'
+        workflow_state.apply_transition(
+            state,
+            current_step_id='verify_completion',
+            next_step_id='repair_and_resume',
+        )
+        self.assertEqual(state.attempt_counts.get('repair_and_resume'), 0)
+        result = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id='repair_and_resume',
+            observation={
+                'status': 'blocked',
+                'summary': 'New repair episode still needs one more local attempt.',
+                'structured_output': {'missing_inputs': ['approval']},
+            },
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'retry')
+
+    def test_review_rejects_false_positive_severity_substrings(self):
+        result = verifiers.verify_request_pre_merge_code_review(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='request_pre_merge_code_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Review finding used a misleading substring instead of a severity label.',
+ 'structured_output': {'review_status': 'changes_requested',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'findings': ['highlight screenshot mismatch on updated footer'],
+                       'review_summary': 'One issue must be fixed.',
+                       'changes_requested': True,
+                       'missing_review_inputs': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_generated_blocked_repair_context_preserves_host_visible_summary(self):
+        from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
+
+        engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
+        response = engine.start('ios_ai_assisted_development_flow', {
+            "task_input": {"goal": "generated workflow regression"},
+            "context": {"repo_root": str(REPO_ROOT)},
+            "constraints": {"max_steps": 5},
+        })
+        run_id = response['run_id']
+        response = engine.resume(run_id, {
+            'run_id': run_id,
+            'step_id': 'run_brainstorming',
+            'status': 'blocked',
+            'summary': 'Need external approval before continuing.',
+            'structured_output': {'blocked_reason': 'awaiting approval', 'missing_inputs': ['approval']},
+            'artifacts': [],
+            'error': None,
+            'tool_trace': [],
+            'raw_output': '',
+        })
+        self.assertEqual(response['kind'], 'yield')
+        self.assertEqual(response['retry_context']['category'], 'blocked')
+        self.assertEqual(response['retry_context']['summary'], 'awaiting approval')
+        self.assertEqual(response['retry_context']['requirements'], ['approval'])
+
+    def test_generated_max_steps_preserves_return_stage_for_repair(self):
         state = self._make_state({'constraints': {'max_steps': 1}, 'attempt_counts': {}})
         expected_return_stage = 'verify_completion'
         result = graphbuilder_runtime.run_transition_preview(
@@ -1172,7 +1162,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             observation={'status': 'succeeded', 'summary': 'Workflow hit max steps.', 'structured_output': {}},
             verifier_result={'passed': True, 'checks': []},
         )
-        self.assertEqual(result.step_id, "request_unblocking_input")
+        self.assertEqual(result.step_id, "repair_and_resume")
         self.assertEqual(result.branch_kind, "repair")
         self.assertEqual(state.return_stage_id, expected_return_stage)
 

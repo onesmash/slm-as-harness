@@ -3,16 +3,12 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 
 from workflows.common.policies import condition_matches, max_steps_exceeded_decision
-from workflows.common.repair_payloads import (
-    build_default_agent_repair_payload,
-    make_agent_repair_payload,
-)
+from workflows.common.repair_payloads import build_default_agent_repair_payload, make_agent_repair_payload
 
 
 MAIN_STAGE_IDS = ('run_brainstorming',
- 'propose_openspec_change',
- 'refine_change_with_openspec',
- 'approve_refine',
+ 'write_implementation_plan',
+ 'approve_plan',
  'execute_implementation',
  'run_agentic_release_qa',
  'request_pre_merge_code_review',
@@ -42,28 +38,30 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     runtime_visual_comparison_scope: str | None = None
     spec_review_findings_summary: str | None = None
     open_questions: list = field(default_factory=list)
-    change_name: str | None = None
-    change_path: str | None = None
-    proposal_path: str | None = None
-    openspec_design_path: str | None = None
-    tasks_path: str | None = None
-    spec_paths: list = field(default_factory=list)
-    refinement_summary: str | None = None
-    refinement_user_discussion_summary: str | None = None
-    changed_artifacts: list = field(default_factory=list)
-    unresolved_questions: list = field(default_factory=list)
-    refinement_user_approved: bool | None = None
-    refinement_user_feedback: str | None = None
+    plan_summary: str | None = None
+    plan_path: str | None = None
+    plan_reviewed: bool | None = None
+    execution_mode: str | None = None
+    plan_revision_reason: str | None = None
+    plan_user_approved: bool | None = None
+    plan_user_feedback: str | None = None
     implementation_summary: str | None = None
+    implementation_completed_tasks: list = field(default_factory=list)
+    implementation_remaining_tasks: list = field(default_factory=list)
     changed_files: list = field(default_factory=list)
     verification_commands: list = field(default_factory=list)
     open_issues: list = field(default_factory=list)
+    debugging_summary: str | None = None
+    implementation_verification_passed: bool | None = None
+    implementation_plan_updates_required: bool | None = None
+    plan_update_summary: str | None = None
     release_qa_verdict: str | None = None
     release_qa_summary: str | None = None
     release_qa_executed_checks: list = field(default_factory=list)
     release_qa_blocked_checks: list = field(default_factory=list)
     release_qa_risk_next_steps: list = field(default_factory=list)
     release_qa_artifacts: list = field(default_factory=list)
+    release_qa_target_scope: str | None = None
     review_status: str | None = None
     reviewed_snapshot: str | None = None
     review_findings: list = field(default_factory=list)
@@ -122,28 +120,30 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         runtime_visual_comparison_scope=payload.get('runtime_visual_comparison_scope'),
         spec_review_findings_summary=payload.get('spec_review_findings_summary'),
         open_questions=list(payload.get('open_questions') or []),
-        change_name=payload.get('change_name'),
-        change_path=payload.get('change_path'),
-        proposal_path=payload.get('proposal_path'),
-        openspec_design_path=payload.get('openspec_design_path'),
-        tasks_path=payload.get('tasks_path'),
-        spec_paths=list(payload.get('spec_paths') or []),
-        refinement_summary=payload.get('refinement_summary'),
-        refinement_user_discussion_summary=payload.get('refinement_user_discussion_summary'),
-        changed_artifacts=list(payload.get('changed_artifacts') or []),
-        unresolved_questions=list(payload.get('unresolved_questions') or []),
-        refinement_user_approved=payload.get('refinement_user_approved'),
-        refinement_user_feedback=payload.get('refinement_user_feedback'),
+        plan_summary=payload.get('plan_summary'),
+        plan_path=payload.get('plan_path'),
+        plan_reviewed=payload.get('plan_reviewed'),
+        execution_mode=payload.get('execution_mode'),
+        plan_revision_reason=payload.get('plan_revision_reason'),
+        plan_user_approved=payload.get('plan_user_approved'),
+        plan_user_feedback=payload.get('plan_user_feedback'),
         implementation_summary=payload.get('implementation_summary'),
+        implementation_completed_tasks=list(payload.get('implementation_completed_tasks') or []),
+        implementation_remaining_tasks=list(payload.get('implementation_remaining_tasks') or []),
         changed_files=list(payload.get('changed_files') or []),
         verification_commands=list(payload.get('verification_commands') or []),
         open_issues=list(payload.get('open_issues') or []),
+        debugging_summary=payload.get('debugging_summary'),
+        implementation_verification_passed=payload.get('implementation_verification_passed'),
+        implementation_plan_updates_required=payload.get('implementation_plan_updates_required'),
+        plan_update_summary=payload.get('plan_update_summary'),
         release_qa_verdict=payload.get('release_qa_verdict'),
         release_qa_summary=payload.get('release_qa_summary'),
         release_qa_executed_checks=list(payload.get('release_qa_executed_checks') or []),
         release_qa_blocked_checks=list(payload.get('release_qa_blocked_checks') or []),
         release_qa_risk_next_steps=list(payload.get('release_qa_risk_next_steps') or []),
         release_qa_artifacts=list(payload.get('release_qa_artifacts') or []),
+        release_qa_target_scope=payload.get('release_qa_target_scope'),
         review_status=payload.get('review_status'),
         reviewed_snapshot=payload.get('reviewed_snapshot'),
         review_findings=list(payload.get('review_findings') or []),
@@ -183,26 +183,27 @@ def record_observation(
                 state.runtime_visual_comparison_scope = structured_output.get('runtime_visual_comparison_scope')
                 state.spec_review_findings_summary = structured_output.get('spec_review_findings_summary')
                 state.open_questions = _list_value(structured_output.get('open_questions'))
-            elif current_step_id == 'propose_openspec_change':
-                state.change_name = structured_output.get('change_name')
-                state.change_path = structured_output.get('change_path')
-                state.proposal_path = structured_output.get('proposal_path')
-                state.openspec_design_path = structured_output.get('openspec_design_path')
-                state.tasks_path = structured_output.get('tasks_path')
-                state.spec_paths = _list_value(structured_output.get('spec_paths'))
-            elif current_step_id == 'refine_change_with_openspec':
-                state.refinement_summary = structured_output.get('refinement_summary')
-                state.refinement_user_discussion_summary = structured_output.get('user_discussion_summary')
-                state.changed_artifacts = _list_value(structured_output.get('changed_artifacts'))
-                state.unresolved_questions = _list_value(structured_output.get('unresolved_questions'))
-            elif current_step_id == 'approve_refine':
-                state.refinement_user_approved = structured_output.get('user_approved')
-                state.refinement_user_feedback = structured_output.get('user_feedback')
+            elif current_step_id == 'write_implementation_plan':
+                state.plan_summary = structured_output.get('plan_summary')
+                state.plan_path = structured_output.get('plan_path')
+                state.plan_reviewed = structured_output.get('plan_reviewed')
+                state.execution_mode = structured_output.get('execution_mode')
+                state.open_questions = _list_value(structured_output.get('open_questions'))
+                state.plan_revision_reason = structured_output.get('plan_revision_reason')
+            elif current_step_id == 'approve_plan':
+                state.plan_user_approved = structured_output.get('user_approved')
+                state.plan_user_feedback = structured_output.get('user_feedback')
             elif current_step_id == 'execute_implementation':
                 state.implementation_summary = structured_output.get('implementation_summary')
+                state.implementation_completed_tasks = _list_value(structured_output.get('completed_tasks'))
+                state.implementation_remaining_tasks = _list_value(structured_output.get('remaining_tasks'))
                 state.changed_files = _list_value(structured_output.get('changed_files'))
                 state.verification_commands = _list_value(structured_output.get('verification_commands'))
                 state.open_issues = _list_value(structured_output.get('open_issues'))
+                state.debugging_summary = structured_output.get('debugging_summary')
+                state.implementation_verification_passed = structured_output.get('verification_passed')
+                state.implementation_plan_updates_required = structured_output.get('plan_updates_required')
+                state.plan_update_summary = structured_output.get('plan_update_summary')
             elif current_step_id == 'run_agentic_release_qa':
                 state.release_qa_verdict = structured_output.get('release_qa_verdict')
                 state.release_qa_summary = structured_output.get('release_qa_summary')
@@ -210,6 +211,7 @@ def record_observation(
                 state.release_qa_blocked_checks = _list_value(structured_output.get('release_qa_blocked_checks'))
                 state.release_qa_risk_next_steps = _list_value(structured_output.get('release_qa_risk_next_steps'))
                 state.release_qa_artifacts = _list_value(structured_output.get('release_qa_artifacts'))
+                state.release_qa_target_scope = structured_output.get('release_qa_target_scope')
             elif current_step_id == 'request_pre_merge_code_review':
                 state.review_status = structured_output.get('review_status')
                 state.reviewed_snapshot = structured_output.get('reviewed_snapshot')
@@ -261,7 +263,7 @@ def record_observation(
         current_step_id=current_step_id,
         existing_return_stage_id=state.return_stage_id,
     )
-    repair_payload = _build_agent_repair_payload(
+    repair_payload = build_default_agent_repair_payload(
         current_step_id=current_step_id,
         observation=observation,
         verifier_result=verifier_result,
@@ -272,6 +274,7 @@ def record_observation(
         return_stage_id=return_stage_id,
         transition_reason=transition_reason,
         repair_payload=repair_payload or {},
+        existing_repair_context=state.repair_context,
     )
 
 
@@ -280,11 +283,9 @@ def determine_return_stage_id(
     current_step_id: str,
     existing_return_stage_id: str | None,
 ) -> str | None:
-    if current_step_id in MAIN_STAGE_IDS:
-        return current_step_id
     if current_step_id in REPAIR_STAGE_IDS:
         return existing_return_stage_id
-    return MAIN_STAGE_IDS[0]
+    return current_step_id
 
 
 def determine_transition_reason(
@@ -304,17 +305,7 @@ def determine_transition_reason(
         return "verifier_failed"
     structured_output = observation.get("structured_output") or {}
     if isinstance(structured_output, dict):
-        if current_step_id == 'run_agentic_release_qa':
-            if condition_matches(structured_output.get('release_qa_verdict'), 'equals', 'blocked'):
-                return "blocked"
-        elif current_step_id == 'request_pre_merge_code_review':
-            if condition_matches(structured_output.get('review_status'), 'equals', 'blocked'):
-                return "blocked"
-        elif current_step_id == 'verify_completion':
-            if condition_matches(structured_output.get('missing_verification_inputs'), 'non_empty', None):
-                return "blocked"
-        else:
-            pass
+        pass
     return None
 
 
@@ -323,7 +314,11 @@ def apply_transition(state: IosAiAssistedDevelopmentFlowWorkflowState, *, curren
         if current_step_id not in state.completed_stages:
             state.completed_stages.append(current_step_id)
 
+    if current_step_id not in REPAIR_STAGE_IDS and next_step_id == "repair_and_resume":
+        state.attempt_counts["repair_and_resume"] = 0
+
     if current_step_id in REPAIR_STAGE_IDS and next_step_id == state.return_stage_id:
+        state.attempt_counts["repair_and_resume"] = 0
         state.return_stage_id = None
         state.repair_context = {}
 
@@ -348,74 +343,21 @@ def _build_repair_context(
     return_stage_id: str | None,
     transition_reason: str,
     repair_payload: dict[str, object],
+    existing_repair_context: dict[str, object] | None = None,
 ) -> dict[str, object]:
+    existing_repair_context = dict(existing_repair_context or {})
+    if current_step_id == "repair_and_resume":
+        source_stage_id = current_step_id
+    elif current_step_id in REPAIR_STAGE_IDS:
+        source_stage_id = existing_repair_context.get("source_stage_id") or current_step_id
+    else:
+        source_stage_id = current_step_id
     return {
-        "source_stage_id": current_step_id,
+        "source_stage_id": source_stage_id,
         "return_stage_id": return_stage_id or "",
         "transition_reason": transition_reason,
         "repair_payload": dict(repair_payload or {}),
     }
-
-
-def _build_agent_repair_payload(
-    *,
-    current_step_id: str,
-    observation: dict,
-    verifier_result: dict | None,
-) -> dict[str, object] | None:
-    default_payload = build_default_agent_repair_payload(
-        current_step_id=current_step_id,
-        observation=observation,
-        verifier_result=verifier_result,
-    )
-    if default_payload is not None:
-        return default_payload
-
-    output = observation.get("structured_output") or {}
-    if not isinstance(output, dict):
-        return None
-
-    if current_step_id == "run_agentic_release_qa" and condition_matches(
-        output.get("release_qa_verdict"), "equals", "blocked"
-    ):
-        requirements = _string_list(output.get("release_qa_blocked_checks"))
-        return make_agent_repair_payload(
-            category="blocked",
-            summary="Release QA is blocked on missing QA environment, artifact, credential, device, or baseline input.",
-            requirements=requirements,
-            evidence=[_clean_text(observation.get("summary"))] if _clean_text(observation.get("summary")) else [],
-        )
-
-    if current_step_id == "request_pre_merge_code_review" and condition_matches(
-        output.get("review_status"), "equals", "blocked"
-    ):
-        requirements = _string_list(output.get("missing_review_inputs"))
-        return make_agent_repair_payload(
-            category="blocked",
-            summary="Pre-merge code review is blocked on missing review input.",
-            requirements=requirements,
-            evidence=[_clean_text(observation.get("summary"))] if _clean_text(observation.get("summary")) else [],
-        )
-
-    if current_step_id == "verify_completion" and condition_matches(
-        output.get("missing_verification_inputs"), "non_empty", None
-    ):
-        requirements = _string_list(output.get("missing_verification_inputs"))
-        evidence = _string_list(output.get("remaining_risks"))
-        return make_agent_repair_payload(
-            category="blocked",
-            summary="Final completion verification needs external verification inputs before completion can be claimed.",
-            requirements=requirements,
-            evidence=evidence,
-        )
-
-    return None
-
-
-def _clean_text(value) -> str:
-    if not isinstance(value, str):
-        return ""
-    return value.strip()
 
 
 def _list_value(value) -> list:
