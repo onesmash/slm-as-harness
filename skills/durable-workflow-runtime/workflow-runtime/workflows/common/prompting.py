@@ -49,6 +49,7 @@ def build_prompt_envelope(
     template_context: dict | None = None,
 ) -> PromptEnvelope:
     prompt = resolve_prompt_asset(prompt_asset_path, template_context=template_context)
+    prompt = prepend_stage_checklist(prompt, step_id=step_id, run_id=run_id)
     prompt = append_skill_routing_to_prompt(prompt, skill_routing or [])
     prompt = append_structured_output_contract_to_prompt(
         prompt,
@@ -66,6 +67,23 @@ def build_prompt_envelope(
         failure_schema=failure_schema,
         resume_instructions=resume_instructions,
         metadata=metadata or {},
+    )
+
+
+def prepend_stage_checklist(prompt: str, *, step_id: str, run_id: str) -> str:
+    checklist_block = render_stage_checklist(step_id=step_id, run_id=run_id)
+    return f"{checklist_block}\n\n{prompt}"
+
+
+def render_stage_checklist(*, step_id: str, run_id: str) -> str:
+    return "\n".join(
+        [
+            "## Checklist",
+            "",
+            "You MUST create a task for each of these items and complete them in order:",
+            f"1. Current stage (`{step_id}`)",
+            f"2. durable-workflow-runtime run_id（`{run_id}`）",
+        ]
     )
 
 

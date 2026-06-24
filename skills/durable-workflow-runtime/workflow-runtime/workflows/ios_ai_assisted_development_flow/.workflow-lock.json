@@ -7,7 +7,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/common/skills/brainstorming?ref_type=heads",
-      "recorded_at": "2026-06-23T06:45:39Z",
+      "recorded_at": "2026-06-23T15:52:52Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -15,7 +15,7 @@
       "type": "cli",
       "scope": "global",
       "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-23T06:45:39Z",
+      "recorded_at": "2026-06-23T15:52:52Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -23,7 +23,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-23T06:45:39Z",
+      "recorded_at": "2026-06-23T15:52:52Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -31,7 +31,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-23T06:45:39Z",
+      "recorded_at": "2026-06-23T15:52:52Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -39,7 +39,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/Fission-AI/OpenSpec/tree/main",
-      "recorded_at": "2026-06-23T06:45:39Z",
+      "recorded_at": "2026-06-23T15:52:52Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -47,7 +47,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:xcodebuildmcp-cli",
-      "recorded_at": "2026-06-23T06:45:39Z",
+      "recorded_at": "2026-06-23T15:52:52Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -55,7 +55,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:manipulate-xcodeproj",
-      "recorded_at": "2026-06-23T06:45:39Z",
+      "recorded_at": "2026-06-23T15:52:52Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -63,7 +63,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:agentic-release-qa",
-      "recorded_at": "2026-06-23T06:45:39Z",
+      "recorded_at": "2026-06-23T15:52:52Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -71,7 +71,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:pixel-diff",
-      "recorded_at": "2026-06-23T06:45:39Z",
+      "recorded_at": "2026-06-23T15:52:52Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -79,7 +79,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/requesting-code-review",
-      "recorded_at": "2026-06-23T06:45:40Z",
+      "recorded_at": "2026-06-23T15:52:53Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -87,7 +87,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/verification-before-completion",
-      "recorded_at": "2026-06-23T06:45:40Z",
+      "recorded_at": "2026-06-23T15:52:53Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -95,7 +95,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:ios-best-practices",
-      "recorded_at": "2026-06-23T06:45:40Z",
+      "recorded_at": "2026-06-23T15:52:53Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -103,7 +103,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:code-kb-workflow",
-      "recorded_at": "2026-06-23T06:45:40Z",
+      "recorded_at": "2026-06-23T15:52:53Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -111,7 +111,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:software-design-philosophy",
-      "recorded_at": "2026-06-23T06:45:40Z",
+      "recorded_at": "2026-06-23T15:52:53Z",
       "recorded_by": "bridge.py preflight"
     }
   ]

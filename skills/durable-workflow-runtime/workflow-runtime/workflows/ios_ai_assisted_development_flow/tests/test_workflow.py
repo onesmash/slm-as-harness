@@ -13,7 +13,13 @@ if VENV_SITE_PACKAGES is not None and str(VENV_SITE_PACKAGES) not in sys.path:
 if str(RUNTIME_ROOT) not in sys.path:
     sys.path.insert(0, str(RUNTIME_ROOT))
 
-from workflows.ios_ai_assisted_development_flow import graphbuilder_runtime, state as workflow_state, verifiers
+from workflows.common.prompting import build_prompt_envelope
+from workflows.ios_ai_assisted_development_flow import (
+    contract as workflow_contract,
+    graphbuilder_runtime,
+    state as workflow_state,
+    verifiers,
+)
 
 
 class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
@@ -972,6 +978,47 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertEqual(result.step_id, 'refine_change_with_openspec')
         self.assertEqual(result.branch_kind, 'retry')
+
+    def test_start_prompt_prepends_runtime_checklist(self):
+        result = graphbuilder_runtime.run_start_preview(
+            state=self._make_state(None),
+            run_id="generated-test-run",
+            workflow_id="ios_ai_assisted_development_flow",
+            workflow_version=graphbuilder_runtime.WORKFLOW_VERSION,
+        )
+        prompt = result.prompt_envelope.prompt
+        self.assertTrue(prompt.startswith("## Checklist\n\n"))
+        self.assertIn("1. Current stage (`run_brainstorming`)", prompt)
+        self.assertIn("2. durable-workflow-runtime run_id（`generated-test-run`）", prompt)
+
+    def test_approve_refine_prompt_prepends_runtime_checklist(self):
+        state = self._make_state(None)
+        node_definition = graphbuilder_runtime.get_node_definition("approve_refine")
+        contract = workflow_contract.get_step_contract("approve_refine")
+        prompt_envelope = build_prompt_envelope(
+            run_id="generated-test-run",
+            step_id=node_definition.step_id,
+            prompt_asset_path=node_definition.prompt_asset_path,
+            intent=node_definition.intent,
+            expected_artifact=node_definition.expected_artifact,
+            done_when=contract.done_when,
+            output_schema=contract.output_schema,
+            failure_schema=contract.failure_schema,
+            resume_instructions=node_definition.resume_instructions,
+            skill_routing=contract.skill_routing,
+            metadata={
+                "workflow_id": "ios_ai_assisted_development_flow",
+                "workflow_version": graphbuilder_runtime.WORKFLOW_VERSION,
+            },
+            template_context=graphbuilder_runtime.build_template_context(
+                step_id="approve_refine",
+                run_state=SimpleNamespace(graph_state=workflow_state.serialize_state(state)),
+            ),
+        )
+        prompt = prompt_envelope.prompt
+        self.assertTrue(prompt.startswith("## Checklist\n\n"))
+        self.assertIn("1. Current stage (`approve_refine`)", prompt)
+        self.assertIn("2. durable-workflow-runtime run_id（`generated-test-run`）", prompt)
 
     def test_completion_verification_missing_inputs_route_to_unblocking(self):
         result = graphbuilder_runtime.run_transition_preview(
