@@ -6,6 +6,11 @@ from pathlib import Path
 from workflows.common.contracts import VerifierResult, make_verifier_result
 from workflows.common.policies import condition_matches
 
+# Custom verifier scaffolds below are the preservation-safe authoring unit for
+# each requirement. Keep them self-contained when practical; if reuse is
+# needed, import stable helpers from shared modules instead of adding same-file
+# helper layers in verifiers.py.
+
 def verify_run_brainstorming(
     *,
     repo_root: str,

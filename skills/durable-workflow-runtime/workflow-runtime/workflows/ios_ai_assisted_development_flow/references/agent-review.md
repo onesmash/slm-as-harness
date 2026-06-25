@@ -206,6 +206,10 @@ the right workflow.
    should use `verifier_templates`, and any remaining domain-specific verifier
    logic should be declared in `custom_verifier_requirements` with enough detail
    for generated custom verifier scaffolds to be completed before review.
+   Treat each requirement-scoped scaffold as the preservation-safe authoring
+   unit. Those scaffolds should be self-contained when practical or call stable
+   shared modules imported into `verifiers.py`; treat same-file helper
+   dependencies as a blocking review issue.
 7. Verify state promotion in the spec: every output needed by later prompts,
    final summary, repair logic, or tests should appear in `state_updates` and
    `template_context_keys` where appropriate.
@@ -247,7 +251,9 @@ the right workflow.
 - Declared `custom_verifier_requirements` now generate requirement-scoped
   scaffolds in `verifiers.py`. Treat those functions as authoring-time work:
   finish or tighten them before review sign-off, then use agent review to
-  validate/refine the resulting verifier logic and regression coverage.
+  validate/refine the resulting verifier logic and regression coverage. If a
+  scaffold needs reusable logic, move that logic into a stable shared module
+  instead of adding same-file helper layers in `verifiers.py`.
 - A generated `outcome_route`, `repair_condition`, `transition`, or recovery
   return follows the declared target; it does not know whether that target is
   the best business return point.

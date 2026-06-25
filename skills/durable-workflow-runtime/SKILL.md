@@ -2,13 +2,15 @@
 name: durable-workflow-runtime
 description: |
   Load when the user explicitly asks for `durable-workflow-runtime`, invokes a
-  durable workflow shortcut, or when implementing or debugging this skill's
-  bundled durable workflow wrapper with `start/resume`, workflow branching,
-  retries, blocked handling, bridge payloads, or explicit workflow selection.
-  When triggered, operate through the bridge protocol instead of free-form
-  chat: do not infer workflow steps from static docs, do not execute business
-  stages before `bridge.py start` returns `yield` or `done`, and treat the
-  runtime response as the only authority for the current step.
+  durable workflow shortcut, or when implementing, debugging, authoring, or
+  reviewing this skill's bundled durable workflow surfaces with `start/resume`,
+  workflow branching, retries, blocked handling, bridge payloads, explicit
+  workflow selection, `spec.json`, `custom_verifier_requirements`, `verifiers.py`,
+  workflow authoring guides, or agent review contracts. When triggered,
+  operate through the bridge protocol instead of free-form chat: do not infer
+  workflow steps from static docs, do not execute business stages before
+  `bridge.py start` returns `yield` or `done`, and treat the runtime response
+  as the only authority for the current step.
 ---
 
 # Durable Workflow Runtime
@@ -573,6 +575,20 @@ start -> yield -> host executes prompt -> Observation -> resume -> ... -> done
 Use this section only when the task explicitly concerns runtime internals,
 workflow authoring, generator behavior, or protocol debugging.
 
+### Custom verifier contract
+
+- Treat each generated
+  `_custom_verifier_requirement_<stage>_<requirement>()` function as the only
+  preservation-safe authoring unit in `verifiers.py`.
+- Keep that function self-contained by default. If it needs reusable logic,
+  import helpers from stable shared modules outside `verifiers.py`.
+- Do not add same-file top-level helper functions in `verifiers.py` and call
+  them from the preserved requirement function. Those helpers are not part of
+  the regeneration guarantee.
+- During review, treat a custom verifier that depends on local helper layers
+  in `verifiers.py` as a blocking issue. If the logic is too large to stay
+  readable inline, move the reusable portion into a stable shared module.
+
 Runtime-side observability rule:
 
 - when runtime retries a yielded step because of verifier failure, it should
@@ -610,6 +626,9 @@ Authoring/debugging warning:
 - Do not inspect `verifiers.py`, workflow `contract.py`, workflow `policy.py`,
   or prompt assets during normal start/resume execution unless the task
   explicitly asks for runtime internals.
+- Do not let a preserved custom verifier depend on `verifiers.py`-local helper
+  functions. If the verifier needs reuse, move that logic into a stable shared
+  module and import it.
 - Do not drop or rewrite `run_id` and `step_id`; resume safety depends on them.
 - Do not write bridge payloads to the repository root. Use `scripts/host_io.py`
   and keep normal host files under `.durable-workflow-runtime/host-io/`.
@@ -627,6 +646,8 @@ Authoring/debugging warning:
 - A non-empty `tool_trace` is not free-form metadata; each entry must satisfy the
   runtime `ToolTraceEntry` schema or `resume` will fail validation.
 - If the bridge reports `kind = "error"`, treat it as a bridge-level failure, not a successful runtime response.
+- A custom verifier that calls a `verifiers.py` local helper is not preserved
+  safely, even if it passes tests today.
 
 ## Read next
 

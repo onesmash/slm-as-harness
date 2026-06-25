@@ -167,13 +167,17 @@ workflow-local `spec.json`.
   `custom_verifier_requirements` with clear implementation notes so the
   authoring pass can generate concrete `verifiers.py` scaffolds or hand-written
   verifier code before review without losing the intent from `spec.json`. The
-  review pass should validate or refine that generated verifier logic, not be
-  the first place where it appears.
+  generated requirement-scoped verifier should stay self-contained when
+  practical, or call stable shared-module helpers imported into `verifiers.py`.
+  The review pass should validate or refine that generated verifier logic, not
+  be the first place where it appears.
 - When a `custom_verifier_requirement` needs human-authored follow-up across
   `verifiers.py`, `policy.py`, `state.py`, or workflow tests, prefer
   `implementation_surface`, `hint_pseudocode`, and `test_intent` over relying
   on free-form `implementation_notes` alone. Treat these as authoring hints for
-  hand-written code and regression coverage, not generator-executed DSL.
+  hand-written code and regression coverage, not generator-executed DSL. If the
+  verifier needs reuse, move the reusable logic into a stable shared module
+  rather than adding same-file helper layers in `verifiers.py`.
 - Complete the generated `references/agent-review.md` review pass with review
   subagents before calling the workflow complete. That review should start from
   `spec.json`: verify the workflow boundary, stages, prompts, outputs, state

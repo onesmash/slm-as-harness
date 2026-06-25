@@ -3096,6 +3096,9 @@ def _custom_verifier_requirement_function_name(step_id: str, requirement_id: str
 def _custom_requirement_doc_lines(requirement: dict[str, Any]) -> list[str]:
     doc_lines = [
         "Custom verifier scaffold generated from stages[].custom_verifier_requirements.",
+        "Self-contained contract: keep this requirement-scoped verifier self-contained when practical.",
+        "If reuse is needed, import stable helpers from shared modules outside verifiers.py.",
+        "Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.",
         "",
         f"Requirement: {requirement['description']}",
     ]
@@ -3614,6 +3617,15 @@ def _render_agent_review_md(workflow_spec: dict[str, Any]) -> str:
                 custom_verifier_lines.append(
                     f"  Implementation surfaces: {surface_text}"
                 )
+            custom_verifier_lines.append(
+                "  Self-contained contract: keep this requirement-scoped verifier self-contained when practical."
+            )
+            custom_verifier_lines.append(
+                "  If reuse is needed, import stable helpers from shared modules outside verifiers.py."
+            )
+            custom_verifier_lines.append(
+                "  same-file helper dependencies as a blocking review issue."
+            )
             implementation_notes = requirement.get("implementation_notes")
             if implementation_notes:
                 custom_verifier_lines.append(

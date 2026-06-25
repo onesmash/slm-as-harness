@@ -490,7 +490,11 @@ When a workflow has important acceptance logic that the built-in declarative
 verifier DSL cannot express cleanly, record that requirement explicitly in the
 spec as `custom_verifier_requirements`. The generated workflow will preserve
 that declaration for review, and the agent-review pass should then add the
-hand-written `verifiers.py` code and matching tests needed to enforce it.
+hand-written `verifiers.py` code and matching tests needed to enforce it. Keep
+each generated requirement-scoped verifier self-contained when practical. If
+it needs reusable logic, move that logic into a stable shared module and
+import it into `verifiers.py`; do not add extra same-file helper functions and
+call them from the preserved requirement function.
 
 If a verifier fails:
 

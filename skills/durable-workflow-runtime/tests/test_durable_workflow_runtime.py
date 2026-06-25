@@ -869,6 +869,8 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn("Use `verifier_templates` for common complex checks", creator_skill)
         self.assertIn("custom_verifier_requirements", creator_skill)
         self.assertIn("authoring pass can generate concrete `verifiers.py` scaffolds", creator_skill)
+        self.assertIn("stable shared-module helpers", creator_skill)
+        self.assertIn("same-file helper layers", creator_skill)
         self.assertIn("implementation_surface", creator_skill)
         self.assertIn("hint_pseudocode", creator_skill)
         self.assertIn("test_intent", creator_skill)
@@ -1204,6 +1206,14 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             rendered_verifiers,
         )
         self.assertIn(
+            "Self-contained contract: keep this requirement-scoped verifier self-contained when practical.",
+            rendered_verifiers,
+        )
+        self.assertIn(
+            "Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.",
+            rendered_verifiers,
+        )
+        self.assertIn(
             "TODO(custom_verifier_requirement): Implement `design_doc_matches_brainstorming_contract`.",
             rendered_verifiers,
         )
@@ -1224,6 +1234,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn("Hint pseudocode:", review)
         self.assertIn("Test intent:", review)
         self.assertIn("custom_verifier_requirements", review)
+        self.assertIn("same-file helper dependencies as a blocking review issue", review)
 
     def test_workflow_creator_accepts_generic_verifier_templates(self) -> None:
         create_workflow = self._load_create_workflow_module()
@@ -3361,6 +3372,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertIn(
                 "TODO(custom_verifier_requirement): Implement `synthesis_requires_findings_when_ready`.",
+                verifier_text,
+            )
+            self.assertIn(
+                "Self-contained contract: keep this requirement-scoped verifier self-contained when practical.",
                 verifier_text,
             )
             self.assertIn("Implementation surfaces: verifier, tests", verifier_text)
