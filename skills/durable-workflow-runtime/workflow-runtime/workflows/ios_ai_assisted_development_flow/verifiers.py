@@ -1262,6 +1262,14 @@ def _required_set_members_error(actual, template: dict, message: str) -> str | N
     return None if not missing else f"{message}: missing members {missing}"
 
 
+def _path_has_prefix(path, prefix) -> bool:
+    try:
+        Path(path).relative_to(prefix)
+        return True
+    except ValueError:
+        return False
+
+
 def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
