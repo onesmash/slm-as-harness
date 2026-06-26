@@ -23,13 +23,19 @@ the right workflow.
 - `spec_review_outputs_require_artifacts`: The review stage must hand in concrete subagent review artifacts so the workflow can verify that development, design, and testing reviews really happened.
   Signals: `spec_review_perspectives`, `spec_review_subagent_summaries`, `spec_review_artifact_paths`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Require at least three non-empty artifact paths.
     - Require each artifact path to exist under docs/superpowers/specs/ and end with .md.
     - Require the combined artifact paths to clearly cover development, design, and testing review outputs.
+    - Require three non-empty subagent summaries that map one-to-one to development, design, and testing instead of duplicating one perspective.
+    - Reject repeated summaries or repeated artifact paths when they are being used to fake independent review coverage.
   Test intent:
     - Reject review output that provides review summaries without artifact paths.
     - Reject review output whose artifact paths do not exist or do not cover development, design, and testing.
+    - Reject review output that repeats one summary or one artifact path while still claiming three independent perspectives.
     - Accept review output that hands in concrete review artifacts for all three perspectives.
 
 ### `write_implementation_plan`
@@ -37,6 +43,9 @@ the right workflow.
 - `planning_requires_subagent_execution_mode`: This workflow may continue only when planning records subagent-driven execution as the selected approach and does not ask the user to choose a different execution style.
   Signals: `execution_mode`, `ready_for_implementation`, `plan_reviewed`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Normalize execution_mode to lowercase.
     - Accept only subagent-driven as the implementation-ready mode.
@@ -52,6 +61,9 @@ the right workflow.
 - `completed_tasks_consistency`: Implementation success output must not claim tasks are complete while still listing remaining tasks.
   Signals: `tasks_completed`, `remaining_tasks`, `completed_tasks`, `plan_updates_required`, `verification_passed`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - If tasks_completed is true, require remaining_tasks to be empty.
     - If tasks_completed is false and plan_updates_required is not true, require remaining_tasks to be non-empty so the retry reason is concrete.
@@ -66,6 +78,9 @@ the right workflow.
 - `ui_visual_qa_evidence`: When the workflow state says a UI surface changed and visual comparison inputs are available, release QA must report executed or blocked visual comparison evidence explicitly.
   Signals: `state.ui_surface_affected`, `state.design_comparison_source`, `state.runtime_visual_comparison_scope`, `release_qa_executed_checks`, `release_qa_blocked_checks`, `release_qa_artifacts`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Read ui_surface_affected, design_comparison_source, and runtime_visual_comparison_scope from persisted state.
     - Only enforce this requirement when all three values indicate visual QA should have been attempted.
@@ -76,6 +91,9 @@ the right workflow.
 - `release_qa_lists_require_meaningful_entries`: Release QA evidence lists must contain meaningful non-empty entries, not whitespace-only placeholders.
   Signals: `release_qa_verdict`, `release_qa_executed_checks`, `release_qa_blocked_checks`, `release_qa_risk_next_steps`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Trim each list entry before validation.
     - Reject ship outputs whose executed checks become empty after trimming.
@@ -87,6 +105,9 @@ the right workflow.
 - `ship_verdict_requires_no_blocked_checks`: A ship verdict must not carry unresolved blocked checks or other outstanding QA issues forward.
   Signals: `release_qa_verdict`, `release_qa_blocked_checks`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Trim blocked_checks before validation.
     - If release_qa_verdict is ship, require blocked_checks to be empty after trimming.
@@ -96,20 +117,28 @@ the right workflow.
 
 ### `request_pre_merge_code_review`
 
-- `findings_include_severity_grouping`: Non-empty review findings must make severity explicit with a stable prefix so the workflow can distinguish major merge blockers from lower-risk notes.
+- `findings_include_severity_grouping`: Non-empty review findings must make severity explicit with a stable prefix and keep findings grouped by descending severity so the workflow can distinguish major merge blockers from lower-risk notes.
   Signals: `review_status`, `findings`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Skip the requirement when findings is empty.
     - Require each finding string to begin with an explicit severity prefix such as critical:, high:, medium:, low:, major:, minor:, blocker:, or p0:.
     - Reject findings whose severity is only implied in prose or negated by surrounding text.
+    - Reject findings that jump from lower severity back to higher severity later in the list.
   Test intent:
     - Reject change-requested findings that omit a severity prefix.
     - Accept findings that carry an explicit severity prefix.
     - Reject findings that only mention severity in prose without a stable prefix.
+    - Reject findings whose order is not grouped from higher severity to lower severity.
 - `findings_require_meaningful_entries`: Review findings must contain meaningful non-empty entries when findings are provided.
   Signals: `review_status`, `findings`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Trim each finding string before validation.
     - If review_status is changes_requested, reject findings that become empty after trimming.
@@ -118,6 +147,9 @@ the right workflow.
 - `approved_review_requires_no_findings`: An approved pre-merge review must not leave actionable findings behind.
   Signals: `review_status`, `findings`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Trim each finding string before validation.
     - If review_status is approved, require findings to be empty after trimming.
@@ -130,6 +162,9 @@ the right workflow.
 - `completion_evidence_lists_require_meaningful_entries`: Completion evidence and risk lists must contain meaningful non-empty entries after trimming whitespace.
   Signals: `verification_passed`, `verification_evidence`, `remaining_risks`, `missing_verification_inputs`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Trim each list entry before validation.
     - Reject verification_evidence that becomes empty after trimming.
@@ -140,6 +175,9 @@ the right workflow.
 - `completion_requires_release_qa_and_review_approval`: Completion may pass only after release QA reached ship and pre-merge review reached approved; otherwise the workflow must keep iterating.
   Signals: `state.release_qa_verdict`, `state.review_status`, `verification_passed`, `state.open_issues`, `state.release_qa_blocked_checks`, `state.release_qa_risk_next_steps`, `release_qa_risks_resolved`
   Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - If verification_passed is true, require persisted state.release_qa_verdict == ship.
     - If verification_passed is true, require persisted state.review_status == approved.
@@ -175,8 +213,11 @@ the right workflow.
    review (`verifiers.py` and verifier declarations), contract review
    (`contract.py` and output schemas), and graph/runtime-flow review
    (`graphbuilder_runtime.py`, `policy.py`, and `references/flowchart.md`). If
-   authorization is missing or denied, stop and report the workflow as blocked
-   instead of falling back to a one-thread review.
+   authorization is still missing, stop and report the workflow as blocked
+   instead of falling back to a one-thread review. If the user explicitly
+   denies authorization, review `approve_subagent_review` as a normal business
+   completion branch that should close the workflow before implementation
+   planning, not as an error-state block.
 2. Review `spec.json` first. Check whether it fully describes the intended
    workflow boundary, stage order, stage kinds, prompts, outputs, dependencies,
    state promotion, outcome routes, repair gates, shared repair helpers,

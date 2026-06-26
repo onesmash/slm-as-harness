@@ -1,4 +1,8 @@
-/brainstorming review the approved design package at {{approved_design_path}} through independent development, design, and testing subagent reviews; hand in the concrete review artifacts and confirm whether the design is ready for implementation planning.
+/brainstorming-nex review the approved design package at {{approved_design_path}} through independent development, design, and testing subagent reviews; hand in the concrete review artifacts and confirm whether the design is ready for implementation planning.
+
+Stage Goal:
+
+- Run the required independent development, design, and testing subagent review loop on the approved design package and produce concrete review evidence before implementation planning.
 
 Stage Context:
 

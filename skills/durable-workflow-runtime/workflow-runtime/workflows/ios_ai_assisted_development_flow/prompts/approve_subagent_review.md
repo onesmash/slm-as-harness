@@ -1,4 +1,8 @@
-/brainstorming ask the user whether they approve launching independent development, design, and testing subagent reviews for {{approved_design_path}} before implementation planning continues.
+/brainstorming-nex ask the user whether they approve launching independent development, design, and testing subagent reviews for {{approved_design_path}} before implementation planning continues.
+
+Stage Goal:
+
+- Ask the user for explicit permission to launch the required subagent-backed design review pass before implementation planning begins.
 
 Stage Context:
 

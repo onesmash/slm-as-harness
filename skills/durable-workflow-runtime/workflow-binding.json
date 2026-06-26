@@ -47,7 +47,7 @@
     },
     {
       "workflow_id": "ios_ai_assisted_development_flow",
-      "flow_description": "Run the iOS Client AI-assisted development path from superpowers brainstorming through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
+      "flow_description": "Run the iOS Client AI-assisted development path from brainstorming-nex through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
       "start_input_schema": {
         "task_input": {
           "goal": "string",

@@ -1595,6 +1595,9 @@ def _stage_prompt_text(stage: dict[str, Any]) -> str:
         section_context=sections["context"],
     )
     lines = [action_line]
+    stage_goal = str(sections.get("stage_goal") or "").strip()
+    if stage_goal:
+        lines.extend(["", "Stage Goal:", "", f"- {stage_goal}"])
     if context_items:
         lines.extend(["", "Stage Context:", ""])
         lines.extend(f"- {item}" for item in context_items)
@@ -3678,8 +3681,11 @@ the right workflow.
    review (`verifiers.py` and verifier declarations), contract review
    (`contract.py` and output schemas), and graph/runtime-flow review
    (`graphbuilder_runtime.py`, `policy.py`, and `references/flowchart.md`). If
-   authorization is missing or denied, stop and report the workflow as blocked
-   instead of falling back to a one-thread review.
+   authorization is still missing, stop and report the workflow as blocked
+   instead of falling back to a one-thread review. If the user explicitly
+   denies authorization, review the authorization gate as a normal business
+   completion branch that should close the workflow before implementation
+   planning, not as an error-state block.
 2. Review `spec.json` first. Check whether it fully describes the intended
    workflow boundary, stage order, stage kinds, prompts, outputs, dependencies,
    state promotion, outcome routes, repair gates, shared repair helpers,

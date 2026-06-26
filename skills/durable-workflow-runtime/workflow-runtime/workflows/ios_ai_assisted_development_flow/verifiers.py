@@ -560,7 +560,7 @@ def _run_custom_verifier_requirements_run_spec_review(
 # custom_verifier_stage_id: run_spec_review
 # custom_verifier_requirement_id: spec_review_outputs_require_artifacts
 # template_version: 1
-# spec_fingerprint: b1bd1d14299261c3cbb486d71fe7ca5cfe6ae81022dbcc92abc6ef90f637f0ad
+# spec_fingerprint: 8b2b8e0010781fc29c4b3c23b36a1ee51c6fee3eae115a3e381d72fb82a74017
 # implementation_version: none
 def _custom_verifier_requirement_run_spec_review_spec_review_outputs_require_artifacts(
     *,
@@ -577,17 +577,28 @@ Hint pseudocode:
 - Require at least three non-empty artifact paths.
 - Require each artifact path to exist under docs/superpowers/specs/ and end with .md.
 - Require the combined artifact paths to clearly cover development, design, and testing review outputs.
+ - Require three non-empty subagent summaries that map one-to-one to development, design, and testing instead of duplicating one perspective.
+ - Reject repeated summaries or repeated artifact paths when they are being used to fake independent review coverage.
 Test intent:
 - Reject review output that provides review summaries without artifact paths.
 - Reject review output whose artifact paths do not exist or do not cover development, design, and testing.
+ - Reject review output that repeats one summary or one artifact path while still claiming three independent perspectives.
 - Accept review output that hands in concrete review artifacts for all three perspectives."""
+    summaries = _meaningful_entries(output.get("spec_review_subagent_summaries"))
     artifact_paths = _meaningful_entries(output.get("spec_review_artifact_paths"))
+    if len(summaries) < 3:
+        return "spec_review_subagent_summaries must contain at least three concrete review summaries"
     if len(artifact_paths) < 3:
         return "spec_review_artifact_paths must contain at least three concrete artifact paths"
+    if len({summary.strip().lower() for summary in summaries}) != len(summaries):
+        return "spec_review_subagent_summaries must be unique across development, design, and testing reviews"
+    if len({artifact_path.strip().lower() for artifact_path in artifact_paths}) != len(artifact_paths):
+        return "spec_review_artifact_paths must be unique across development, design, and testing reviews"
 
     required_prefix = Path("docs/superpowers/specs")
-    missing_perspectives = {"development", "design", "testing"}
+    expected_perspectives = {"development", "design", "testing"}
     repo_root_path = Path(repo_root)
+    artifact_perspectives: set[str] = set()
     for artifact_path in artifact_paths:
         artifact = Path(artifact_path)
         if artifact.suffix != ".md":
@@ -596,14 +607,26 @@ Test intent:
             return "spec review artifacts must live under docs/superpowers/specs/"
         if not (repo_root_path / artifact).exists():
             return f"spec review artifact does not exist: {artifact_path}"
-        lowered = artifact_path.lower()
-        missing_perspectives = {
-            perspective for perspective in missing_perspectives if perspective not in lowered
-        }
+        perspective = _extract_single_review_perspective(artifact_path)
+        if perspective is None:
+            return f"spec review artifact must name exactly one review perspective: {artifact_path}"
+        artifact_perspectives.add(perspective)
 
-    if missing_perspectives:
-        joined = ", ".join(sorted(missing_perspectives))
+    summary_perspectives: set[str] = set()
+    for summary in summaries:
+        perspective = _extract_single_review_perspective(summary)
+        if perspective is None:
+            return f"spec review summary must name exactly one review perspective: {summary}"
+        summary_perspectives.add(perspective)
+
+    missing_artifact_perspectives = expected_perspectives - artifact_perspectives
+    if missing_artifact_perspectives:
+        joined = ", ".join(sorted(missing_artifact_perspectives))
         return f"spec review artifacts must clearly cover these perspectives: {joined}"
+    missing_summary_perspectives = expected_perspectives - summary_perspectives
+    if missing_summary_perspectives:
+        joined = ", ".join(sorted(missing_summary_perspectives))
+        return f"spec review summaries must clearly cover these perspectives: {joined}"
     return None
 
 def _run_custom_verifier_requirements_write_implementation_plan(
@@ -886,7 +909,7 @@ def _run_custom_verifier_requirements_request_pre_merge_code_review(
 # custom_verifier_stage_id: request_pre_merge_code_review
 # custom_verifier_requirement_id: findings_include_severity_grouping
 # template_version: 1
-# spec_fingerprint: 4c38827b31d91e5c7c4c1cd8a266ddc49d30f3ab3ffceb2a8d661b683b572148
+# spec_fingerprint: 9476aa3d940d8a2b5b35de6b240bc5488206af2c7b5a2bfddb8981c3f8d3cfbc
 # implementation_version: none
 def _custom_verifier_requirement_request_pre_merge_code_review_findings_include_severity_grouping(
     *,
@@ -896,23 +919,31 @@ def _custom_verifier_requirement_request_pre_merge_code_review_findings_include_
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
 
-Requirement: Non-empty review findings must make severity explicit with a stable prefix so the workflow can distinguish major merge blockers from lower-risk notes.
+Requirement: Non-empty review findings must make severity explicit with a stable prefix and keep findings grouped by descending severity so the workflow can distinguish major merge blockers from lower-risk notes.
 Signals: review_status, findings
 Implementation surfaces: verifier, tests
 Hint pseudocode:
 - Skip the requirement when findings is empty.
 - Require each finding string to begin with an explicit severity prefix such as critical:, high:, medium:, low:, major:, minor:, blocker:, or p0:.
 - Reject findings whose severity is only implied in prose or negated by surrounding text.
+ - Reject findings that jump from lower severity back to higher severity later in the list.
 Test intent:
 - Reject change-requested findings that omit a severity prefix.
 - Accept findings that carry an explicit severity prefix.
-- Reject findings that only mention severity in prose without a stable prefix."""
+- Reject findings that only mention severity in prose without a stable prefix.
+- Reject findings whose order is not grouped from higher severity to lower severity."""
     findings = _meaningful_entries(output.get("findings"))
     if not findings:
         return None
+    seen_ranks: list[int] = []
     for finding in findings:
-        if not _has_explicit_severity_prefix(finding):
+        severity_rank = _severity_rank(finding)
+        if severity_rank is None:
             return "review findings must include an explicit severity prefix"
+        seen_ranks.append(severity_rank)
+    for previous, current in zip(seen_ranks, seen_ranks[1:]):
+        if current < previous:
+            return "review findings must stay grouped from higher severity to lower severity"
     return None
 
 # custom_verifier_stage_id: request_pre_merge_code_review
@@ -1315,18 +1346,49 @@ def _artifact_file_contains_sections_error(actual, template: dict, repo_root: st
 
 
 def _has_explicit_severity_prefix(text: str) -> bool:
+    return _extract_severity_prefix(text) is not None
+
+
+def _extract_severity_prefix(text: str) -> str | None:
     lowered = text.strip().lower()
     if not lowered:
-        return False
+        return None
     markers = ("critical", "high", "medium", "low", "major", "minor", "blocker", "p0", "p1")
     for marker in markers:
         if re.match(rf"^(?:\[\s*)?{re.escape(marker)}(?:\s*\])?\s*:\s+", lowered):
-            return True
+            return marker
         if re.match(rf"^(?:\[\s*)?{re.escape(marker)}(?:\s*\])?\s*-\s+", lowered):
-            return True
+            return marker
         if re.match(rf"^\[\s*{re.escape(marker)}\s*\]\s+", lowered):
-            return True
-    return False
+            return marker
+    return None
+
+
+def _severity_rank(text: str) -> int | None:
+    marker = _extract_severity_prefix(text)
+    if marker is None:
+        return None
+    if marker in {"critical", "blocker", "p0"}:
+        return 0
+    if marker in {"high", "major", "p1"}:
+        return 1
+    if marker == "medium":
+        return 2
+    if marker in {"low", "minor"}:
+        return 3
+    return None
+
+
+def _extract_single_review_perspective(text: str) -> str | None:
+    lowered = str(text).strip().lower()
+    matches = [
+        perspective
+        for perspective in ("development", "design", "testing")
+        if perspective in lowered
+    ]
+    if len(matches) != 1:
+        return None
+    return matches[0]
 
 
 def _looks_like_visual_evidence(value) -> bool:

@@ -10,7 +10,7 @@ WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
 )
 
 RUN_BRAINSTORMING_ROUTE_1 = SkillRoute(
-    skill='brainstorming',
+    skill='brainstorming-nex',
     use_when=SkillUseWhen(
         operations=['requirements clarification', 'design approval gate', 'design artifact preparation'],
         file_patterns=['docs/superpowers/specs/*.md'],
@@ -61,7 +61,7 @@ RUN_BRAINSTORMING = StepContract(
 )
 
 APPROVE_SUBAGENT_REVIEW_ROUTE_1 = SkillRoute(
-    skill='brainstorming',
+    skill='brainstorming-nex',
     use_when=SkillUseWhen(
         operations=['user approval gate', 'subagent review authorization request'],
         file_patterns=['docs/superpowers/specs/*.md'],
@@ -86,7 +86,7 @@ APPROVE_SUBAGENT_REVIEW = StepContract(
 )
 
 RUN_SPEC_REVIEW_ROUTE_1 = SkillRoute(
-    skill='brainstorming',
+    skill='brainstorming-nex',
     use_when=SkillUseWhen(
         operations=['multi-perspective spec review orchestration',
  'subagent review artifact handoff',

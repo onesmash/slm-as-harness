@@ -165,6 +165,28 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], False)
 
+    def test_run_spec_review_rejects_duplicate_review_coverage(self):
+        result = verifiers.verify_run_spec_review(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='run_spec_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Spec review tried to reuse one development review for multiple perspectives.',
+ 'structured_output': {'spec_review_loop_completed': True,
+                       'spec_review_perspectives': ['development', 'design', 'testing'],
+                       'spec_review_findings_summary': 'All three review perspectives were claimed.',
+                       'spec_review_subagent_summaries': ['Development review passed.',
+                                                          'Development review passed.',
+                                                          'Testing review passed.'],
+                       'spec_review_artifact_paths': ['docs/superpowers/specs/2026-06-24-ios-change-development-review.md',
+                                                      'docs/superpowers/specs/2026-06-24-ios-change-design-review.md',
+                                                      'docs/superpowers/specs/2026-06-24-ios-change-testing-review.md'],
+                       'open_questions': [],
+                       'ready_for_planning': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
     def test_brainstorming_rejects_non_spec_doc_path(self):
         result = verifiers.verify_run_brainstorming(
             repo_root=str(REPO_ROOT),
@@ -766,6 +788,43 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'reviewed_snapshot': 'HEAD vs working tree',
                        'findings': ['medium: fix retain cycle in meeting footer presenter'],
                        'review_summary': 'One medium-severity issue must be fixed.',
+                       'changes_requested': True,
+                       'missing_review_inputs': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], True)
+
+    def test_review_rejects_findings_out_of_severity_order(self):
+        result = verifiers.verify_request_pre_merge_code_review(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='request_pre_merge_code_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Review findings jumped from low severity back to high severity.',
+ 'structured_output': {'review_status': 'changes_requested',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'findings': ['low: rename the helper for clarity',
+                                    'high: fix retain cycle in meeting footer presenter'],
+                       'review_summary': 'One low-severity cleanup and one high-severity blocker were reported.',
+                       'changes_requested': True,
+                       'missing_review_inputs': []}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_review_accepts_findings_grouped_by_descending_severity(self):
+        result = verifiers.verify_request_pre_merge_code_review(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='request_pre_merge_code_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Review findings were grouped from high severity to low severity.',
+ 'structured_output': {'review_status': 'changes_requested',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'findings': ['high: fix retain cycle in meeting footer presenter',
+                                    'medium: tighten thread handoff around dismissal callback',
+                                    'low: rename the helper for clarity'],
+                       'review_summary': 'One high-severity blocker and two lower-severity follow-ups were reported.',
                        'changes_requested': True,
                        'missing_review_inputs': []}},
             state={},

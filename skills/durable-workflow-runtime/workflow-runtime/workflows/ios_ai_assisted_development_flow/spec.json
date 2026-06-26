@@ -1,6 +1,6 @@
 {
   "workflow_id": "ios_ai_assisted_development_flow",
-  "flow_description": "Run the iOS Client AI-assisted development path from superpowers brainstorming through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
+  "flow_description": "Run the iOS Client AI-assisted development path from brainstorming-nex through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -23,7 +23,7 @@
       "recovery_return_node": null,
       "intent": "clarify_and_approve_design",
       "expected_artifact": "an approved design package with a written design document path that is ready for subagent review authorization",
-      "prompt": "/brainstorming {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce an approved design package under docs/superpowers/specs/ before any implementation planning begins.",
+      "prompt": "/brainstorming-nex {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce an approved design package under docs/superpowers/specs/ before any implementation planning begins.",
       "prompt_sections": {
         "stage_goal": "Turn the user's iOS Client development goal into clarified requirements and an approved design document before planning, implementation, or subagent review work begins.",
         "context": [
@@ -79,7 +79,7 @@
       },
       "skill_routing": [
         {
-          "skill": "brainstorming",
+          "skill": "brainstorming-nex",
           "operations": [
             "requirements clarification",
             "design approval gate",
@@ -277,7 +277,7 @@
       "recovery_return_node": null,
       "intent": "authorize_subagent_spec_review",
       "expected_artifact": "an explicit user authorization decision for the required subagent design review",
-      "prompt": "/brainstorming ask the user whether they approve launching independent development, design, and testing subagent reviews for {{approved_design_path}} before implementation planning continues.",
+      "prompt": "/brainstorming-nex ask the user whether they approve launching independent development, design, and testing subagent reviews for {{approved_design_path}} before implementation planning continues.",
       "prompt_sections": {
         "stage_goal": "Ask the user for explicit permission to launch the required subagent-backed design review pass before implementation planning begins.",
         "context": [
@@ -311,7 +311,7 @@
       },
       "skill_routing": [
         {
-          "skill": "brainstorming",
+          "skill": "brainstorming-nex",
           "operations": [
             "user approval gate",
             "subagent review authorization request"
@@ -396,7 +396,7 @@
       "recovery_return_node": null,
       "intent": "complete_subagent_spec_review_loop",
       "expected_artifact": "a review-complete design package with concrete subagent review artifacts and implementation-planning readiness",
-      "prompt": "/brainstorming review the approved design package at {{approved_design_path}} through independent development, design, and testing subagent reviews; hand in the concrete review artifacts and confirm whether the design is ready for implementation planning.",
+      "prompt": "/brainstorming-nex review the approved design package at {{approved_design_path}} through independent development, design, and testing subagent reviews; hand in the concrete review artifacts and confirm whether the design is ready for implementation planning.",
       "prompt_sections": {
         "stage_goal": "Run the required independent development, design, and testing subagent review loop on the approved design package and produce concrete review evidence before implementation planning.",
         "context": [
@@ -441,7 +441,7 @@
       },
       "skill_routing": [
         {
-          "skill": "brainstorming",
+          "skill": "brainstorming-nex",
           "operations": [
             "multi-perspective spec review orchestration",
             "subagent review artifact handoff",
@@ -600,11 +600,14 @@
           "hint_pseudocode": [
             "Require at least three non-empty artifact paths.",
             "Require each artifact path to exist under docs/superpowers/specs/ and end with .md.",
-            "Require the combined artifact paths to clearly cover development, design, and testing review outputs."
+            "Require the combined artifact paths to clearly cover development, design, and testing review outputs.",
+            "Require three non-empty subagent summaries that map one-to-one to development, design, and testing instead of duplicating one perspective.",
+            "Reject repeated summaries or repeated artifact paths when they are being used to fake independent review coverage."
           ],
           "test_intent": [
             "Reject review output that provides review summaries without artifact paths.",
             "Reject review output whose artifact paths do not exist or do not cover development, design, and testing.",
+            "Reject review output that repeats one summary or one artifact path while still claiming three independent perspectives.",
             "Accept review output that hands in concrete review artifacts for all three perspectives."
           ]
         }
@@ -1706,7 +1709,7 @@
       "custom_verifier_requirements": [
         {
           "id": "findings_include_severity_grouping",
-          "description": "Non-empty review findings must make severity explicit with a stable prefix so the workflow can distinguish major merge blockers from lower-risk notes.",
+          "description": "Non-empty review findings must make severity explicit with a stable prefix and keep findings grouped by descending severity so the workflow can distinguish major merge blockers from lower-risk notes.",
           "signals": [
             "review_status",
             "findings"
@@ -1718,12 +1721,14 @@
           "hint_pseudocode": [
             "Skip the requirement when findings is empty.",
             "Require each finding string to begin with an explicit severity prefix such as critical:, high:, medium:, low:, major:, minor:, blocker:, or p0:.",
-            "Reject findings whose severity is only implied in prose or negated by surrounding text."
+            "Reject findings whose severity is only implied in prose or negated by surrounding text.",
+            "Reject findings that jump from lower severity back to higher severity later in the list."
           ],
           "test_intent": [
             "Reject change-requested findings that omit a severity prefix.",
             "Accept findings that carry an explicit severity prefix.",
-            "Reject findings that only mention severity in prose without a stable prefix."
+            "Reject findings that only mention severity in prose without a stable prefix.",
+            "Reject findings whose order is not grouped from higher severity to lower severity."
           ]
         },
         {
@@ -2132,11 +2137,11 @@
   "final_prompt": "Prepare the final iOS Client AI-assisted development delivery summary using approved design summary {{approved_design_summary}}, approved design path {{approved_design_path}}, plan summary {{plan_summary}}, plan path {{plan_path}}, selected execution mode {{execution_mode}}, implementation summary {{implementation_summary}}, changed files {{changed_files}}, verification commands {{verification_commands}}, debugging summary {{debugging_summary}}, release QA target scope {{release_qa_target_scope}}, release QA verdict {{release_qa_verdict}}, release QA summary {{release_qa_summary}}, release QA executed checks {{release_qa_executed_checks}}, release QA blocked checks {{release_qa_blocked_checks}}, release QA risk next steps {{release_qa_risk_next_steps}}, release QA artifacts {{release_qa_artifacts}}, review status {{review_status}}, reviewed snapshot {{reviewed_snapshot}}, review summary {{review_summary}}, review findings {{review_findings}}, completion verification passed {{completion_verification_passed}}, completion verification summary {{completion_verification_summary}}, completion verification evidence {{completion_verification_evidence}}, completion verification missing inputs {{completion_missing_verification_inputs}}, completion remaining risks {{completion_remaining_risks}}, release QA risks resolved {{completion_release_qa_risks_resolved}}, release QA risk resolution summary {{completion_release_qa_risk_resolution_summary}}, and open issues {{open_issues}}.",
   "dependencies": [
     {
-      "id": "brainstorming",
+      "id": "brainstorming-nex",
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "https://github.com/obra/superpowers/tree/main/skills/brainstorming",
+      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/skill-book/skills/brainstorming-nex?ref_type=heads",
       "purpose": "Run the pre-implementation requirement clarification and design approval gate."
     },
     {
@@ -2253,10 +2258,10 @@
   ],
   "installed": [
     {
-      "id": "brainstorming",
+      "id": "brainstorming-nex",
       "type": "skill",
       "scope": "either",
-      "source": "https://github.com/obra/superpowers/tree/main/skills/brainstorming",
+      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/skill-book/skills/brainstorming-nex?ref_type=heads",
       "recorded_at": "2026-06-24T00:00:00Z",
       "recorded_by": "workflow-creator"
     },

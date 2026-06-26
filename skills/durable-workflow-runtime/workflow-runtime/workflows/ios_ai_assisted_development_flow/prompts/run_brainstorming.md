@@ -1,4 +1,8 @@
-/brainstorming {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce an approved design package under docs/superpowers/specs/ before any implementation planning begins.
+/brainstorming-nex {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce an approved design package under docs/superpowers/specs/ before any implementation planning begins.
+
+Stage Goal:
+
+- Turn the user's iOS Client development goal into clarified requirements and an approved design document before planning, implementation, or subagent review work begins.
 
 Stage Context:
 
