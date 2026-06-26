@@ -240,7 +240,10 @@ the right workflow.
    `prompt_sections` should match `done_when`, and placeholders should come
    from start input or declared state promotion. When a placeholder name exists
    in both start input and promoted state, later prompts should prefer the
-   promoted state value.
+   promoted state value. Generated prompt assets do not need to render a
+   separate `Stage Goal:` heading; review the action line and prompt body
+   against `prompt_sections.stage_goal` in `spec.json` instead of expecting that
+   heading to appear verbatim in `prompts/*.md`.
 6. Verify output semantics in the spec: boolean fields must be booleans,
    enum-like fields should have `verifier_rules`, path fields should use
    `path_exists` when existence matters, common DSL-expressible invariants
@@ -306,7 +309,9 @@ the right workflow.
 - Prompt assets are generated from declared prompt sections; they still need a
   human/agent pass to catch action lines that are vague or overly procedural,
   stale placeholders, missing blocked conditions, or drift between prompt text
-  and step contracts.
+  and step contracts. `prompt_sections.stage_goal` stays in `spec.json` as the
+  review source of truth and is not required to appear as a separate `Stage
+  Goal:` block in generated prompt assets.
 - Shared recovery helpers should now be described in `spec.json` and stay on
   the recovery node when `return_stage_id` is missing. If review finds a
   workflow that still depends on a silent fallback, fix the workflow state

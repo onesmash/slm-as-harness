@@ -2141,8 +2141,9 @@
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/skill-book/skills/brainstorming-nex?ref_type=heads",
-      "purpose": "Run the pre-implementation requirement clarification and design approval gate."
+      "source": "skill-catalog:brainstorming-nex",
+      "purpose": "Run the pre-implementation requirement clarification and design approval gate.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill brainstorming-nex -g -y --agent claude-code cursor codex"
     },
     {
       "id": "writing-plans",
@@ -2261,7 +2262,7 @@
       "id": "brainstorming-nex",
       "type": "skill",
       "scope": "either",
-      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/skill-book/skills/brainstorming-nex?ref_type=heads",
+      "source": "skill-catalog:brainstorming-nex",
       "recorded_at": "2026-06-24T00:00:00Z",
       "recorded_by": "workflow-creator"
     },
