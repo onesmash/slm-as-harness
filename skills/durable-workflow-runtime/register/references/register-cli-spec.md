@@ -22,7 +22,8 @@ This is an import surface, not a workflow execution surface:
   `durable-workflow-runtime/workflow-binding.json`
 - it creates a slash-only shortcut skill at
   `durable-workflow-runtime/workflow-shortcuts/<workflow_id>/SKILL.md`
-  with `name: workflow:<workflow_id>`
+  and mirrors it to `durable-workflow-runtime/.claude/skills/<workflow_id>/`
+  so Claude Code can discover `/<workflow_id>`
 - it does not run dependency preflight
 - it does not allocate host I/O paths
 - it does not create or mutate runtime run state
@@ -109,9 +110,11 @@ Given this archive:
 ```text
 durable-workflow-runtime/
 ├── workflow-binding.json      # adds or replaces binding-entry.json
+├── .claude/skills/
+│   └── <workflow_id> -> ../../workflow-shortcuts/<workflow_id>
 ├── workflow-shortcuts/
 │   └── <workflow_id>/
-│       └── SKILL.md           # slash-only shortcut named workflow:<workflow_id>
+│       └── SKILL.md           # slash-only shortcut invoked as /<workflow_id>
 └── workflow-runtime/workflows/
     └── <workflow_id>/          # receives archive workflow/ contents
 ```
@@ -129,9 +132,11 @@ On success, `register.py` prints a JSON object:
   "workflow_id": "demo_prompt_loop",
   "workflow_dir": "/abs/path/workflow-runtime/workflows/demo_prompt_loop",
   "binding_file": "/abs/path/workflow-binding.json",
-  "shortcut_skill_name": "workflow:demo_prompt_loop",
+  "shortcut_skill_name": "demo_prompt_loop",
   "shortcut_skill_dir": "/abs/path/workflow-shortcuts/demo_prompt_loop",
   "shortcut_skill_file": "/abs/path/workflow-shortcuts/demo_prompt_loop/SKILL.md",
+  "claude_shortcut_skill_dir": "/abs/path/.claude/skills/demo_prompt_loop",
+  "created_claude_shortcut_skill": true,
   "replaced_existing": false,
   "installed_files": 12
 }

@@ -703,7 +703,7 @@ def _validate_stage_kind(value: Any, label: str) -> str:
 def _validate_shared_repair_helpers(value: Any) -> dict[str, dict[str, Any]]:
     defaults = _default_shared_repair_helpers()
     if value in (None, {}):
-        return defaults
+        value = {}
     if not isinstance(value, dict):
         raise WorkflowCreatorError("workflow spec field 'shared_repair_helpers' must be a JSON object")
 

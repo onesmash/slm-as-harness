@@ -23,7 +23,6 @@ RUNTIME_ROOT = SKILL_ROOT / "workflow-runtime"
 SCRIPTS_ROOT = SKILL_ROOT / "scripts"
 DEFAULT_BINDING_CONFIG_PATH = SKILL_ROOT / "workflow-binding.json"
 BINDING_CONFIG_ENV_VAR = "DURABLE_WORKFLOW_RUNTIME_BINDING_CONFIG_PATH"
-IOS_GOALS_WORKFLOW_DIR = RUNTIME_ROOT / "workflows" / "ios_goals"
 SUPERPOWERS_DELIVERY_CHAIN_WORKFLOW_DIR = RUNTIME_ROOT / "workflows" / "superpowers_delivery_chain"
 IOS_CLIENT_AI_DELIVERY_WORKFLOW_DIR = RUNTIME_ROOT / "workflows" / "ios_client_ai_delivery"
 MATT_POCOCK_ENGINEERING_DELIVERY_WORKFLOW_DIR = (
@@ -92,16 +91,6 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                             }
                         ]
                         if SUPERPOWERS_DELIVERY_CHAIN_WORKFLOW_DIR.is_dir()
-                        else []
-                    ),
-                    *(
-                        [
-                            {
-                                "workflow_id": "ios_goals",
-                                "flow_description": "ios goals",
-                            }
-                        ]
-                        if IOS_GOALS_WORKFLOW_DIR.is_dir()
                         else []
                     ),
                     *(
@@ -775,8 +764,9 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn("../inject/scripts/inject.py", register_spec)
         self.assertIn("AGENTS.md", register_spec)
         self.assertIn("CLAUDE.md", register_spec)
-        self.assertIn("workflow:<workflow_id>", register_skill)
+        self.assertIn(".claude/skills/<workflow_id>", register_skill)
         self.assertIn("workflow-shortcuts/<workflow_id>/SKILL.md", register_spec)
+        self.assertIn(".claude/skills/<workflow_id>/", register_spec)
 
     def test_delete_reference_documents_delete_surface(self) -> None:
         delete_skill = (DELETE_SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -796,8 +786,9 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn("../inject/scripts/inject.py", delete_spec)
         self.assertIn("AGENTS.md", delete_spec)
         self.assertIn("CLAUDE.md", delete_spec)
-        self.assertIn("workflow:<workflow_id>", delete_skill)
+        self.assertIn("/<workflow_id>", delete_skill)
         self.assertIn("workflow-shortcuts/<workflow_id>/", delete_spec)
+        self.assertIn(".claude/skills/<workflow_id>/", delete_spec)
 
     def test_inject_reference_documents_inject_surface(self) -> None:
         inject_skill = (INJECT_SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
@@ -834,8 +825,9 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn("spec.json", creator_skill)
         self.assertIn("spec_blueprint_file", creator_spec)
         self.assertIn("workflow blueprint", creator_spec)
-        self.assertIn("workflow:<workflow_id>", creator_skill)
+        self.assertIn(".claude/skills/<workflow_id>", creator_skill)
         self.assertIn("workflow-shortcuts/<workflow_id>/SKILL.md", creator_spec)
+        self.assertIn(".claude/skills/<workflow_id>/", creator_spec)
         self.assertIn("Do not keep a second checked-in workflow spec", creator_spec)
         self.assertIn(
             "workflow-runtime/workflows/<workflow_id>/tests/test_workflow.py",
@@ -2141,7 +2133,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             }
         )
         state.return_stage_id = "verify_completion"
-        state.attempt_counts["repair_and_resume"] = 2
+        state.repair_blocked_attempts = 2
         result = graphbuilder_runtime.run_transition_preview(
             state=state,
             current_step_id="repair_and_resume",
@@ -2155,6 +2147,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
         self.assertEqual(result.step_id, "request_unblocking_input")
         self.assertEqual(result.branch_kind, "repair")
+        self.assertEqual(state.repair_blocked_attempts, 3)
 
     def test_shared_verifier_runner_executes_shell_command(self) -> None:
         from runtime.models import Observation, RunState
@@ -2494,7 +2487,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 "--repo-root",
                 str(REPO_ROOT),
                 "--workflow-id",
-                "ios_goals",
+                "demo_prompt_loop",
             ],
             cwd=REPO_ROOT,
             capture_output=True,
@@ -2506,7 +2499,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["kind"], "pending_start_request_path")
         self.assertEqual(
             Path(payload["path"]),
-            WORKSPACE_ROOT / "host-io" / "pending" / "ios_goals-start-request.json",
+            WORKSPACE_ROOT / "host-io" / "pending" / "demo_prompt_loop-start-request.json",
         )
 
     def test_pack_cli_creates_flow_archive_for_published_workflow(self) -> None:
@@ -2626,13 +2619,21 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             shortcut_skill_path = (
                 runtime_root / "workflow-shortcuts" / "registered_demo" / "SKILL.md"
             ).resolve()
+            claude_shortcut_dir = runtime_root / ".claude" / "skills" / "registered_demo"
             shortcut_skill_text = shortcut_skill_path.read_text(encoding="utf-8")
-            self.assertEqual(payload["shortcut_skill_name"], "workflow:registered_demo")
+            self.assertEqual(payload["shortcut_skill_name"], "registered_demo")
             self.assertEqual(payload["shortcut_skill_file"], str(shortcut_skill_path))
-            self.assertIn("name: workflow:registered_demo", shortcut_skill_text)
-            self.assertIn("/workflow:registered_demo", shortcut_skill_text)
+            self.assertEqual(
+                payload["claude_shortcut_skill_dir"],
+                str(claude_shortcut_dir.resolve(strict=False)),
+            )
+            self.assertTrue(payload["created_claude_shortcut_skill"])
+            self.assertTrue(claude_shortcut_dir.is_symlink())
+            self.assertEqual(claude_shortcut_dir.resolve(), shortcut_skill_path.parent)
+            self.assertIn("name: registered_demo", shortcut_skill_text)
+            self.assertIn("/registered_demo", shortcut_skill_text)
             self.assertIn(
-                "/durable-workflow-runtime registered_demo followed by the user's raw trailing text after `/workflow:registered_demo`",
+                "/durable-workflow-runtime registered_demo followed by the user's raw trailing text after `/registered_demo`",
                 shortcut_skill_text,
             )
             self.assertNotIn("<user_prompt>", shortcut_skill_text)
@@ -2699,9 +2700,12 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             shortcut_dir = runtime_root / "workflow-shortcuts" / "old_demo"
             shortcut_dir.mkdir(parents=True)
             (shortcut_dir / "SKILL.md").write_text(
-                "---\nname: workflow:old_demo\n---\n",
+                "---\nname: old_demo\n---\n",
                 encoding="utf-8",
             )
+            claude_shortcut_root = runtime_root / ".claude" / "skills"
+            claude_shortcut_root.mkdir(parents=True)
+            (claude_shortcut_root / "old_demo").symlink_to(shortcut_dir, target_is_directory=True)
             binding_path = runtime_root / "workflow-binding.json"
             binding_path.write_text(
                 json.dumps(
@@ -2747,9 +2751,15 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(payload["workflow_id"], "old_demo")
             self.assertFalse((workflows_root / "old_demo").exists())
             self.assertTrue((workflows_root / "default_demo").exists())
-            self.assertEqual(payload["shortcut_skill_name"], "workflow:old_demo")
+            self.assertEqual(payload["shortcut_skill_name"], "old_demo")
             self.assertTrue(payload["removed_shortcut_skill"])
             self.assertFalse(shortcut_dir.exists())
+            self.assertEqual(
+                payload["claude_shortcut_skill_dir"],
+                str((runtime_root / ".claude" / "skills" / "old_demo").resolve(strict=False)),
+            )
+            self.assertTrue(payload["removed_claude_shortcut_skill"])
+            self.assertFalse((runtime_root / ".claude" / "skills" / "old_demo").exists())
 
             binding_payload = json.loads(binding_path.read_text(encoding="utf-8"))
             self.assertEqual(binding_payload["default_workflow_id"], "default_demo")
@@ -2940,12 +2950,20 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             shortcut_skill_path = (
                 runtime_root / "workflow-shortcuts" / "paper_review_flow" / "SKILL.md"
             ).resolve()
+            claude_shortcut_dir = runtime_root / ".claude" / "skills" / "paper_review_flow"
             self.assertTrue((workflow_dir / "contract.py").exists())
             self.assertTrue((workflow_dir / "manifest.json").exists())
             self.assertTrue((workflow_dir / ".workflow-lock.json").exists())
             self.assertTrue((workflow_dir / "spec.json").exists())
-            self.assertEqual(payload["shortcut_skill_name"], "workflow:paper_review_flow")
+            self.assertEqual(payload["shortcut_skill_name"], "paper_review_flow")
             self.assertEqual(payload["shortcut_skill_file"], str(shortcut_skill_path))
+            self.assertEqual(
+                payload["claude_shortcut_skill_dir"],
+                str(claude_shortcut_dir.resolve(strict=False)),
+            )
+            self.assertTrue(payload["created_claude_shortcut_skill"])
+            self.assertTrue(claude_shortcut_dir.is_symlink())
+            self.assertEqual(claude_shortcut_dir.resolve(), shortcut_skill_path.parent)
 
             contract_text = (workflow_dir / "contract.py").read_text(encoding="utf-8")
             state_text = (workflow_dir / "state.py").read_text(encoding="utf-8")
@@ -2972,10 +2990,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertIn("run_primary_stage[run_primary_stage]", flowchart_text)
             self.assertIn("| `run_primary_stage` |", flowchart_text)
             self.assertNotIn("example_workflow", contract_text)
-            self.assertIn("name: workflow:paper_review_flow", shortcut_skill_text)
-            self.assertIn("/workflow:paper_review_flow", shortcut_skill_text)
+            self.assertIn("name: paper_review_flow", shortcut_skill_text)
+            self.assertIn("/paper_review_flow", shortcut_skill_text)
             self.assertIn(
-                "/durable-workflow-runtime paper_review_flow followed by the user's raw trailing text after `/workflow:paper_review_flow`",
+                "/durable-workflow-runtime paper_review_flow followed by the user's raw trailing text after `/paper_review_flow`",
                 shortcut_skill_text,
             )
             self.assertNotIn("<user_prompt>", shortcut_skill_text)
@@ -4405,41 +4423,6 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         payload = json.loads(response_file.read_text(encoding="utf-8"))
         self.assertEqual(payload["kind"], "error")
         self.assertIn("status=error", result.stdout)
-
-    @unittest.skipUnless(
-        IOS_GOALS_WORKFLOW_DIR.is_dir(),
-        "ios_goals workflow is not present in this checkout",
-    )
-    def test_bridge_preflight_install_deps_writes_response_file(self) -> None:
-        self._hide_project_skill("ios-best-practices")
-        self._hide_project_skill("software-design-philosophy")
-
-        response_file = self._pending_host_io_file("ios_goals-preflight-response.json")
-
-        result = subprocess.run(
-            [
-                sys.executable,
-                str(BRIDGE_PATH),
-                "preflight",
-                "install-deps",
-                "--repo-root",
-                str(REPO_ROOT),
-                "--workflow-id",
-                "ios_goals",
-                "--response-file",
-                str(response_file),
-            ],
-            cwd=REPO_ROOT,
-            capture_output=True,
-            text=True,
-        )
-
-        self.assertEqual(result.returncode, 0, msg=result.stderr)
-        payload = json.loads(response_file.read_text(encoding="utf-8"))
-        self.assertEqual(payload["kind"], "preflight_result")
-        self.assertEqual(payload["workflow_id"], "ios_goals")
-        self.assertEqual(payload["status"], "needs_install")
-        self.assertIn("status=preflight", result.stdout)
 
     def test_bridge_resume_mismatched_run_id_writes_error_response(self) -> None:
         import host_io

@@ -11,8 +11,8 @@ description: |
 This is an import-only companion to `durable-workflow-runtime`. It installs one
 `.flow` archive into a runtime skill by unpacking its workflow directory and
 registering its binding metadata. On success it also creates a slash-only
-shortcut skill named `workflow:<workflow_id>` under the same
-`durable-workflow-runtime` bundle.
+shortcut skill under `workflow-shortcuts/<workflow_id>/SKILL.md` and mirrors it
+to `.claude/skills/<workflow_id>/` so Claude Code can discover `/<workflow_id>`.
 
 ## Use This Surface
 

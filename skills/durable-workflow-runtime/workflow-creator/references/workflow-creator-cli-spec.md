@@ -21,7 +21,8 @@ This is an authoring surface, not an execution surface:
 - it writes a workflow `manifest.json`
 - it registers a `workflow-binding.json` catalog entry
 - it creates a slash-only shortcut skill at
-  `workflow-shortcuts/<workflow_id>/SKILL.md` with `name: workflow:<workflow_id>`
+  `workflow-shortcuts/<workflow_id>/SKILL.md` and mirrors it to
+  `.claude/skills/<workflow_id>/` so Claude Code can discover `/<workflow_id>`
 - it writes `references/agent-review.md` so a reviewing agent can check the
   generated workflow before it is treated as complete
 - it does not run dependency preflight
@@ -770,9 +771,11 @@ On success, `create_workflow.py` prints a JSON object:
   "workflow_id": "pdf_processing",
   "workflow_dir": "/abs/path/workflow-runtime/workflows/pdf_processing",
   "binding_file": "/abs/path/workflow-binding.json",
-  "shortcut_skill_name": "workflow:pdf_processing",
+  "shortcut_skill_name": "pdf_processing",
   "shortcut_skill_dir": "/abs/path/workflow-shortcuts/pdf_processing",
   "shortcut_skill_file": "/abs/path/workflow-shortcuts/pdf_processing/SKILL.md",
+  "claude_shortcut_skill_dir": "/abs/path/.claude/skills/pdf_processing",
+  "created_claude_shortcut_skill": true,
   "spec_blueprint_file": "/abs/path/workflow-runtime/workflows/pdf_processing/spec.json",
   "agent_review_required": true,
   "agent_review_file": "/abs/path/workflow-runtime/workflows/pdf_processing/references/agent-review.md",

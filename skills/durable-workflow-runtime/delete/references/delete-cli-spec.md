@@ -20,6 +20,8 @@ This is a removal surface, not a workflow execution surface:
 - it deletes `durable-workflow-runtime/workflow-runtime/workflows/<workflow_id>/`
 - it removes `durable-workflow-runtime/workflow-shortcuts/<workflow_id>/`
   when the matching shortcut skill exists
+- it removes the mirrored Claude shortcut at
+  `durable-workflow-runtime/.claude/skills/<workflow_id>/` when present
 - it does not run dependency preflight
 - it does not allocate host I/O paths
 - it does not create or mutate runtime run state
@@ -124,6 +126,12 @@ and also removes this shortcut when present:
 durable-workflow-runtime/workflow-shortcuts/<workflow_id>/
 ```
 
+and this mirrored Claude entry when present:
+
+```text
+durable-workflow-runtime/.claude/skills/<workflow_id>/
+```
+
 and rewrites:
 
 ```text
@@ -143,10 +151,12 @@ On success, `delete_workflow.py` prints a JSON object:
   "removed_binding": true,
   "removed_workflow_dir": true,
   "default_workflow_id": "superpowers_delivery_chain",
-  "shortcut_skill_name": "workflow:demo_prompt_loop",
+  "shortcut_skill_name": "demo_prompt_loop",
   "shortcut_skill_dir": "/abs/path/workflow-shortcuts/demo_prompt_loop",
   "shortcut_skill_file": "/abs/path/workflow-shortcuts/demo_prompt_loop/SKILL.md",
-  "removed_shortcut_skill": true
+  "claude_shortcut_skill_dir": "/abs/path/.claude/skills/demo_prompt_loop",
+  "removed_shortcut_skill": true,
+  "removed_claude_shortcut_skill": true
 }
 ```
 

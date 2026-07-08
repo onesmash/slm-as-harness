@@ -11,7 +11,7 @@ description: |
 This is a removal-only companion to `durable-workflow-runtime`. It deletes one
 workflow directory and removes the matching catalog entry from
 `workflow-binding.json`. On success it also removes the matching slash-only
-shortcut skill `workflow:<workflow_id>` when present.
+shortcut skill and its mirrored Claude entry `/<workflow_id>` when present.
 
 ## Use This Surface
 

@@ -24,10 +24,6 @@ The durable workflow runtime implementation lives under:
   A multi-stage workflow covering brainstorming, planning, implementation,
   final review, completion verification, branch finishing, repair nodes, and
   an explicit terminal `finalize_summary` step.
-- `workflows/ios_goals/`
-  A forkable copy of `superpowers_delivery_chain` that keeps the same
-  multi-stage delivery chain under an independent workflow ID for future iOS
-  specific evolution.
 - `workflows/academic_research_pipeline/`
   A durable Academic Research Skills workflow covering research, writing,
   integrity gates, review, revision, finalization, process summary, repair
@@ -71,7 +67,6 @@ The shipped binding catalog now includes at least:
 
 - `demo_prompt_loop`
 - `superpowers_delivery_chain`
-- `ios_goals`
 - `academic_research_pipeline`
 
 Selection happens at `start`:

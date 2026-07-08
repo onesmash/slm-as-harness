@@ -14,8 +14,8 @@ request for a new workflow into concrete workflow files: stage contracts,
 runtime state, transition policy, GraphBuilder metadata, prompt assets,
 verifiers, flowchart documentation, manifest metadata, and the
 `workflow-binding.json` catalog entry. On success it also creates a slash-only
-shortcut skill named `workflow:<workflow_id>` under the same
-`durable-workflow-runtime` bundle.
+shortcut skill under `workflow-shortcuts/<workflow_id>/SKILL.md` and mirrors it
+to `.claude/skills/<workflow_id>/` so Claude Code can discover `/<workflow_id>`.
 
 ## Use This Surface
 

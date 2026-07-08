@@ -38,7 +38,7 @@ The current catalog lives in:
 
 ```json
 {
-  "default_workflow_id": "ios_goals",
+  "default_workflow_id": "demo_prompt_loop",
   "workflows": [
     {
       "workflow_id": "demo_prompt_loop",
@@ -51,15 +51,6 @@ The current catalog lives in:
     },
     {
       "workflow_id": "superpowers_delivery_chain",
-      "flow_description": "...",
-      "start_input_schema": {
-        "task_input": {},
-        "context": {},
-        "constraints": {}
-      }
-    },
-    {
-      "workflow_id": "ios_goals",
       "flow_description": "...",
       "start_input_schema": {
         "task_input": {},
@@ -91,7 +82,7 @@ The fallback workflow used when:
 
 Current shipped default:
 
-- `ios_goals`
+- `demo_prompt_loop`
 
 ### `workflows`
 
@@ -180,7 +171,6 @@ The shipped catalog currently contains:
 
 - `demo_prompt_loop`
 - `superpowers_delivery_chain`
-- `ios_goals`
 - `academic_research_pipeline`
 
 That means the wrapper story is now:

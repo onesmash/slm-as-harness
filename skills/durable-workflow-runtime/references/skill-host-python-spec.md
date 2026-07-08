@@ -54,7 +54,7 @@ Current binding config shape:
 
 ```json
 {
-  "default_workflow_id": "ios_goals",
+  "default_workflow_id": "demo_prompt_loop",
   "workflows": [
     {
       "workflow_id": "demo_prompt_loop",
@@ -67,15 +67,6 @@ Current binding config shape:
     },
     {
       "workflow_id": "superpowers_delivery_chain",
-      "flow_description": "...",
-      "start_input_schema": {
-        "task_input": {},
-        "context": {},
-        "constraints": {}
-      }
-    },
-    {
-      "workflow_id": "ios_goals",
       "flow_description": "...",
       "start_input_schema": {
         "task_input": {},
