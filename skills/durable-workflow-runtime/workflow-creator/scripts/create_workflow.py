@@ -2835,6 +2835,8 @@ def _render_verifiers_py(
             "    required: bool,",
             ") -> str | None:",
             "    normalized = schema_type.rstrip(\"?\")",
+            "    if value is None and not required:",
+            "        return None",
             "    if normalized == \"string\":",
             "        if not isinstance(value, str):",
             "            return f\"{key} must be a string\"",

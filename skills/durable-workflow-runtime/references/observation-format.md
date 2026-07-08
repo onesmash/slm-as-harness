@@ -107,3 +107,6 @@ Example:
 - Use `tool_trace` when structured host trace is available.
 - Use `error` only for actual failure or blocking conditions.
 - When in doubt, prefer `tool_trace: []` over malformed partial entries.
+- Treat an observation as a one-time runtime input. After `resume` accepts it,
+  the run history has already consumed that attempt; editing the old file does
+  not retroactively change persisted state.

@@ -48,6 +48,10 @@ Optional skill-side parameter:
 This optional parameter is a start-time selector, not part of
 `task_input/context/constraints`.
 
+If `constraints.max_steps` is provided, read it as a ceiling on total observed
+step attempts for the run. Retries and repair loops count toward that budget;
+it is not limited to the main business-stage count.
+
 Write the request object to the returned pending path, choose a response file in
 that same `host-io/pending/` directory, then call:
 
@@ -125,6 +129,15 @@ python <skill-root>/scripts/bridge.py resume \
 ```
 
 Repeat until `kind == "done"`.
+
+Important state rule:
+
+- once `resume` succeeds, the submitted observation has already been recorded
+  into run state under `.durable-workflow-runtime/runs/<run_id>.json`
+- editing that old observation file later does not "fix" the already-consumed
+  attempt
+- to retry with corrected structured output, wait for the runtime to yield the
+  target step again, then submit a new observation for that yielded step
 
 ## Host I/O Layout
 

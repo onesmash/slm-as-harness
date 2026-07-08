@@ -118,6 +118,10 @@ That means the current skill wrapper expects:
 - `context.repo_root`
 - optional `constraints.max_steps`
 
+When present, `constraints.max_steps` is a ceiling on total observed step
+attempts across the run, including retries and repair stages. It is not a
+declaration of how many main workflow stages may execute.
+
 ## Authoring guidance
 
 - Keep `task_input_schema` limited to workflow-owned business inputs.

@@ -158,6 +158,10 @@ If the caller already knows the intended workflow, treat `workflow_id` as a
 separate start-time selector. It is not part of
 `task_input/context/constraints`.
 
+If `constraints.max_steps` is present, treat it as a cap on total observed step
+attempts across the run, including retries and repair loops. It is not a count
+of main business stages.
+
 ### 3. Call `bridge.py start`
 
 ```bash
@@ -513,6 +517,9 @@ Execution rules:
 - `artifacts: []` is valid
 - `error: null` is valid
 - `tool_trace: []` is valid
+- after `resume` accepts an observation, that attempt has already been consumed
+  into persisted run state; editing the old JSON file later does not rewrite
+  the run history
 - if `error` is an object, it must follow the structured `error` contract
 - if `tool_trace` is non-empty, each entry must follow the structured
   `ToolTraceEntry` contract
