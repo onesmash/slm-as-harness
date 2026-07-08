@@ -428,6 +428,28 @@ VERIFY_COMPLETION = StepContract(
     ),
 )
 
+REPAIR_AND_RESUME_ROUTE_1 = SkillRoute(
+    skill='research-nex',
+    use_when=SkillUseWhen(
+        operations=['repair solution exploration', 'evidence-backed option synthesis', 'failure mode research'],
+        file_patterns=['*.md', '*.swift', '*.m', '*.mm', '*.pbxproj', '*.log'],
+    ),
+    usage_notes=['Primary owner for researching plausible repair strategies and retry guidance from the persisted '
+ 'repair context.',
+ 'Keep the stage focused on solution exploration and evidence synthesis; do not use it as the '
+ 'implementation owner.'],
+)
+
+REPAIR_AND_RESUME_ROUTE_2 = SkillRoute(
+    skill='search-nex',
+    use_when=SkillUseWhen(
+        operations=['targeted source discovery', 'first-pass verification for repair research'],
+        file_patterns=['*.md', '*.swift', '*.m', '*.mm', '*.pbxproj', '*.log'],
+    ),
+    usage_notes=['Supporting route for finding fresh sources or references that research-nex should synthesize '
+ 'before the workflow retries the return stage.'],
+)
+
 REQUEST_UNBLOCKING_INPUT = StepContract(
     done_when=['Identify the blocking reason',
  'Ask the user for the input, approval, or resource required to continue'],
@@ -438,8 +460,12 @@ REQUEST_UNBLOCKING_INPUT = StepContract(
 REPAIR_AND_RESUME = StepContract(
     done_when=['Explain why the original step needs repair',
  'Return retry_reason, retry_notes, and repair_actions'],
-    output_schema={'retry_reason': 'string', 'retry_notes': 'string', 'repair_actions': 'string[]'},
+    output_schema={'retry_reason': 'string',
+ 'retry_notes': 'string',
+ 'repair_actions': 'string[]',
+ 'needs_external_unblocking': 'boolean?'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[REPAIR_AND_RESUME_ROUTE_1, REPAIR_AND_RESUME_ROUTE_2],
 )
 
 STEP_CONTRACTS = {

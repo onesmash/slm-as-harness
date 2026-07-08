@@ -60,6 +60,24 @@
       "purpose": "Require root-cause investigation before implementation fixes when verification fails."
     },
     {
+      "id": "research-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "purpose": "Explore evidence-backed repair options and retry guidance when the shared repair stage needs solution synthesis before resuming the workflow.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill research-nex -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "search-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:search-nex",
+      "purpose": "Provide source discovery and initial verification support for research-nex during repair-stage solution exploration.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill search-nex -g -y --agent claude-code cursor codex"
+    },
+    {
       "id": "xcodebuildmcp-cli",
       "type": "skill",
       "required": true,

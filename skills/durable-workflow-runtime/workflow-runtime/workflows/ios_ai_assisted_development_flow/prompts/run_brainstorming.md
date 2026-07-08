@@ -5,6 +5,11 @@ Stage Context:
 - Repository root: {{repo_root}}
 - Source process doc: {{source_doc_url}}
 - Brainstorming source: {{source_skill_url}}
+- Latest spec review perspectives: {{spec_review_perspectives}}
+- Latest spec review findings summary: {{spec_review_findings_summary}}
+- Latest spec review subagent summaries: {{spec_review_subagent_summaries}}
+- Latest spec review artifact paths: {{spec_review_artifact_paths}}
+- Latest open questions carried forward: {{open_questions}}
 
 Stage Boundaries:
 
@@ -12,6 +17,7 @@ Stage Boundaries:
 - Do not write the implementation plan until the design direction is approved.
 - Keep knowledge-base usage as context lookup, not as separate user-visible stages.
 - Follow the normal design-approval flow before writing or finalizing the approved spec document.
+- If this stage is revisiting the design after spec review, address the recorded review findings and preserve the link to the existing review artifacts.
 - Write the approved brainstorming design as a Markdown document under docs/superpowers/specs/.
 - Do not use implementation plan documents as the brainstorming design document.
 - If the approved request affects a user-visible UI surface, the spec must include implementation-ready visual detail: view hierarchy, per-element properties, typography, colors, spacing, padding, alignment, sizing, constraints, states, assets, interaction behavior, layout relationships, and measurable expectations detailed enough to support code generation and visual verification without guessing.

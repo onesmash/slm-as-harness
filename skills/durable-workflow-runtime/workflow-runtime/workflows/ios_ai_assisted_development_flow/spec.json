@@ -29,13 +29,19 @@
         "context": [
           "Repository root: {{repo_root}}",
           "Source process doc: {{source_doc_url}}",
-          "Brainstorming source: {{source_skill_url}}"
+          "Brainstorming source: {{source_skill_url}}",
+          "Latest spec review perspectives: {{spec_review_perspectives}}",
+          "Latest spec review findings summary: {{spec_review_findings_summary}}",
+          "Latest spec review subagent summaries: {{spec_review_subagent_summaries}}",
+          "Latest spec review artifact paths: {{spec_review_artifact_paths}}",
+          "Latest open questions carried forward: {{open_questions}}"
         ],
         "boundaries": [
           "Do not implement code in this stage.",
           "Do not write the implementation plan until the design direction is approved.",
           "Keep knowledge-base usage as context lookup, not as separate user-visible stages.",
           "Follow the normal design-approval flow before writing or finalizing the approved spec document.",
+          "If this stage is revisiting the design after spec review, address the recorded review findings and preserve the link to the existing review artifacts.",
           "Write the approved brainstorming design as a Markdown document under docs/superpowers/specs/.",
           "Do not use implementation plan documents as the brainstorming design document.",
           "If the approved request affects a user-visible UI surface, the spec must include implementation-ready visual detail: view hierarchy, per-element properties, typography, colors, spacing, padding, alignment, sizing, constraints, states, assets, interaction behavior, layout relationships, and measurable expectations detailed enough to support code generation and visual verification without guessing.",
@@ -158,6 +164,10 @@
         "ui_surface_affected",
         "design_comparison_source",
         "runtime_visual_comparison_scope",
+        "spec_review_perspectives",
+        "spec_review_findings_summary",
+        "spec_review_subagent_summaries",
+        "spec_review_artifact_paths",
         "open_questions"
       ],
       "repair_conditions": [],
@@ -472,9 +482,19 @@
       ],
       "state_updates": [
         {
+          "state_key": "spec_review_perspectives",
+          "output_key": "spec_review_perspectives",
+          "kind": "list"
+        },
+        {
           "state_key": "spec_review_findings_summary",
           "output_key": "spec_review_findings_summary",
           "kind": "string"
+        },
+        {
+          "state_key": "spec_review_subagent_summaries",
+          "output_key": "spec_review_subagent_summaries",
+          "kind": "list"
         },
         {
           "state_key": "spec_review_artifact_paths",
@@ -491,10 +511,12 @@
         "approved_design_path",
         "approved_design_summary",
         "authorization_summary",
+        "spec_review_perspectives",
         "ui_surface_affected",
         "design_comparison_source",
         "runtime_visual_comparison_scope",
         "spec_review_findings_summary",
+        "spec_review_subagent_summaries",
         "spec_review_artifact_paths",
         "open_questions"
       ],
@@ -2062,6 +2084,7 @@
           "Stay blocked if the missing external input still cannot be named concretely."
         ]
       },
+      "skill_routing": [],
       "done_when": [
         "Identify the blocking reason",
         "Ask the user for the input, approval, or resource required to continue"
@@ -2080,9 +2103,9 @@
     "repair_and_resume": {
       "intent": "repair_and_resume",
       "expected_artifact": "repair actions needed before returning to the original stage",
-      "prompt": "Repair the previous workflow step using the persisted failure details, and decide whether the workflow can retry directly or must first ask for external unblocking input after exhausting the allowed self-repair attempts.",
+      "prompt": "/research-nex investigate the {{repair_category}} failure affecting {{return_stage_id}} using the persisted repair requirements and evidence; use search-nex when fresh source discovery or first-pass verification is needed, then synthesize evidence-backed repair options before the workflow retries or requests external unblocking input.",
       "prompt_sections": {
-        "stage_goal": "Use the persisted repair context to explain what failed, propose concrete repair actions, and decide whether the workflow can retry the original stage safely or must first request external help.",
+        "stage_goal": "Use the persisted repair context to explain what failed, synthesize evidence-backed repair options, and decide whether the workflow can retry the original stage safely or must first request external help.",
         "context": [
           "Current step: {{current_step_id}}",
           "Return stage: {{return_stage_id}}",
@@ -2092,17 +2115,60 @@
           "Repair requirements:",
           "{{repair_requirements}}",
           "Relevant evidence:",
-          "{{repair_evidence}}"
+          "{{repair_evidence}}",
+          "Blocked self-repair attempts in this repair episode: {{repair_blocked_attempts}}"
         ],
         "boundaries": [
           "Keep the retry scoped to the original return stage instead of changing workflow routing.",
           "Base the repair plan on the persisted repair requirements rather than generic retries.",
+          "Use search-nex only as supporting source discovery for research-nex; do not replace research-nex as the primary owner.",
+          "Do not implement code changes in this stage; produce evidence-backed repair options and retry guidance only.",
           "Attempt self-repair within this repair episode before requesting external help, and only escalate to request_unblocking_input after 3 blocked self-repair attempts in the same repair episode."
         ],
         "blocked_conditions": [
           "Return blocked if repair cannot proceed without additional external input or approval."
         ]
       },
+      "skill_routing": [
+        {
+          "skill": "research-nex",
+          "operations": [
+            "repair solution exploration",
+            "evidence-backed option synthesis",
+            "failure mode research"
+          ],
+          "file_patterns": [
+            "*.md",
+            "*.swift",
+            "*.m",
+            "*.mm",
+            "*.pbxproj",
+            "*.log"
+          ],
+          "usage_notes": [
+            "Primary owner for researching plausible repair strategies and retry guidance from the persisted repair context.",
+            "Keep the stage focused on solution exploration and evidence synthesis; do not use it as the implementation owner."
+          ]
+        },
+        {
+          "skill": "search-nex",
+          "operations": [
+            "targeted source discovery",
+            "first-pass verification for repair research"
+          ],
+          "file_patterns": [
+            "*.md",
+            "*.swift",
+            "*.m",
+            "*.mm",
+            "*.pbxproj",
+            "*.log"
+          ],
+          "usage_notes": [
+            "Supporting route for finding fresh sources or references that research-nex should synthesize before the workflow retries the return stage."
+          ]
+        }
+      ],
       "done_when": [
         "Explain why the original step needs repair",
         "Return retry_reason, retry_notes, and repair_actions"
@@ -2110,7 +2176,8 @@
       "output_schema": {
         "retry_reason": "string",
         "retry_notes": "string",
-        "repair_actions": "string[]"
+        "repair_actions": "string[]",
+        "needs_external_unblocking": "boolean?"
       },
       "failure_schema": {
         "blocked_reason": "string?",
@@ -2162,6 +2229,24 @@
       "scope": "either",
       "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
       "purpose": "Require root-cause investigation before implementation fixes when verification fails."
+    },
+    {
+      "id": "research-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "purpose": "Explore evidence-backed repair options and retry guidance when the shared repair stage needs solution synthesis before resuming the workflow.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill research-nex -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "search-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:search-nex",
+      "purpose": "Provide source discovery and initial verification support for research-nex during repair-stage solution exploration.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill search-nex -g -y --agent claude-code cursor codex"
     },
     {
       "id": "xcodebuildmcp-cli",
@@ -2282,6 +2367,22 @@
       "scope": "either",
       "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
       "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "research-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "recorded_at": "2026-07-08T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "search-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:search-nex",
+      "recorded_at": "2026-07-08T00:00:00Z",
       "recorded_by": "workflow-creator"
     },
     {
@@ -2979,7 +3080,7 @@
       },
       "state": null,
       "expected_next_node": "repair_and_resume",
-      "expected_branch_kind": "retry"
+      "expected_branch_kind": "repair"
     },
     {
       "name": "release_qa_do_not_ship_routes_to_implementation",
@@ -3500,7 +3601,7 @@
       },
       "state": null,
       "expected_next_node": "repair_and_resume",
-      "expected_branch_kind": "repair"
+      "expected_branch_kind": "retry"
     },
     {
       "name": "review_rejects_approved_status_with_findings",

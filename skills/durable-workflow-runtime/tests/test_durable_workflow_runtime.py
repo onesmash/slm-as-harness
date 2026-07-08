@@ -1592,6 +1592,67 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                     flow_description=None,
                 )
 
+    def test_workflow_creator_accepts_shared_repair_helper_skill_routing(self) -> None:
+        create_workflow = self._load_create_workflow_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spec_path = Path(tmpdir) / "shared_helper_skill_route_spec.json"
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "workflow_id": "shared_helper_skill_route_workflow",
+                        "flow_description": "Exercise shared helper skill routing support.",
+                        "stages": [
+                            {
+                                "step_id": "collect_context",
+                                "prompt": "Collect context.",
+                                "done_when": ["Context is collected"],
+                                "output_schema": {"ready": "boolean"},
+                                "failure_schema": {"blocked_reason": "string?"},
+                            }
+                        ],
+                        "shared_repair_helpers": {
+                            "repair_and_resume": {
+                                "skill_routing": [
+                                    {
+                                        "skill": "research-nex",
+                                        "operations": [
+                                            "repair solution exploration",
+                                            "evidence-backed option synthesis",
+                                        ],
+                                        "file_patterns": [
+                                            "*.md",
+                                            "*.swift",
+                                            "*.m",
+                                            "*.mm",
+                                        ],
+                                        "usage_notes": [
+                                            "Primary owner for researching repair options before retrying the return stage."
+                                        ],
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            workflow_spec = create_workflow._load_workflow_spec(
+                spec_file=spec_path,
+                workflow_id=None,
+                flow_description=None,
+            )
+
+            helper_routes = workflow_spec["shared_repair_helpers"]["repair_and_resume"]["skill_routing"]
+            self.assertEqual(len(helper_routes), 1)
+            self.assertEqual(helper_routes[0]["skill"], "research-nex")
+
+            contract_text = create_workflow._render_contract_py(workflow_spec)
+            self.assertIn("REPAIR_AND_RESUME_ROUTE_1 = SkillRoute(", contract_text)
+            self.assertIn("skill='research-nex'", contract_text)
+            self.assertIn("skill_routing=[REPAIR_AND_RESUME_ROUTE_1]", contract_text)
+
     def test_general_references_explain_skill_root_path_convention(self) -> None:
         reference_files = [
             SKILL_ROOT / "references" / "index.md",
@@ -3387,6 +3448,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 "# - rejects succeeded outputs that claim synthesis readiness with empty findings",
                 verifier_text,
             )
+            self.assertIn("def _meaningful_entries(value) -> list[str]:", verifier_text)
+            self.assertIn("def _extract_single_review_perspective(text: str) -> str | None:", verifier_text)
+            self.assertIn("def _looks_like_visual_evidence(text: str) -> bool:", verifier_text)
+            self.assertIn("def _severity_rank(severity: str) -> int:", verifier_text)
             self.assertIn("collect_review_context -->|success| run_structured_critique", flowchart_text)
             self.assertIn("run_structured_critique -->|success| finalize_review_report", flowchart_text)
             self.assertNotIn("run_structured_critique -->|success| repair_structured_critique", flowchart_text)

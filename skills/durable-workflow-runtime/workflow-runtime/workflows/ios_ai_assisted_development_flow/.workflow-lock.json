@@ -43,6 +43,22 @@
       "recorded_by": "workflow-creator"
     },
     {
+      "id": "research-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "recorded_at": "2026-07-08T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "search-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:search-nex",
+      "recorded_at": "2026-07-08T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
       "id": "xcodebuildmcp-cli",
       "type": "skill",
       "scope": "either",

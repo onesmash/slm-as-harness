@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 
 from workflows.common.contracts import VerifierResult, make_verifier_result
 from workflows.common.policies import condition_matches
@@ -571,6 +570,10 @@ Test intent:
         return "spec_review_subagent_summaries must contain at least three concrete review summaries"
     if len(artifact_paths) < 3:
         return "spec_review_artifact_paths must contain at least three concrete artifact paths"
+    if len(summaries) != 3:
+        return "spec_review_subagent_summaries must map one-to-one to development, design, and testing reviews"
+    if len(artifact_paths) != 3:
+        return "spec_review_artifact_paths must map one-to-one to development, design, and testing reviews"
     if len({summary.strip().lower() for summary in summaries}) != len(summaries):
         return "spec_review_subagent_summaries must be unique across development, design, and testing reviews"
     if len({artifact_path.strip().lower() for artifact_path in artifact_paths}) != len(artifact_paths):
@@ -1330,79 +1333,83 @@ def _artifact_file_contains_sections_error(actual, template: dict, repo_root: st
     return None if not missing else f"{message}: missing sections {missing}"
 
 
+def _meaningful_entries(value) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    entries: list[str] = []
+    for item in value:
+        if not isinstance(item, str):
+            continue
+        text = item.strip()
+        if text:
+            entries.append(text)
+    return entries
+
+
+def _path_has_prefix(path: Path, prefix: Path) -> bool:
+    try:
+        path.as_posix()
+        normalized_path = path.as_posix().strip("/")
+        normalized_prefix = prefix.as_posix().strip("/")
+    except Exception:
+        return False
+    return normalized_path == normalized_prefix or normalized_path.startswith(normalized_prefix + "/")
+
+
+def _extract_single_review_perspective(text: str) -> str | None:
+    lowered = str(text).lower()
+    matched = [label for label in ("development", "design", "testing") if label in lowered]
+    if len(matched) != 1:
+        return None
+    return matched[0]
+
+
+def _looks_like_visual_evidence(text: str) -> bool:
+    lowered = str(text).lower()
+    markers = (
+        "visual diff",
+        "screenshot diff",
+        "screenshot comparison",
+        "design comparison",
+        "figma",
+        "pixel diff",
+        "visual qa",
+        "mock comparison",
+    )
+    return any(marker in lowered for marker in markers)
+
+
+def _has_explicit_severity_prefix(text: str) -> bool:
+    return _extract_severity_prefix(text) is not None
+
+
+def _extract_severity_prefix(text: str) -> str | None:
+    normalized = str(text).strip().lower()
+    for prefix in ("critical", "blocker", "p0", "important", "high", "p1", "major", "medium", "minor", "low"):
+        if normalized.startswith(prefix + ":"):
+            return prefix
+    return None
+
+
+def _severity_rank(severity: str) -> int:
+    ranks = {
+        "critical": 0,
+        "blocker": 0,
+        "p0": 0,
+        "important": 1,
+        "high": 1,
+        "p1": 1,
+        "major": 2,
+        "medium": 3,
+        "minor": 4,
+        "low": 5,
+    }
+    return ranks.get(severity, 999)
+
+
 def _fail(message: str, run_id: str, step_id: str, state: dict | None) -> VerifierResult:
     return make_verifier_result(
         passed=False,
         message=message,
         details={"run_id": run_id, "step_id": step_id, "state": state or {}},
     )
-
-
-def _path_has_prefix(path: str, prefixes: tuple[str, ...]) -> bool:
-    normalized = path.strip().lower()
-    return any(normalized.startswith(prefix) for prefix in prefixes)
-
-
-def _has_explicit_severity_prefix(value: str) -> bool:
-    return _extract_severity_prefix(value) is not None
-
-
-def _extract_severity_prefix(value: str) -> str | None:
-    match = re.match(r"^\s*([a-z0-9_]+)\s*:\s+", str(value), flags=re.IGNORECASE)
-    if not match:
-        return None
-    severity = match.group(1).strip().lower()
-    supported = {
-        "critical",
-        "important",
-        "high",
-        "medium",
-        "low",
-        "major",
-        "minor",
-        "blocker",
-        "p0",
-        "p1",
-    }
-    return severity if severity in supported else None
-
-
-def _severity_rank(severity: str) -> int:
-    normalized = severity.strip().lower()
-    if normalized in {"critical", "blocker", "p0"}:
-        return 0
-    if normalized in {"important", "high", "major", "p1"}:
-        return 1
-    if normalized == "medium":
-        return 2
-    return 3
-
-
-def _extract_single_review_perspective(value: str) -> str:
-    return str(value or "").strip().lower()
-
-
-def _looks_like_visual_evidence(value: str) -> bool:
-    normalized = str(value or "").strip().lower()
-    if not normalized:
-        return False
-    visual_markers = (
-        "visual",
-        "screenshot",
-        "snapshot",
-        "pixel",
-        "design comparison",
-        "diff",
-        "mock",
-        "figma",
-    )
-    return any(marker in normalized for marker in visual_markers) or _path_has_prefix(
-        normalized,
-        ("figma://", "http://", "https://"),
-    )
-
-
-def _meaningful_entries(values) -> list[str]:
-    if not isinstance(values, list):
-        return []
-    return [str(value).strip() for value in values if str(value).strip()]

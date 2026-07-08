@@ -447,6 +447,8 @@ supports:
 - `prompt`: action line for the helper prompt asset.
 - `prompt_sections`: optional structured prompt sections using the same shape as
   workflow stages.
+- `skill_routing`: optional routed skills for the helper `StepContract`,
+  following the same shape as `stages[].skill_routing`.
 - `expected_artifact`: developer-facing node summary used by generated runtime
   metadata.
 - `done_when`: helper completion checklist for generated `StepContract`.
@@ -639,8 +641,9 @@ the generated suite should make it easy to verify:
   generator validates the declaration shape and wires those helpers into stage
   verifier execution
 - `shared_repair_helpers` lets workflows override the shared helper prompts,
-  expected-artifact metadata, and helper `StepContract` schemas in a
-  source-of-truth way instead of depending on hard-coded defaults
+  expected-artifact metadata, helper `skill_routing`, and helper
+  `StepContract` schemas in a source-of-truth way instead of depending on
+  hard-coded defaults
 - `regression_tests` generates workflow-specific transition and verifier tests
   under `workflow-runtime/workflows/<workflow_id>/tests/test_workflow.py`; the
   generator also appends default structural tests for shared recovery-helper

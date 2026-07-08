@@ -734,6 +734,10 @@ def _validate_shared_repair_helpers(value: Any) -> dict[str, dict[str, Any]]:
                 fallback_prompt=prompt,
                 label=f"shared_repair_helpers.{helper_id}.prompt_sections",
             ),
+            "skill_routing": _validate_skill_routing(
+                item.get("skill_routing") or [],
+                f"shared_repair_helpers.{helper_id}.skill_routing",
+            ),
             "done_when": _validate_string_list(
                 item.get("done_when") or default["done_when"],
                 f"shared_repair_helpers.{helper_id}.done_when",
@@ -1643,7 +1647,9 @@ def _repair_prompt() -> str:
 def _render_contract_py(workflow_spec: dict[str, Any]) -> str:
     workflow_id = workflow_spec["workflow_id"]
     shared_helpers = workflow_spec["shared_repair_helpers"]
-    has_skill_routes = any(stage["skill_routing"] for stage in workflow_spec["stages"])
+    has_skill_routes = any(stage["skill_routing"] for stage in workflow_spec["stages"]) or any(
+        helper["skill_routing"] for helper in shared_helpers.values()
+    )
     import_line = (
         "from workflows.common.contracts import (SkillRoute, SkillUseWhen, StepContract, StepVerifier, WorkflowInputContract)"
         if has_skill_routes
@@ -1704,18 +1710,68 @@ def _render_contract_py(workflow_spec: dict[str, Any]) -> str:
                 "",
             ]
         )
+    for helper_id, const_name in (
+        ("request_unblocking_input", "REQUEST_UNBLOCKING_INPUT"),
+        ("repair_and_resume", "REPAIR_AND_RESUME"),
+    ):
+        helper = shared_helpers[helper_id]
+        for index, route in enumerate(helper["skill_routing"], start=1):
+            route_const_name = f"{const_name}_ROUTE_{index}"
+            lines.extend(
+                [
+                    f"{route_const_name} = SkillRoute(",
+                    f"    skill={route['skill']!r},",
+                    "    use_when=SkillUseWhen(",
+                    f"        operations={_python_literal(route['operations'])},",
+                    f"        file_patterns={_python_literal(route['file_patterns'])},",
+                    "    ),",
+                    f"    usage_notes={_python_literal(route['usage_notes'])},",
+                    ")",
+                    "",
+                ]
+            )
     lines.extend(
         [
             "REQUEST_UNBLOCKING_INPUT = StepContract(",
             f"    done_when={_python_literal(shared_helpers['request_unblocking_input']['done_when'])},",
             f"    output_schema={_python_literal(shared_helpers['request_unblocking_input']['output_schema'])},",
             f"    failure_schema={_python_literal(shared_helpers['request_unblocking_input']['failure_schema'])},",
+            *(
+                [
+                    "    skill_routing=["
+                    + ", ".join(
+                        f"REQUEST_UNBLOCKING_INPUT_ROUTE_{index}"
+                        for index, _ in enumerate(
+                            shared_helpers["request_unblocking_input"]["skill_routing"],
+                            start=1,
+                        )
+                    )
+                    + "],"
+                ]
+                if shared_helpers["request_unblocking_input"]["skill_routing"]
+                else []
+            ),
             ")",
             "",
             "REPAIR_AND_RESUME = StepContract(",
             f"    done_when={_python_literal(shared_helpers['repair_and_resume']['done_when'])},",
             f"    output_schema={_python_literal(shared_helpers['repair_and_resume']['output_schema'])},",
             f"    failure_schema={_python_literal(shared_helpers['repair_and_resume']['failure_schema'])},",
+            *(
+                [
+                    "    skill_routing=["
+                    + ", ".join(
+                        f"REPAIR_AND_RESUME_ROUTE_{index}"
+                        for index, _ in enumerate(
+                            shared_helpers["repair_and_resume"]["skill_routing"],
+                            start=1,
+                        )
+                    )
+                    + "],"
+                ]
+                if shared_helpers["repair_and_resume"]["skill_routing"]
+                else []
+            ),
             ")",
             "",
             "STEP_CONTRACTS = {",
@@ -2994,6 +3050,79 @@ def _render_verifiers_py(
             "    sections = [str(section) for section in template.get(\"sections\") or []]",
             "    missing = [section for section in sections if section not in text]",
             "    return None if not missing else f\"{message}: missing sections {missing}\"",
+            "",
+            "",
+            "def _meaningful_entries(value) -> list[str]:",
+            "    if not isinstance(value, list):",
+            "        return []",
+            "    entries: list[str] = []",
+            "    for item in value:",
+            "        if not isinstance(item, str):",
+            "            continue",
+            "        text = item.strip()",
+            "        if text:",
+            "            entries.append(text)",
+            "    return entries",
+            "",
+            "",
+            "def _path_has_prefix(path: Path, prefix: Path) -> bool:",
+            "    try:",
+            "        normalized_path = path.as_posix().strip(\"/\")",
+            "        normalized_prefix = prefix.as_posix().strip(\"/\")",
+            "    except Exception:",
+            "        return False",
+            "    return normalized_path == normalized_prefix or normalized_path.startswith(normalized_prefix + \"/\")",
+            "",
+            "",
+            "def _extract_single_review_perspective(text: str) -> str | None:",
+            "    lowered = str(text).lower()",
+            "    matched = [label for label in (\"development\", \"design\", \"testing\") if label in lowered]",
+            "    if len(matched) != 1:",
+            "        return None",
+            "    return matched[0]",
+            "",
+            "",
+            "def _looks_like_visual_evidence(text: str) -> bool:",
+            "    lowered = str(text).lower()",
+            "    markers = (",
+            "        \"visual diff\",",
+            "        \"screenshot diff\",",
+            "        \"screenshot comparison\",",
+            "        \"design comparison\",",
+            "        \"figma\",",
+            "        \"pixel diff\",",
+            "        \"visual qa\",",
+            "        \"mock comparison\",",
+            "    )",
+            "    return any(marker in lowered for marker in markers)",
+            "",
+            "",
+            "def _has_explicit_severity_prefix(text: str) -> bool:",
+            "    return _extract_severity_prefix(text) is not None",
+            "",
+            "",
+            "def _extract_severity_prefix(text: str) -> str | None:",
+            "    normalized = str(text).strip().lower()",
+            "    for prefix in (\"critical\", \"blocker\", \"p0\", \"important\", \"high\", \"p1\", \"major\", \"medium\", \"minor\", \"low\"):",
+            "        if normalized.startswith(prefix + \":\"):",
+            "            return prefix",
+            "    return None",
+            "",
+            "",
+            "def _severity_rank(severity: str) -> int:",
+            "    ranks = {",
+            "        \"critical\": 0,",
+            "        \"blocker\": 0,",
+            "        \"p0\": 0,",
+            "        \"important\": 1,",
+            "        \"high\": 1,",
+            "        \"p1\": 1,",
+            "        \"major\": 2,",
+            "        \"medium\": 3,",
+            "        \"minor\": 4,",
+            "        \"low\": 5,",
+            "    }",
+            "    return ranks.get(severity, 999)",
             "",
             "",
             "def _fail(message: str, run_id: str, step_id: str, state: dict | None) -> VerifierResult:",

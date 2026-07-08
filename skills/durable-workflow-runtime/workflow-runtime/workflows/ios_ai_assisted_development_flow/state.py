@@ -40,7 +40,9 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     open_questions: list = field(default_factory=list)
     subagent_review_approved: bool | None = None
     authorization_summary: str | None = None
+    spec_review_perspectives: list = field(default_factory=list)
     spec_review_findings_summary: str | None = None
+    spec_review_subagent_summaries: list = field(default_factory=list)
     spec_review_artifact_paths: list = field(default_factory=list)
     plan_summary: str | None = None
     plan_path: str | None = None
@@ -74,6 +76,12 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     completion_remaining_risks: list = field(default_factory=list)
     completion_release_qa_risks_resolved: bool | None = None
     completion_release_qa_risk_resolution_summary: str | None = None
+    repair_category: str | None = None
+    repair_summary: str | None = None
+    repair_requirements: list = field(default_factory=list)
+    repair_evidence: list = field(default_factory=list)
+    repair_transition_reason: str | None = None
+    repair_blocked_attempts: int = 0
     artifacts_by_stage: dict[str, list[dict]] = field(default_factory=dict)
     repair_context: dict[str, object] = field(default_factory=dict)
 
@@ -121,7 +129,9 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         open_questions=list(payload.get('open_questions') or []),
         subagent_review_approved=payload.get('subagent_review_approved'),
         authorization_summary=payload.get('authorization_summary'),
+        spec_review_perspectives=list(payload.get('spec_review_perspectives') or []),
         spec_review_findings_summary=payload.get('spec_review_findings_summary'),
+        spec_review_subagent_summaries=list(payload.get('spec_review_subagent_summaries') or []),
         spec_review_artifact_paths=list(payload.get('spec_review_artifact_paths') or []),
         plan_summary=payload.get('plan_summary'),
         plan_path=payload.get('plan_path'),
@@ -155,6 +165,12 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         completion_remaining_risks=list(payload.get('completion_remaining_risks') or []),
         completion_release_qa_risks_resolved=payload.get('completion_release_qa_risks_resolved'),
         completion_release_qa_risk_resolution_summary=payload.get('completion_release_qa_risk_resolution_summary'),
+        repair_category=payload.get('repair_category'),
+        repair_summary=payload.get('repair_summary'),
+        repair_requirements=list(payload.get('repair_requirements') or []),
+        repair_evidence=list(payload.get('repair_evidence') or []),
+        repair_transition_reason=payload.get('repair_transition_reason'),
+        repair_blocked_attempts=int(payload.get('repair_blocked_attempts') or 0),
         artifacts_by_stage=dict(payload.get("artifacts_by_stage") or {}),
         repair_context=dict(payload.get("repair_context") or {}),
     )
@@ -168,6 +184,11 @@ def record_observation(
     verifier_result: dict | None,
 ) -> None:
     state.attempt_counts[current_step_id] = state.attempt_counts.get(current_step_id, 0) + 1
+    if current_step_id == "repair_and_resume":
+        if observation.get("status") == "blocked":
+            state.repair_blocked_attempts += 1
+        elif observation.get("status") == "succeeded":
+            state.repair_blocked_attempts = 0
     structured_output = observation.get("structured_output") or {}
     if isinstance(structured_output, dict):
         state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
@@ -185,7 +206,9 @@ def record_observation(
                 state.subagent_review_approved = structured_output.get('subagent_review_approved')
                 state.authorization_summary = structured_output.get('authorization_summary')
             elif current_step_id == 'run_spec_review':
+                state.spec_review_perspectives = _list_value(structured_output.get('spec_review_perspectives'))
                 state.spec_review_findings_summary = structured_output.get('spec_review_findings_summary')
+                state.spec_review_subagent_summaries = _list_value(structured_output.get('spec_review_subagent_summaries'))
                 state.spec_review_artifact_paths = _list_value(structured_output.get('spec_review_artifact_paths'))
                 state.open_questions = _list_value(structured_output.get('open_questions'))
             elif current_step_id == 'write_implementation_plan':
@@ -275,6 +298,12 @@ def record_observation(
         transition_reason=transition_reason,
         repair_payload=repair_payload or {},
     )
+    _apply_repair_payload(
+        state,
+        transition_reason=transition_reason,
+        repair_payload=repair_payload or {},
+        reset_blocked_attempts=current_step_id not in REPAIR_STAGE_IDS,
+    )
 
 
 def determine_return_stage_id(
@@ -315,7 +344,15 @@ def apply_transition(state: IosAiAssistedDevelopmentFlowWorkflowState, *, curren
 
     if current_step_id in REPAIR_STAGE_IDS and next_step_id == state.return_stage_id:
         state.return_stage_id = None
-        state.repair_context = {}
+        _clear_repair_state(state)
+
+    if current_step_id == "repair_and_resume":
+        if next_step_id == "repair_and_resume":
+            state.repair_blocked_attempts = max(state.repair_blocked_attempts, 0)
+        elif next_step_id == "request_unblocking_input":
+            state.repair_context["repair_blocked_attempts"] = state.repair_blocked_attempts
+        elif next_step_id not in REPAIR_STAGE_IDS:
+            _clear_repair_state(state)
 
     state.current_stage_id = next_step_id
 
@@ -343,8 +380,39 @@ def _build_repair_context(
         "source_stage_id": current_step_id,
         "return_stage_id": return_stage_id or "",
         "transition_reason": transition_reason,
+        "repair_category": str(repair_payload.get("category") or ""),
+        "repair_summary": str(repair_payload.get("summary") or ""),
+        "repair_requirements": _string_list(repair_payload.get("requirements")),
+        "repair_evidence": _string_list(repair_payload.get("evidence")),
+        "repair_blocked_attempts": 0,
         "repair_payload": dict(repair_payload or {}),
     }
+
+
+def _apply_repair_payload(
+    state: IosAiAssistedDevelopmentFlowWorkflowState,
+    *,
+    transition_reason: str,
+    repair_payload: dict[str, object],
+    reset_blocked_attempts: bool,
+) -> None:
+    state.repair_transition_reason = transition_reason
+    state.repair_category = str(repair_payload.get("category") or "")
+    state.repair_summary = str(repair_payload.get("summary") or "")
+    state.repair_requirements = _string_list(repair_payload.get("requirements"))
+    state.repair_evidence = _string_list(repair_payload.get("evidence"))
+    if reset_blocked_attempts:
+        state.repair_blocked_attempts = 0
+
+
+def _clear_repair_state(state: IosAiAssistedDevelopmentFlowWorkflowState) -> None:
+    state.repair_context = {}
+    state.repair_category = None
+    state.repair_summary = None
+    state.repair_requirements = []
+    state.repair_evidence = []
+    state.repair_transition_reason = None
+    state.repair_blocked_attempts = 0
 
 
 def _list_value(value) -> list:

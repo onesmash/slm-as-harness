@@ -234,7 +234,7 @@ def choose_next_node(
 
     if current_step_id == "repair_and_resume":
         if observation["status"] == "blocked":
-            repair_attempts = int((state.get("attempt_counts") or {}).get("repair_and_resume") or 0)
+            repair_attempts = int(state.get("repair_blocked_attempts") or 0)
             if repair_attempts < 3:
                 return TransitionDecision(
                     next_node="repair_and_resume",
@@ -247,6 +247,13 @@ def choose_next_node(
                 reason="repair exhausted 3 self-repair attempts and now requires external help before retry",
             )
         if observation["status"] == "succeeded":
+            structured_output = observation.get("structured_output") or {}
+            if isinstance(structured_output, dict) and structured_output.get("needs_external_unblocking") is True:
+                return TransitionDecision(
+                    next_node="request_unblocking_input",
+                    branch_kind="repair",
+                    reason="repair explicitly requested external unblocking before the original stage can retry",
+                )
             return_stage_id = state.get("return_stage_id")
             if not return_stage_id:
                 return TransitionDecision(

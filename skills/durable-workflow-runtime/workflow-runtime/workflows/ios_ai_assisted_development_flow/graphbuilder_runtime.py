@@ -277,19 +277,16 @@ def build_template_context(*, step_id: str, run_state) -> dict:
         run_state.graph_state if isinstance(run_state.graph_state, dict) else {}
     )
     repair_context = state.repair_context if isinstance(state.repair_context, dict) else {}
-    repair_payload = repair_context.get("repair_payload")
-    if not isinstance(repair_payload, dict):
-        repair_payload = {}
     context = _template_context_from_state(state)
     context.update(
         {
             "current_step_id": step_id,
             "return_stage_id": state.return_stage_id or "",
             "source_stage_id": str(repair_context.get("source_stage_id") or ""),
-            "repair_category": str(repair_payload.get("category") or ""),
-            "repair_summary": str(repair_payload.get("summary") or ""),
-            "repair_requirements": _format_prompt_list(repair_payload.get("requirements")),
-            "repair_evidence": _format_prompt_list(repair_payload.get("evidence")),
+            "repair_category": _format_prompt_value(state.repair_category or repair_context.get("repair_category")),
+            "repair_summary": _format_prompt_value(state.repair_summary or repair_context.get("repair_summary")),
+            "repair_requirements": _format_prompt_list(state.repair_requirements or repair_context.get("repair_requirements")),
+            "repair_evidence": _format_prompt_list(state.repair_evidence or repair_context.get("repair_evidence")),
         }
     )
     return context
@@ -318,7 +315,9 @@ def _template_context_from_state(state: workflow_state.IosAiAssistedDevelopmentF
         "open_questions": _format_prompt_value(state.open_questions),
         "subagent_review_approved": _format_prompt_value(state.subagent_review_approved),
         "authorization_summary": _format_prompt_value(state.authorization_summary),
+        "spec_review_perspectives": _format_prompt_value(state.spec_review_perspectives),
         "spec_review_findings_summary": _format_prompt_value(state.spec_review_findings_summary),
+        "spec_review_subagent_summaries": _format_prompt_value(state.spec_review_subagent_summaries),
         "spec_review_artifact_paths": _format_prompt_value(state.spec_review_artifact_paths),
         "plan_summary": _format_prompt_value(state.plan_summary),
         "plan_path": _format_prompt_value(state.plan_path),
@@ -352,6 +351,12 @@ def _template_context_from_state(state: workflow_state.IosAiAssistedDevelopmentF
         "completion_remaining_risks": _format_prompt_value(state.completion_remaining_risks),
         "completion_release_qa_risks_resolved": _format_prompt_value(state.completion_release_qa_risks_resolved),
         "completion_release_qa_risk_resolution_summary": _format_prompt_value(state.completion_release_qa_risk_resolution_summary),
+        "repair_category": _format_prompt_value(state.repair_category),
+        "repair_summary": _format_prompt_value(state.repair_summary),
+        "repair_requirements": _format_prompt_value(state.repair_requirements),
+        "repair_evidence": _format_prompt_value(state.repair_evidence),
+        "repair_transition_reason": _format_prompt_value(state.repair_transition_reason),
+        "repair_blocked_attempts": _format_prompt_value(state.repair_blocked_attempts),
         "goal": _format_prompt_value(task_input_values.get("goal")),
         "preferred_change_name": _format_prompt_value(task_input_values.get("preferred_change_name")),
         "repo_root": _format_prompt_value(context_values.get("repo_root")),

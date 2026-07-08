@@ -165,6 +165,30 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], False)
 
+    def test_run_spec_review_rejects_duplicate_perspective_disguised_as_extra_artifact(self):
+        result = verifiers.verify_run_spec_review(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='run_spec_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Spec review repeated one perspective while claiming four independent artifacts.',
+ 'structured_output': {'spec_review_loop_completed': True,
+                       'spec_review_perspectives': ['development', 'design', 'testing'],
+                       'spec_review_findings_summary': 'One development review was duplicated.',
+                       'spec_review_subagent_summaries': ['Development review passed.',
+                                                          'Design review passed.',
+                                                          'Testing review passed.',
+                                                          'Development review follow-up passed.'],
+                       'spec_review_artifact_paths': ['docs/superpowers/specs/2026-06-24-ios-change-development-review.md',
+                                                      'docs/superpowers/specs/2026-06-24-ios-change-design-review.md',
+                                                      'docs/superpowers/specs/2026-06-24-ios-change-testing-review.md',
+                                                      'docs/superpowers/specs/2026-06-24-ios-change-development-followup-review.md'],
+                       'open_questions': [],
+                       'ready_for_planning': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
     def test_brainstorming_rejects_non_spec_doc_path(self):
         result = verifiers.verify_run_brainstorming(
             repo_root=str(REPO_ROOT),
@@ -1089,6 +1113,20 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, 'run_brainstorming')
         self.assertEqual(result.branch_kind, "continue")
 
+    def test_generated_repair_and_resume_can_explicitly_request_unblocking(self):
+        state = self._make_state(None)
+        state.return_stage_id = 'run_brainstorming'
+        result = graphbuilder_runtime.run_transition_preview(
+            state=state,
+            current_step_id="repair_and_resume",
+            observation={'status': 'succeeded',
+                         'summary': 'Repair research found an external dependency.',
+                         'structured_output': {'needs_external_unblocking': True}},
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, "request_unblocking_input")
+        self.assertEqual(result.branch_kind, "repair")
+
     def test_generated_repair_and_resume_without_return_stage_stays_put(self):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
@@ -1111,9 +1149,10 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, "repair_and_resume")
         self.assertEqual(result.branch_kind, "retry")
         self.assertEqual(state.return_stage_id, 'verify_completion')
+        self.assertEqual(state.repair_blocked_attempts, 1)
 
     def test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking(self):
-        state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})
+        state = self._make_state({'repair_blocked_attempts': 2})
         state.return_stage_id = 'verify_completion'
         result = graphbuilder_runtime.run_transition_preview(
             state=state,
@@ -1124,6 +1163,64 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, "request_unblocking_input")
         self.assertEqual(result.branch_kind, "repair")
         self.assertEqual(state.return_stage_id, 'verify_completion')
+        self.assertEqual(state.repair_blocked_attempts, 3)
+
+    def test_repair_template_context_uses_durable_repair_fields(self):
+        state = self._make_state(
+            {
+                'return_stage_id': 'verify_completion',
+                'repair_category': 'blocked',
+                'repair_summary': 'Need a verified workaround before retry.',
+                'repair_requirements': ['Confirm the fallback behavior'],
+                'repair_evidence': ['Release QA log captured the missing precondition'],
+                'repair_blocked_attempts': 2,
+                'repair_context': {'source_stage_id': 'run_agentic_release_qa'},
+            }
+        )
+
+        class _RunState:
+            graph_state = workflow_state.serialize_state(state)
+
+        context = graphbuilder_runtime.build_template_context(
+            step_id='repair_and_resume',
+            run_state=_RunState(),
+        )
+        self.assertEqual(context['repair_category'], 'blocked')
+        self.assertEqual(context['repair_summary'], 'Need a verified workaround before retry.')
+        self.assertIn('Confirm the fallback behavior', context['repair_requirements'])
+        self.assertIn('Release QA log captured the missing precondition', context['repair_evidence'])
+        self.assertEqual(context['repair_blocked_attempts'], '2')
+
+    def test_brainstorming_prompt_carries_spec_review_rework_context(self):
+        state = self._make_state(
+            {
+                'spec_review_perspectives': ['development', 'design', 'testing'],
+                'spec_review_findings_summary': 'Design review requested a clearer loading-state spec.',
+                'spec_review_subagent_summaries': [
+                    'development review: okay',
+                    'design review: refine loading state',
+                    'testing review: add edge cases',
+                ],
+                'spec_review_artifact_paths': [
+                    'docs/superpowers/specs/dev-review.md',
+                    'docs/superpowers/specs/design-review.md',
+                    'docs/superpowers/specs/testing-review.md',
+                ],
+                'open_questions': ['Should the loading state animate?'],
+            }
+        )
+        prompt = graphbuilder_runtime.load_prompt_body(
+            'run_brainstorming',
+            template_context=graphbuilder_runtime._template_context_from_state(state),
+        )
+        self.assertIn('Latest spec review findings summary: Design review requested a clearer loading-state spec.', prompt)
+        self.assertIn('Latest spec review subagent summaries:', prompt)
+        self.assertIn('address the recorded review findings', prompt)
+
+    def test_repair_and_resume_contract_declares_search_support_route(self):
+        contract = graphbuilder_runtime.workflow_contract.get_step_contract('repair_and_resume')
+        route_skills = [route.skill for route in contract.skill_routing]
+        self.assertEqual(route_skills, ['research-nex', 'search-nex'])
 
     def test_generated_blocked_repair_context_preserves_host_visible_summary(self):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
