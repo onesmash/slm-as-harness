@@ -32,8 +32,8 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     return_stage_id: str | None = None
     clarification_questions: list = field(default_factory=list)
     clarification_answers_summary: str | None = None
-    approved_design_summary: str | None = None
-    approved_design_path: str | None = None
+    design_summary: str | None = None
+    design_path: str | None = None
     ui_surface_affected: bool | None = None
     design_comparison_source: str | None = None
     runtime_visual_comparison_scope: str | None = None
@@ -46,7 +46,6 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     spec_review_artifact_paths: list = field(default_factory=list)
     plan_summary: str | None = None
     plan_path: str | None = None
-    plan_reviewed: bool | None = None
     execution_mode: str | None = None
     plan_revision_reason: str | None = None
     implementation_summary: str | None = None
@@ -121,8 +120,8 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         return_stage_id=payload.get("return_stage_id"),
         clarification_questions=list(payload.get('clarification_questions') or []),
         clarification_answers_summary=payload.get('clarification_answers_summary'),
-        approved_design_summary=payload.get('approved_design_summary'),
-        approved_design_path=payload.get('approved_design_path'),
+        design_summary=payload.get('design_summary'),
+        design_path=payload.get('design_path'),
         ui_surface_affected=payload.get('ui_surface_affected'),
         design_comparison_source=payload.get('design_comparison_source'),
         runtime_visual_comparison_scope=payload.get('runtime_visual_comparison_scope'),
@@ -135,7 +134,6 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         spec_review_artifact_paths=list(payload.get('spec_review_artifact_paths') or []),
         plan_summary=payload.get('plan_summary'),
         plan_path=payload.get('plan_path'),
-        plan_reviewed=payload.get('plan_reviewed'),
         execution_mode=payload.get('execution_mode'),
         plan_revision_reason=payload.get('plan_revision_reason'),
         implementation_summary=payload.get('implementation_summary'),
@@ -184,6 +182,12 @@ def record_observation(
     verifier_result: dict | None,
 ) -> None:
     state.attempt_counts[current_step_id] = state.attempt_counts.get(current_step_id, 0) + 1
+    if (
+        current_step_id in {"run_brainstorming", "run_spec_review"}
+        and verifier_result is not None
+        and not verifier_result.get("passed", False)
+    ):
+        return
     if current_step_id == "repair_and_resume":
         if observation.get("status") == "blocked":
             state.repair_blocked_attempts += 1
@@ -196,8 +200,8 @@ def record_observation(
             if current_step_id == 'run_brainstorming':
                 state.clarification_questions = _list_value(structured_output.get('clarification_questions'))
                 state.clarification_answers_summary = structured_output.get('clarification_answers_summary')
-                state.approved_design_summary = structured_output.get('approved_design_summary')
-                state.approved_design_path = structured_output.get('approved_design_path')
+                state.design_summary = structured_output.get('design_summary')
+                state.design_path = structured_output.get('design_path')
                 state.ui_surface_affected = structured_output.get('ui_surface_affected')
                 state.design_comparison_source = structured_output.get('design_comparison_source')
                 state.runtime_visual_comparison_scope = structured_output.get('runtime_visual_comparison_scope')
@@ -214,7 +218,6 @@ def record_observation(
             elif current_step_id == 'write_implementation_plan':
                 state.plan_summary = structured_output.get('plan_summary')
                 state.plan_path = structured_output.get('plan_path')
-                state.plan_reviewed = structured_output.get('plan_reviewed')
                 state.execution_mode = structured_output.get('execution_mode')
                 state.open_questions = _list_value(structured_output.get('open_questions'))
                 state.plan_revision_reason = structured_output.get('plan_revision_reason')
@@ -249,6 +252,8 @@ def record_observation(
                 state.completion_remaining_risks = _list_value(structured_output.get('remaining_risks'))
                 state.completion_release_qa_risks_resolved = structured_output.get('release_qa_risks_resolved')
                 state.completion_release_qa_risk_resolution_summary = structured_output.get('release_qa_risk_resolution_summary')
+            elif current_step_id == 'repair_and_resume':
+                _promote_repair_outputs(state, structured_output)
             else:
                 pass
 
@@ -342,6 +347,10 @@ def apply_transition(state: IosAiAssistedDevelopmentFlowWorkflowState, *, curren
         if current_step_id not in state.completed_stages:
             state.completed_stages.append(current_step_id)
 
+    if current_step_id == "request_unblocking_input" and next_step_id == "repair_and_resume":
+        state.repair_blocked_attempts = 0
+        state.repair_context["repair_blocked_attempts"] = 0
+
     if current_step_id in REPAIR_STAGE_IDS and next_step_id == state.return_stage_id:
         state.return_stage_id = None
         _clear_repair_state(state)
@@ -403,6 +412,36 @@ def _apply_repair_payload(
     state.repair_evidence = _string_list(repair_payload.get("evidence"))
     if reset_blocked_attempts:
         state.repair_blocked_attempts = 0
+
+
+def _promote_repair_outputs(
+    state: IosAiAssistedDevelopmentFlowWorkflowState,
+    structured_output: dict,
+) -> None:
+    retry_reason = str(structured_output.get("retry_reason") or "").strip()
+    retry_notes = str(structured_output.get("retry_notes") or "").strip()
+    repair_actions = _string_list(structured_output.get("repair_actions"))
+
+    if retry_reason:
+        state.repair_transition_reason = retry_reason
+    if retry_notes or retry_reason:
+        state.repair_summary = retry_notes or retry_reason
+    if repair_actions:
+        state.repair_requirements = repair_actions
+
+    state.repair_context.update(
+        {
+            "latest_retry_reason": retry_reason,
+            "latest_retry_notes": retry_notes,
+            "latest_repair_actions": repair_actions,
+        }
+    )
+    repair_payload = state.repair_context.get("repair_payload")
+    if isinstance(repair_payload, dict):
+        if retry_notes or retry_reason:
+            repair_payload["summary"] = retry_notes or retry_reason
+        if repair_actions:
+            repair_payload["requirements"] = repair_actions
 
 
 def _clear_repair_state(state: IosAiAssistedDevelopmentFlowWorkflowState) -> None:

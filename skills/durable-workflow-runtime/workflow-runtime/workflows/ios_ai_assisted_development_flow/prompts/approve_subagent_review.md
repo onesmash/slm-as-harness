@@ -1,9 +1,9 @@
-/brainstorming-nex ask the user whether they approve launching independent development, design, and testing subagent reviews for {{approved_design_path}} before implementation planning continues.
+/brainstorming-nex ask the user whether they approve launching independent development, design, and testing subagent reviews for {{design_path}} before implementation planning continues.
 
 Stage Context:
 
-- Approved design path: {{approved_design_path}}
-- Approved design summary: {{approved_design_summary}}
+- Design path: {{design_path}}
+- Design summary: {{design_summary}}
 - Repository root: {{repo_root}}
 
 Stage Boundaries:
@@ -15,4 +15,4 @@ Stage Boundaries:
 Blocked Conditions:
 
 - Block if the user has not made an explicit authorization decision yet.
-- Block if the approved design package is missing.
+- Block if the design package is missing.

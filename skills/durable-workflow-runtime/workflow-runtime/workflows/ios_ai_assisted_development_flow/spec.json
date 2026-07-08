@@ -21,11 +21,11 @@
       "step_id": "run_brainstorming",
       "stage_kind": "main",
       "recovery_return_node": null,
-      "intent": "clarify_and_approve_design",
-      "expected_artifact": "an approved design package with a written design document path that is ready for subagent review authorization",
-      "prompt": "/brainstorming-nex {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce an approved design package under docs/superpowers/specs/ before any implementation planning begins.",
+      "intent": "clarify_and_prepare_design",
+      "expected_artifact": "a brainstorming design package with a written design document path that is ready for subagent review authorization",
+      "prompt": "/brainstorming-nex {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce a brainstorming design package under docs/superpowers/specs/ that is ready for subagent review authorization before any implementation planning begins.",
       "prompt_sections": {
-        "stage_goal": "Turn the user's iOS Client development goal into clarified requirements and an approved design document before planning, implementation, or subagent review work begins.",
+        "stage_goal": "Turn the user's iOS Client development goal into clarified requirements and a written brainstorming design document before spec review, planning, or implementation work begins.",
         "context": [
           "Repository root: {{repo_root}}",
           "Source process doc: {{source_doc_url}}",
@@ -38,39 +38,35 @@
         ],
         "boundaries": [
           "Do not implement code in this stage.",
-          "Do not write the implementation plan until the design direction is approved.",
+          "Do not write the implementation plan until spec review confirms the design is ready.",
           "Keep knowledge-base usage as context lookup, not as separate user-visible stages.",
-          "Follow the normal design-approval flow before writing or finalizing the approved spec document.",
           "If this stage is revisiting the design after spec review, address the recorded review findings and preserve the link to the existing review artifacts.",
-          "Write the approved brainstorming design as a Markdown document under docs/superpowers/specs/.",
+          "Write the brainstorming design as a Markdown document under docs/superpowers/specs/.",
           "Do not use implementation plan documents as the brainstorming design document.",
-          "If the approved request affects a user-visible UI surface, the spec must include implementation-ready visual detail: view hierarchy, per-element properties, typography, colors, spacing, padding, alignment, sizing, constraints, states, assets, interaction behavior, layout relationships, and measurable expectations detailed enough to support code generation and visual verification without guessing.",
-          "If the approved request affects a user-visible UI surface, the spec must name the design-comparison source for visual QA, such as a Figma frame, approved mock, or reference screenshot, and describe the expected app screenshot/view scope to capture for runtime visual comparison.",
+          "If the requested change affects a user-visible UI surface, the spec must include implementation-ready visual detail: view hierarchy, per-element properties, typography, colors, spacing, padding, alignment, sizing, constraints, states, assets, interaction behavior, layout relationships, and measurable expectations detailed enough to support code generation and visual verification without guessing.",
+          "If the requested change affects a user-visible UI surface, the spec must name the design-comparison source for visual QA, such as a Figma frame, approved mock, or reference screenshot, and describe the expected app screenshot/view scope to capture for runtime visual comparison.",
+          "Do not wait for the user to review or approve the spec in this stage.",
           "Do not launch subagent review in this stage; the workflow will ask for explicit authorization in the next stage."
         ],
         "blocked_conditions": [
           "Block if no clarification question has been asked and answered.",
-          "Block if the user has not approved the design direction.",
           "Block if the requested change cannot be scoped to a concrete iOS Client objective.",
-          "Block if the approved spec document is written or finalized before the normal design-approval flow completes.",
           "Block if a user-visible UI change lacks implementation-ready visual detail, a design-comparison source, or runtime screenshot/view scope."
         ]
       },
       "done_when": [
         "Clarification questions and answer summary are recorded.",
-        "The user-approved design direction is recorded.",
-        "The approved brainstorming design document exists under docs/superpowers/specs/ and its path is included.",
-        "UI-impacting requests include implementation-ready visual detail and visual QA comparison inputs in the approved design document.",
-        "The approved design package is ready for an explicit subagent review authorization decision."
+        "The brainstorming design direction and rationale are recorded.",
+        "The brainstorming design document exists under docs/superpowers/specs/ and its path is included.",
+        "UI-impacting requests include implementation-ready visual detail and visual QA comparison inputs in the brainstorming design document.",
+        "The brainstorming design package is ready for an explicit subagent review authorization decision."
       ],
       "output_schema": {
         "clarification_questions": "string[]",
         "clarification_answers_summary": "string",
         "design_presented": "boolean",
-        "user_approved_design": "boolean",
-        "design_approved": "boolean",
-        "approved_design_summary": "string",
-        "approved_design_path": "string",
+        "design_summary": "string",
+        "design_path": "string",
         "ui_surface_affected": "boolean",
         "visual_spec_detail_summary": "string?",
         "design_comparison_source": "string?",
@@ -88,15 +84,15 @@
           "skill": "brainstorming-nex",
           "operations": [
             "requirements clarification",
-            "design approval gate",
+            "design preparation",
             "design artifact preparation"
           ],
           "file_patterns": [
             "docs/superpowers/specs/*.md"
           ],
           "usage_notes": [
-            "Primary owner for the pre-implementation design clarification and approval gate.",
-            "Owns the approved design package that will later be handed into the review-authorization and subagent-review stages."
+            "Primary owner for the pre-implementation design clarification and design-package preparation stage.",
+            "Owns the brainstorming design package that will later be handed into the review-authorization and subagent-review stages."
           ]
         },
         {
@@ -126,13 +122,13 @@
           "kind": "string"
         },
         {
-          "state_key": "approved_design_summary",
-          "output_key": "approved_design_summary",
+          "state_key": "design_summary",
+          "output_key": "design_summary",
           "kind": "string"
         },
         {
-          "state_key": "approved_design_path",
-          "output_key": "approved_design_path",
+          "state_key": "design_path",
+          "output_key": "design_path",
           "kind": "string"
         },
         {
@@ -159,8 +155,8 @@
       "template_context_keys": [
         "clarification_questions",
         "clarification_answers_summary",
-        "approved_design_summary",
-        "approved_design_path",
+        "design_summary",
+        "design_path",
         "ui_surface_affected",
         "design_comparison_source",
         "runtime_visual_comparison_scope",
@@ -177,7 +173,7 @@
           "outcome": "verifier_failed",
           "next_node": "run_brainstorming",
           "branch_kind": "retry",
-          "reason": "Brainstorming clarification and approval gates must pass before implementation planning."
+          "reason": "Brainstorming clarification and design-package readiness gates must pass before implementation planning."
         }
       ],
       "verifier_rules": [
@@ -194,28 +190,16 @@
           "message": "Brainstorming must present a design before continuing."
         },
         {
-          "output_key": "user_approved_design",
-          "operator": "is_true",
-          "value": null,
-          "message": "The user must approve the brainstorming design before continuing."
-        },
-        {
-          "output_key": "design_approved",
-          "operator": "is_true",
-          "value": null,
-          "message": "Brainstorming must finish with an approved design."
-        },
-        {
-          "output_key": "approved_design_path",
+          "output_key": "design_path",
           "operator": "truthy",
           "value": null,
-          "message": "Brainstorming must return the approved design document path."
+          "message": "Brainstorming must return the design document path."
         },
         {
-          "output_key": "approved_design_path",
+          "output_key": "design_path",
           "operator": "path_exists",
           "value": null,
-          "message": "Brainstorming must create the approved design document before continuing."
+          "message": "Brainstorming must create the design document before continuing."
         },
         {
           "output_key": "ready_for_subagent_review",
@@ -268,10 +252,10 @@
           "required_key": "runtime_visual_comparison_scope"
         },
         {
-          "id": "approved_design_path_repo_policy",
+          "id": "design_path_repo_policy",
           "template": "repo_path_policy",
-          "output_key": "approved_design_path",
-          "message": "approved_design_path must point to a Markdown document under docs/superpowers/specs/ and must not point at docs/superpowers/plans/ artifacts.",
+          "output_key": "design_path",
+          "message": "design_path must point to a Markdown document under docs/superpowers/specs/ and must not point at docs/superpowers/plans/ artifacts.",
           "required_prefix": "docs/superpowers/specs/",
           "forbidden_prefixes": [
             "docs/superpowers/plans/"
@@ -287,12 +271,12 @@
       "recovery_return_node": null,
       "intent": "authorize_subagent_spec_review",
       "expected_artifact": "an explicit user authorization decision for the required subagent design review",
-      "prompt": "/brainstorming-nex ask the user whether they approve launching independent development, design, and testing subagent reviews for {{approved_design_path}} before implementation planning continues.",
+      "prompt": "/brainstorming-nex ask the user whether they approve launching independent development, design, and testing subagent reviews for {{design_path}} before implementation planning continues.",
       "prompt_sections": {
         "stage_goal": "Ask the user for explicit permission to launch the required subagent-backed design review pass before implementation planning begins.",
         "context": [
-          "Approved design path: {{approved_design_path}}",
-          "Approved design summary: {{approved_design_summary}}",
+          "Design path: {{design_path}}",
+          "Design summary: {{design_summary}}",
           "Repository root: {{repo_root}}"
         ],
         "boundaries": [
@@ -302,7 +286,7 @@
         ],
         "blocked_conditions": [
           "Block if the user has not made an explicit authorization decision yet.",
-          "Block if the approved design package is missing."
+          "Block if the design package is missing."
         ]
       },
       "done_when": [
@@ -347,8 +331,8 @@
         }
       ],
       "template_context_keys": [
-        "approved_design_path",
-        "approved_design_summary",
+        "design_path",
+        "design_summary",
         "subagent_review_approved",
         "authorization_summary"
       ],
@@ -406,12 +390,12 @@
       "recovery_return_node": null,
       "intent": "complete_subagent_spec_review_loop",
       "expected_artifact": "a review-complete design package with concrete subagent review artifacts and implementation-planning readiness",
-      "prompt": "/brainstorming-nex review the approved design package at {{approved_design_path}} through independent development, design, and testing subagent reviews; hand in the concrete review artifacts and confirm whether the design is ready for implementation planning.",
+      "prompt": "/brainstorming-nex review the design package at {{design_path}} through independent development, design, and testing subagent reviews; hand in the concrete review artifacts and confirm whether the design is ready for implementation planning.",
       "prompt_sections": {
-        "stage_goal": "Run the required independent development, design, and testing subagent review loop on the approved design package and produce concrete review evidence before implementation planning.",
+        "stage_goal": "Run the required independent development, design, and testing subagent review loop on the design package and produce concrete review evidence before implementation planning.",
         "context": [
-          "Approved design path: {{approved_design_path}}",
-          "Approved design summary: {{approved_design_summary}}",
+          "Design path: {{design_path}}",
+          "Design summary: {{design_summary}}",
           "Subagent review authorization: {{authorization_summary}}",
           "Repository root: {{repo_root}}",
           "UI surface affected: {{ui_surface_affected}}",
@@ -508,8 +492,8 @@
         }
       ],
       "template_context_keys": [
-        "approved_design_path",
-        "approved_design_summary",
+        "design_path",
+        "design_summary",
         "authorization_summary",
         "spec_review_perspectives",
         "ui_surface_affected",
@@ -640,13 +624,13 @@
       "stage_kind": "main",
       "recovery_return_node": null,
       "intent": "create_superpowers_implementation_plan",
-      "expected_artifact": "reviewed implementation plan document and recorded subagent-driven execution mode ready for implementation",
-      "prompt": "/writing-plans {{approved_design_path}}; write or revise the implementation plan under docs/superpowers/plans/, incorporate any recorded replanning feedback, have the user review the plan, and default the recorded execution mode to subagent-driven without asking the user to choose between execution styles.",
+      "expected_artifact": "implementation plan document and recorded subagent-driven execution mode ready for implementation",
+      "prompt": "/writing-plans {{design_path}}; write or revise the implementation plan under docs/superpowers/plans/, incorporate any recorded replanning feedback, and default the recorded execution mode to subagent-driven without asking the user to choose between execution styles.",
       "prompt_sections": {
-        "stage_goal": "Turn the approved design into a concrete superpowers implementation plan, incorporate any replanning feedback, and prepare a reviewed plan that can move directly into implementation.",
+        "stage_goal": "Turn the design package into a concrete superpowers implementation plan, incorporate any replanning feedback, and prepare a plan that can move directly into implementation.",
         "context": [
-          "Approved design path: {{approved_design_path}}",
-          "Approved design summary: {{approved_design_summary}}",
+          "Design path: {{design_path}}",
+          "Design summary: {{design_summary}}",
           "Repository root: {{repo_root}}",
           "Latest plan update summary: {{plan_update_summary}}",
           "Latest debugging summary: {{debugging_summary}}",
@@ -656,27 +640,24 @@
           "Do not implement code in this stage.",
           "Write the plan as a Markdown document under docs/superpowers/plans/.",
           "The plan must be concrete enough for subagent-driven-development to execute task by task.",
-          "The plan review loop with the user must complete before this stage can finish.",
+          "Do not require a manual user review of the written plan in this stage.",
           "Default and record execution_mode as subagent-driven; do not ask the user to choose between execution styles.",
           "Use the recorded replanning feedback and implementation-learned plan gaps when revising the plan."
         ],
         "blocked_conditions": [
-          "Block if the approved design is missing or ambiguous.",
+          "Block if the design package is missing or ambiguous.",
           "Block if the plan file has not been written yet.",
-          "Block if the user has not reviewed the written plan.",
           "Block if the recorded execution mode is not subagent-driven."
         ]
       },
       "done_when": [
         "The implementation plan exists under docs/superpowers/plans/.",
         "The plan summary is recorded.",
-        "The user has reviewed the written plan.",
         "The execution mode is recorded as subagent-driven and is ready for implementation."
       ],
       "output_schema": {
         "plan_summary": "string",
         "plan_path": "string",
-        "plan_reviewed": "boolean",
         "execution_mode": "string",
         "open_questions": "string[]",
         "ready_for_implementation": "boolean",
@@ -693,14 +674,14 @@
           "operations": [
             "implementation plan authoring",
             "task decomposition",
-            "execution handoff selection"
+            "subagent-driven execution handoff"
           ],
           "file_patterns": [
             "docs/superpowers/plans/*.md",
             "docs/superpowers/specs/*.md"
           ],
           "usage_notes": [
-            "Primary owner for turning the approved design into a detailed implementation plan.",
+            "Primary owner for turning the design package into a detailed implementation plan.",
             "Must record subagent-driven as the execution mode required by this workflow without asking the user to choose alternatives."
           ]
         },
@@ -730,11 +711,6 @@
           "kind": "string"
         },
         {
-          "state_key": "plan_reviewed",
-          "output_key": "plan_reviewed",
-          "kind": "boolean"
-        },
-        {
           "state_key": "execution_mode",
           "output_key": "execution_mode",
           "kind": "string"
@@ -751,11 +727,10 @@
         }
       ],
       "template_context_keys": [
-        "approved_design_path",
-        "approved_design_summary",
+        "design_path",
+        "design_summary",
         "plan_summary",
         "plan_path",
-        "plan_reviewed",
         "execution_mode",
         "open_questions",
         "plan_revision_reason",
@@ -795,12 +770,6 @@
           "message": "Implementation planning must create the plan document before continuing."
         },
         {
-          "output_key": "plan_reviewed",
-          "operator": "is_true",
-          "value": null,
-          "message": "The user must review the written implementation plan before continuing."
-        },
-        {
           "output_key": "open_questions",
           "operator": "empty",
           "value": null,
@@ -838,8 +807,7 @@
           "description": "This workflow may continue only when planning records subagent-driven execution as the selected approach and does not ask the user to choose a different execution style.",
           "signals": [
             "execution_mode",
-            "ready_for_implementation",
-            "plan_reviewed"
+            "ready_for_implementation"
           ],
           "implementation_surface": [
             "verifier",
@@ -853,7 +821,7 @@
           ],
           "test_intent": [
             "Reject planning outputs that pick inline execution while claiming implementation is ready.",
-            "Accept planning outputs that record subagent-driven execution with a reviewed plan.",
+            "Accept planning outputs that record subagent-driven execution with a written plan.",
             "Reject replanning output that ignores recorded plan-update or implementation-learned reasons when such context exists in state."
           ]
         }
@@ -871,8 +839,8 @@
         "context": [
           "Plan path: {{plan_path}}",
           "Plan summary: {{plan_summary}}",
-          "Approved design path: {{approved_design_path}}",
-          "Approved design summary: {{approved_design_summary}}",
+          "Approved design path: {{design_path}}",
+          "Approved design summary: {{design_summary}}",
           "Plan revision reason: {{plan_revision_reason}}",
           "Latest completed tasks: {{implementation_completed_tasks}}",
           "Latest remaining tasks: {{implementation_remaining_tasks}}",
@@ -1102,8 +1070,8 @@
         }
       ],
       "template_context_keys": [
-        "approved_design_path",
-        "approved_design_summary",
+        "design_path",
+        "design_summary",
         "plan_summary",
         "plan_path",
         "implementation_summary",
@@ -2187,7 +2155,7 @@
     }
   },
   "final_step_id": "finalize_delivery_summary",
-  "final_prompt": "Prepare the final iOS Client AI-assisted development delivery summary using approved design summary {{approved_design_summary}}, approved design path {{approved_design_path}}, plan summary {{plan_summary}}, plan path {{plan_path}}, selected execution mode {{execution_mode}}, implementation summary {{implementation_summary}}, changed files {{changed_files}}, verification commands {{verification_commands}}, debugging summary {{debugging_summary}}, release QA target scope {{release_qa_target_scope}}, release QA verdict {{release_qa_verdict}}, release QA summary {{release_qa_summary}}, release QA executed checks {{release_qa_executed_checks}}, release QA blocked checks {{release_qa_blocked_checks}}, release QA risk next steps {{release_qa_risk_next_steps}}, release QA artifacts {{release_qa_artifacts}}, review status {{review_status}}, reviewed snapshot {{reviewed_snapshot}}, review summary {{review_summary}}, review findings {{review_findings}}, completion verification passed {{completion_verification_passed}}, completion verification summary {{completion_verification_summary}}, completion verification evidence {{completion_verification_evidence}}, completion remaining risks {{completion_remaining_risks}}, release QA risks resolved {{completion_release_qa_risks_resolved}}, release QA risk resolution summary {{completion_release_qa_risk_resolution_summary}}, and open issues {{open_issues}}.",
+  "final_prompt": "Prepare the final iOS Client AI-assisted development delivery summary using approved design summary {{design_summary}}, approved design path {{design_path}}, plan summary {{plan_summary}}, plan path {{plan_path}}, selected execution mode {{execution_mode}}, implementation summary {{implementation_summary}}, changed files {{changed_files}}, verification commands {{verification_commands}}, debugging summary {{debugging_summary}}, release QA target scope {{release_qa_target_scope}}, release QA verdict {{release_qa_verdict}}, release QA summary {{release_qa_summary}}, release QA executed checks {{release_qa_executed_checks}}, release QA blocked checks {{release_qa_blocked_checks}}, release QA risk next steps {{release_qa_risk_next_steps}}, release QA artifacts {{release_qa_artifacts}}, review status {{review_status}}, reviewed snapshot {{reviewed_snapshot}}, review summary {{review_summary}}, review findings {{review_findings}}, completion verification passed {{completion_verification_passed}}, completion verification summary {{completion_verification_summary}}, completion verification evidence {{completion_verification_evidence}}, completion remaining risks {{completion_remaining_risks}}, release QA risks resolved {{completion_release_qa_risks_resolved}}, release QA risk resolution summary {{completion_release_qa_risk_resolution_summary}}, and open issues {{open_issues}}.",
   "dependencies": [
     {
       "id": "brainstorming-nex",
@@ -2195,7 +2163,7 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:brainstorming-nex",
-      "purpose": "Run the pre-implementation requirement clarification and design approval gate.",
+      "purpose": "Run the pre-implementation requirement clarification and brainstorming design preparation stage.",
       "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill brainstorming-nex -g -y --agent claude-code cursor codex"
     },
     {
@@ -2460,21 +2428,19 @@
   ],
   "regression_tests": [
     {
-      "name": "brainstorming_requires_approved_design_path",
+      "name": "brainstorming_requires_design_path",
       "type": "verifier",
       "step_id": "run_brainstorming",
       "observation": {
         "status": "succeeded",
-        "summary": "Design approved without a written design path.",
+        "summary": "Design package completed without a written design path.",
         "structured_output": {
           "clarification_questions": [
             "What user-visible behavior should change?"
           ],
           "clarification_answers_summary": "The change should update one iOS Client behavior with no scope expansion.",
           "design_presented": true,
-          "user_approved_design": true,
-          "design_approved": true,
-          "approved_design_summary": "Approved design summary.",
+          "design_summary": "Approved design summary.",
           "open_questions": [],
           "ready_for_subagent_review": true
         }
@@ -2488,15 +2454,13 @@
       "step_id": "run_brainstorming",
       "observation": {
         "status": "succeeded",
-        "summary": "Design approved without asking clarification questions.",
+        "summary": "Design package completed without asking clarification questions.",
         "structured_output": {
           "clarification_questions": [],
           "clarification_answers_summary": "The user confirmed behavior, scope, and success criteria.",
           "design_presented": true,
-          "user_approved_design": true,
-          "design_approved": true,
-          "approved_design_summary": "Approved design summary.",
-          "approved_design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
+          "design_summary": "Approved design summary.",
+          "design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
           "open_questions": [],
           "ready_for_subagent_review": true
         }
@@ -2510,17 +2474,15 @@
       "step_id": "run_brainstorming",
       "observation": {
         "status": "succeeded",
-        "summary": "Brainstorming completed with clarification and approval.",
+        "summary": "Brainstorming completed with clarification and a written design package.",
         "structured_output": {
           "clarification_questions": [
             "What user-visible behavior should change?"
           ],
           "clarification_answers_summary": "The user confirmed behavior, scope, and success criteria.",
           "design_presented": true,
-          "user_approved_design": true,
-          "design_approved": true,
-          "approved_design_summary": "Approved design summary.",
-          "approved_design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
+          "design_summary": "Approved design summary.",
+          "design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
           "ui_surface_affected": false,
           "open_questions": [],
           "ready_for_subagent_review": true
@@ -2542,10 +2504,8 @@
           ],
           "clarification_answers_summary": "The request updates a visible meeting UI surface.",
           "design_presented": true,
-          "user_approved_design": true,
-          "design_approved": true,
-          "approved_design_summary": "Approved UI design summary.",
-          "approved_design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
+          "design_summary": "Approved UI design summary.",
+          "design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
           "ui_surface_affected": true,
           "open_questions": [],
           "ready_for_subagent_review": true
@@ -2631,10 +2591,8 @@
           ],
           "clarification_answers_summary": "The user confirmed behavior, scope, and success criteria.",
           "design_presented": true,
-          "user_approved_design": true,
-          "design_approved": true,
-          "approved_design_summary": "Approved design summary.",
-          "approved_design_path": "docs/superpowers/plans/2026-06-24-sample-plan.md",
+          "design_summary": "Approved design summary.",
+          "design_path": "docs/superpowers/plans/2026-06-24-sample-plan.md",
           "open_questions": [],
           "ready_for_subagent_review": true
         }
@@ -2653,10 +2611,8 @@
           "clarification_questions": [],
           "clarification_answers_summary": "",
           "design_presented": true,
-          "user_approved_design": true,
-          "design_approved": true,
-          "approved_design_summary": "Approved design summary.",
-          "approved_design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
+          "design_summary": "Approved design summary.",
+          "design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
           "open_questions": [],
           "ready_for_subagent_review": true
         }
@@ -2745,7 +2701,6 @@
         "structured_output": {
           "plan_summary": "Plan summary.",
           "plan_path": "",
-          "plan_reviewed": true,
           "execution_mode": "subagent-driven",
           "open_questions": [],
           "ready_for_implementation": true
@@ -2755,22 +2710,21 @@
       "state": null
     },
     {
-      "name": "plan_rejects_missing_review",
+      "name": "plan_accepts_no_manual_review_requirement",
       "type": "verifier",
       "step_id": "write_implementation_plan",
       "observation": {
         "status": "succeeded",
-        "summary": "Planning skipped the user review gate.",
+        "summary": "Planning completed without a manual user review gate.",
         "structured_output": {
           "plan_summary": "Plan summary.",
           "plan_path": "docs/superpowers/plans/2026-06-24-ios-change.md",
-          "plan_reviewed": false,
           "execution_mode": "subagent-driven",
           "open_questions": [],
           "ready_for_implementation": true
         }
       },
-      "expected_passed": false,
+      "expected_passed": true,
       "state": null
     },
     {
@@ -2783,7 +2737,6 @@
         "structured_output": {
           "plan_summary": "Plan summary.",
           "plan_path": "docs/superpowers/plans/2026-06-24-ios-change.md",
-          "plan_reviewed": true,
           "execution_mode": "inline",
           "open_questions": [],
           "ready_for_implementation": true
@@ -2798,11 +2751,10 @@
       "step_id": "write_implementation_plan",
       "observation": {
         "status": "succeeded",
-        "summary": "Planning completed with a reviewed plan and subagent-driven execution.",
+        "summary": "Planning completed with a written plan and subagent-driven execution.",
         "structured_output": {
           "plan_summary": "Plan summary.",
           "plan_path": "docs/superpowers/plans/2026-06-24-ios-change.md",
-          "plan_reviewed": true,
           "execution_mode": "subagent-driven",
           "open_questions": [],
           "ready_for_implementation": true
@@ -2821,7 +2773,6 @@
         "structured_output": {
           "plan_summary": "Plan summary.",
           "plan_path": "docs/superpowers/plans/2026-06-24-ios-change.md",
-          "plan_reviewed": true,
           "execution_mode": "subagent-driven",
           "open_questions": [],
           "ready_for_implementation": true
@@ -2838,11 +2789,10 @@
       "current_step_id": "write_implementation_plan",
       "observation": {
         "status": "succeeded",
-        "summary": "Planning still needs user review.",
+        "summary": "Planning still has unresolved questions.",
         "structured_output": {
-          "plan_summary": "Need another review pass.",
+          "plan_summary": "Need another planning pass.",
           "plan_path": "docs/superpowers/plans/2026-06-24-ios-change.md",
-          "plan_reviewed": false,
           "execution_mode": "subagent-driven",
           "open_questions": [
             "Confirm rollout constraints."
@@ -2864,11 +2814,10 @@
       "current_step_id": "write_implementation_plan",
       "observation": {
         "status": "succeeded",
-        "summary": "Planning completed with a reviewed plan and ready execution mode.",
+        "summary": "Planning completed with a written plan and ready execution mode.",
         "structured_output": {
           "plan_summary": "Plan summary.",
           "plan_path": "docs/superpowers/plans/2026-06-24-ios-change.md",
-          "plan_reviewed": true,
           "execution_mode": "subagent-driven",
           "open_questions": [],
           "ready_for_implementation": true

@@ -24,7 +24,7 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:brainstorming-nex",
-      "purpose": "Run the pre-implementation requirement clarification and design approval gate.",
+      "purpose": "Run the pre-implementation requirement clarification and brainstorming design preparation stage.",
       "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill brainstorming-nex -g -y --agent claude-code cursor codex"
     },
     {

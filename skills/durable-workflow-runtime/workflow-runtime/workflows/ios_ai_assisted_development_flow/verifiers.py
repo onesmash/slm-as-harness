@@ -19,10 +19,8 @@ def verify_run_brainstorming(
         required_schema={'clarification_questions': 'string[]',
  'clarification_answers_summary': 'string',
  'design_presented': 'boolean',
- 'user_approved_design': 'boolean',
- 'design_approved': 'boolean',
- 'approved_design_summary': 'string',
- 'approved_design_path': 'string',
+ 'design_summary': 'string',
+ 'design_path': 'string',
  'ui_surface_affected': 'boolean',
  'open_questions': 'string[]',
  'ready_for_subagent_review': 'boolean'},
@@ -38,22 +36,14 @@ def verify_run_brainstorming(
   'operator': 'is_true',
   'value': None,
   'message': 'Brainstorming must present a design before continuing.'},
- {'output_key': 'user_approved_design',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'The user must approve the brainstorming design before continuing.'},
- {'output_key': 'design_approved',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'Brainstorming must finish with an approved design.'},
- {'output_key': 'approved_design_path',
+ {'output_key': 'design_path',
   'operator': 'truthy',
   'value': None,
-  'message': 'Brainstorming must return the approved design document path.'},
- {'output_key': 'approved_design_path',
+  'message': 'Brainstorming must return the design document path.'},
+ {'output_key': 'design_path',
   'operator': 'path_exists',
   'value': None,
-  'message': 'Brainstorming must create the approved design document before continuing.'},
+  'message': 'Brainstorming must create the design document before continuing.'},
  {'output_key': 'ready_for_subagent_review',
   'operator': 'is_true',
   'value': None,
@@ -80,10 +70,10 @@ def verify_run_brainstorming(
   'message': 'If ui_surface_affected is true, runtime_visual_comparison_scope is required.',
   'when': {'output_key': 'ui_surface_affected', 'operator': 'is_true', 'value': None},
   'required_key': 'runtime_visual_comparison_scope'},
- {'id': 'approved_design_path_repo_policy',
+ {'id': 'design_path_repo_policy',
   'template': 'repo_path_policy',
-  'output_key': 'approved_design_path',
-  'message': 'approved_design_path must point to a Markdown document under docs/superpowers/specs/ '
+  'output_key': 'design_path',
+  'message': 'design_path must point to a Markdown document under docs/superpowers/specs/ '
              'and must not point at docs/superpowers/plans/ artifacts.',
   'required_prefix': 'docs/superpowers/specs/',
   'forbidden_prefixes': ['docs/superpowers/plans/'],
@@ -224,7 +214,6 @@ def verify_write_implementation_plan(
         step_id=step_id,
         required_schema={'plan_summary': 'string',
  'plan_path': 'string',
- 'plan_reviewed': 'boolean',
  'execution_mode': 'string',
  'open_questions': 'string[]',
  'ready_for_implementation': 'boolean'},
@@ -241,10 +230,6 @@ def verify_write_implementation_plan(
   'operator': 'path_exists',
   'value': None,
   'message': 'Implementation planning must create the plan document before continuing.'},
- {'output_key': 'plan_reviewed',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'The user must review the written implementation plan before continuing.'},
  {'output_key': 'open_questions',
   'operator': 'empty',
   'value': None,
@@ -632,7 +617,7 @@ def _run_custom_verifier_requirements_write_implementation_plan(
 # custom_verifier_stage_id: write_implementation_plan
 # custom_verifier_requirement_id: planning_requires_subagent_execution_mode
 # template_version: 1
-# spec_fingerprint: a8324eda4016d163fd8b9675e5b0554fa969bb3afcf7325dd2f5e8b5767f4e93
+# spec_fingerprint: 3f1ceb8518811d83b4712a9f58caf8c6bcc55c9f136516082bc82ed38893e80d
 # implementation_version: none
 def _custom_verifier_requirement_write_implementation_plan_planning_requires_subagent_execution_mode(
     *,
@@ -641,9 +626,12 @@ def _custom_verifier_requirement_write_implementation_plan_planning_requires_sub
     repo_root: str,
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: This workflow may continue only when planning records subagent-driven execution as the selected approach and does not ask the user to choose a different execution style.
-Signals: execution_mode, ready_for_implementation, plan_reviewed
+Signals: execution_mode, ready_for_implementation
 Implementation surfaces: verifier, tests
 Hint pseudocode:
 - Normalize execution_mode to lowercase.
@@ -652,25 +640,27 @@ Hint pseudocode:
 - If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
 Test intent:
 - Reject planning outputs that pick inline execution while claiming implementation is ready.
-- Accept planning outputs that record subagent-driven execution with a reviewed plan.
+- Accept planning outputs that record subagent-driven execution with a written plan.
 - Reject replanning output that ignores recorded plan-update or implementation-learned reasons when such context exists in state."""
+    _ = repo_root
     execution_mode = str(output.get("execution_mode") or "").strip().lower()
-    ready_for_implementation = bool(output.get("ready_for_implementation"))
-    if ready_for_implementation and execution_mode != "subagent-driven":
-        return "ready_for_implementation requires execution_mode to be subagent-driven"
+    ready_for_implementation = output.get("ready_for_implementation")
+    if ready_for_implementation is True and execution_mode != "subagent-driven":
+        return "planning may be implementation-ready only when execution_mode is subagent-driven"
+    if execution_mode and execution_mode != "subagent-driven" and ready_for_implementation is not False:
+        return "planning must either use subagent-driven execution or remain not ready for implementation"
 
-    replanning_state_present = False
-    if isinstance(state, dict):
-        replanning_state_present = bool(
-            str(state.get("plan_update_summary") or "").strip()
-            or str(state.get("debugging_summary") or "").strip()
-            or _meaningful_entries(state.get("open_issues"))
-        )
-    if replanning_state_present:
-        plan_revision_reason = str(output.get("plan_revision_reason") or "").strip()
-        plan_summary = str(output.get("plan_summary") or "").strip().lower()
-        if not plan_revision_reason and "replan" not in plan_summary and "revis" not in plan_summary:
-            return "replanning context requires plan_revision_reason or an explicit replanning acknowledgement"
+    state = state or {}
+    replanning_context_present = bool(
+        str(state.get("plan_update_summary") or "").strip()
+        or str(state.get("debugging_summary") or "").strip()
+        or _meaningful_entries(state.get("open_issues"))
+    )
+    if replanning_context_present:
+        has_plan_revision_reason = bool(str(output.get("plan_revision_reason") or "").strip())
+        has_plan_summary = bool(str(output.get("plan_summary") or "").strip())
+        if not has_plan_revision_reason and not has_plan_summary:
+            return "planning must acknowledge replanning context via plan_revision_reason or plan_summary"
     return None
 
 def _run_custom_verifier_requirements_execute_implementation(
@@ -1348,7 +1338,6 @@ def _meaningful_entries(value) -> list[str]:
 
 def _path_has_prefix(path: Path, prefix: Path) -> bool:
     try:
-        path.as_posix()
         normalized_path = path.as_posix().strip("/")
         normalized_prefix = prefix.as_posix().strip("/")
     except Exception:

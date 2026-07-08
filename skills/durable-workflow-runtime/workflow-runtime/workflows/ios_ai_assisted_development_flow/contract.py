@@ -12,12 +12,13 @@ WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
 RUN_BRAINSTORMING_ROUTE_1 = SkillRoute(
     skill='brainstorming-nex',
     use_when=SkillUseWhen(
-        operations=['requirements clarification', 'design approval gate', 'design artifact preparation'],
+        operations=['requirements clarification', 'design preparation', 'design artifact preparation'],
         file_patterns=['docs/superpowers/specs/*.md'],
     ),
-    usage_notes=['Primary owner for the pre-implementation design clarification and approval gate.',
- 'Owns the approved design package that will later be handed into the review-authorization and '
- 'subagent-review stages.'],
+    usage_notes=['Primary owner for the pre-implementation design clarification and design-package preparation '
+ 'stage.',
+ 'Owns the brainstorming design package that will later be handed into the review-authorization '
+ 'and subagent-review stages.'],
 )
 
 RUN_BRAINSTORMING_ROUTE_2 = SkillRoute(
@@ -31,19 +32,17 @@ RUN_BRAINSTORMING_ROUTE_2 = SkillRoute(
 
 RUN_BRAINSTORMING = StepContract(
     done_when=['Clarification questions and answer summary are recorded.',
- 'The user-approved design direction is recorded.',
- 'The approved brainstorming design document exists under docs/superpowers/specs/ and its path is '
- 'included.',
+ 'The brainstorming design direction and rationale are recorded.',
+ 'The brainstorming design document exists under docs/superpowers/specs/ and its path is included.',
  'UI-impacting requests include implementation-ready visual detail and visual QA comparison inputs '
- 'in the approved design document.',
- 'The approved design package is ready for an explicit subagent review authorization decision.'],
+ 'in the brainstorming design document.',
+ 'The brainstorming design package is ready for an explicit subagent review authorization '
+ 'decision.'],
     output_schema={'clarification_questions': 'string[]',
  'clarification_answers_summary': 'string',
  'design_presented': 'boolean',
- 'user_approved_design': 'boolean',
- 'design_approved': 'boolean',
- 'approved_design_summary': 'string',
- 'approved_design_path': 'string',
+ 'design_summary': 'string',
+ 'design_path': 'string',
  'ui_surface_affected': 'boolean',
  'visual_spec_detail_summary': 'string?',
  'design_comparison_source': 'string?',
@@ -135,10 +134,10 @@ RUN_SPEC_REVIEW = StepContract(
 WRITE_IMPLEMENTATION_PLAN_ROUTE_1 = SkillRoute(
     skill='writing-plans',
     use_when=SkillUseWhen(
-        operations=['implementation plan authoring', 'task decomposition', 'execution handoff selection'],
+        operations=['implementation plan authoring', 'task decomposition', 'subagent-driven execution handoff'],
         file_patterns=['docs/superpowers/plans/*.md', 'docs/superpowers/specs/*.md'],
     ),
-    usage_notes=['Primary owner for turning the approved design into a detailed implementation plan.',
+    usage_notes=['Primary owner for turning the design package into a detailed implementation plan.',
  'Must record subagent-driven as the execution mode required by this workflow without asking the '
  'user to choose alternatives.'],
 )
@@ -155,11 +154,9 @@ WRITE_IMPLEMENTATION_PLAN_ROUTE_2 = SkillRoute(
 WRITE_IMPLEMENTATION_PLAN = StepContract(
     done_when=['The implementation plan exists under docs/superpowers/plans/.',
  'The plan summary is recorded.',
- 'The user has reviewed the written plan.',
  'The execution mode is recorded as subagent-driven and is ready for implementation.'],
     output_schema={'plan_summary': 'string',
  'plan_path': 'string',
- 'plan_reviewed': 'boolean',
  'execution_mode': 'string',
  'open_questions': 'string[]',
  'ready_for_implementation': 'boolean',

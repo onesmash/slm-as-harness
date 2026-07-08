@@ -22,7 +22,7 @@ def choose_next_node(
             return TransitionDecision(
                 next_node='run_brainstorming',
                 branch_kind='retry',
-                reason='Brainstorming clarification and approval gates must pass before implementation planning.',
+                reason='Brainstorming clarification and design-package readiness gates must pass before implementation planning.',
             )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
@@ -281,6 +281,9 @@ def _route_common_failure(
     observation: dict,
     verifier_result: dict | None,
 ) -> TransitionDecision | None:
+    if current_step_id in {"run_brainstorming", "run_spec_review"}:
+        if verifier_result is not None and not verifier_result["passed"]:
+            return None
     if observation["status"] == "blocked":
         return TransitionDecision(
             next_node="repair_and_resume",

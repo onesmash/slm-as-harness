@@ -67,8 +67,8 @@ NODE_DEFINITIONS = {
     "run_brainstorming": NodeDefinition(
         step_id="run_brainstorming",
         prompt_asset_path=PROMPTS_DIR / "run_brainstorming.md",
-        intent="clarify_and_approve_design",
-        expected_artifact="an approved design package with a written design document path that is ready for subagent review authorization",
+        intent="clarify_and_prepare_design",
+        expected_artifact="a brainstorming design package with a written design document path that is ready for subagent review authorization",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "approve_subagent_review": NodeDefinition(
@@ -89,7 +89,7 @@ NODE_DEFINITIONS = {
         step_id="write_implementation_plan",
         prompt_asset_path=PROMPTS_DIR / "write_implementation_plan.md",
         intent="create_superpowers_implementation_plan",
-        expected_artifact="reviewed implementation plan document and recorded subagent-driven execution mode ready for implementation",
+        expected_artifact="implementation plan document and recorded subagent-driven execution mode ready for implementation",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "execute_implementation": NodeDefinition(
@@ -307,8 +307,8 @@ def _template_context_from_state(state: workflow_state.IosAiAssistedDevelopmentF
         "artifacts_by_stage_json": json.dumps(state.artifacts_by_stage, ensure_ascii=False, indent=2),
         "clarification_questions": _format_prompt_value(state.clarification_questions),
         "clarification_answers_summary": _format_prompt_value(state.clarification_answers_summary),
-        "approved_design_summary": _format_prompt_value(state.approved_design_summary),
-        "approved_design_path": _format_prompt_value(state.approved_design_path),
+        "design_summary": _format_prompt_value(state.design_summary),
+        "design_path": _format_prompt_value(state.design_path),
         "ui_surface_affected": _format_prompt_value(state.ui_surface_affected),
         "design_comparison_source": _format_prompt_value(state.design_comparison_source),
         "runtime_visual_comparison_scope": _format_prompt_value(state.runtime_visual_comparison_scope),
@@ -321,7 +321,6 @@ def _template_context_from_state(state: workflow_state.IosAiAssistedDevelopmentF
         "spec_review_artifact_paths": _format_prompt_value(state.spec_review_artifact_paths),
         "plan_summary": _format_prompt_value(state.plan_summary),
         "plan_path": _format_prompt_value(state.plan_path),
-        "plan_reviewed": _format_prompt_value(state.plan_reviewed),
         "execution_mode": _format_prompt_value(state.execution_mode),
         "plan_revision_reason": _format_prompt_value(state.plan_revision_reason),
         "implementation_summary": _format_prompt_value(state.implementation_summary),

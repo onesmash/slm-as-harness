@@ -1,9 +1,9 @@
-/brainstorming-nex review the approved design package at {{approved_design_path}} through independent development, design, and testing subagent reviews; hand in the concrete review artifacts and confirm whether the design is ready for implementation planning.
+/brainstorming-nex review the design package at {{design_path}} through independent development, design, and testing subagent reviews; hand in the concrete review artifacts and confirm whether the design is ready for implementation planning.
 
 Stage Context:
 
-- Approved design path: {{approved_design_path}}
-- Approved design summary: {{approved_design_summary}}
+- Design path: {{design_path}}
+- Design summary: {{design_summary}}
 - Subagent review authorization: {{authorization_summary}}
 - Repository root: {{repo_root}}
 - UI surface affected: {{ui_surface_affected}}

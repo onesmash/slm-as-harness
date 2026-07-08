@@ -41,7 +41,7 @@ the right workflow.
 ### `write_implementation_plan`
 
 - `planning_requires_subagent_execution_mode`: This workflow may continue only when planning records subagent-driven execution as the selected approach and does not ask the user to choose a different execution style.
-  Signals: `execution_mode`, `ready_for_implementation`, `plan_reviewed`
+  Signals: `execution_mode`, `ready_for_implementation`
   Implementation surfaces: `verifier`, `tests`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
@@ -53,7 +53,7 @@ the right workflow.
     - If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
   Test intent:
     - Reject planning outputs that pick inline execution while claiming implementation is ready.
-    - Accept planning outputs that record subagent-driven execution with a reviewed plan.
+    - Accept planning outputs that record subagent-driven execution with a written plan.
     - Reject replanning output that ignores recorded plan-update or implementation-learned reasons when such context exists in state.
 
 ### `execute_implementation`
