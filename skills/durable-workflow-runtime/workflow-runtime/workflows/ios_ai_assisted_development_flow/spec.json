@@ -869,7 +869,6 @@
           "Latest completion verification summary: {{completion_verification_summary}}",
           "Latest completion verification evidence: {{completion_verification_evidence}}",
           "Latest completion remaining risks: {{completion_remaining_risks}}",
-          "Latest completion missing verification inputs: {{completion_missing_verification_inputs}}",
           "Latest completion release QA risk resolution summary: {{completion_release_qa_risk_resolution_summary}}"
         ],
         "boundaries": [
@@ -1081,6 +1080,10 @@
         }
       ],
       "template_context_keys": [
+        "approved_design_path",
+        "approved_design_summary",
+        "plan_summary",
+        "plan_path",
         "implementation_summary",
         "implementation_completed_tasks",
         "implementation_remaining_tasks",
@@ -1102,7 +1105,6 @@
         "completion_verification_summary",
         "completion_verification_evidence",
         "completion_remaining_risks",
-        "completion_missing_verification_inputs",
         "completion_release_qa_risk_resolution_summary",
         "plan_revision_reason"
       ],
@@ -1339,6 +1341,13 @@
         }
       ],
       "template_context_keys": [
+        "changed_files",
+        "implementation_summary",
+        "verification_commands",
+        "open_issues",
+        "ui_surface_affected",
+        "design_comparison_source",
+        "runtime_visual_comparison_scope",
         "release_qa_verdict",
         "release_qa_summary",
         "release_qa_executed_checks",
@@ -1531,8 +1540,7 @@
         "reviewed_snapshot": "string",
         "findings": "string[]",
         "review_summary": "string",
-        "changes_requested": "boolean",
-        "missing_review_inputs": "string[]"
+        "changes_requested": "boolean"
       },
       "failure_schema": {
         "blocked_reason": "string?",
@@ -1613,19 +1621,21 @@
           "state_key": "review_summary",
           "output_key": "review_summary",
           "kind": "string"
-        },
-        {
-          "state_key": "missing_review_inputs",
-          "output_key": "missing_review_inputs",
-          "kind": "list"
         }
       ],
       "template_context_keys": [
+        "plan_path",
+        "implementation_summary",
+        "changed_files",
+        "verification_commands",
+        "release_qa_verdict",
+        "release_qa_summary",
+        "release_qa_blocked_checks",
+        "release_qa_target_scope",
         "review_status",
         "reviewed_snapshot",
         "review_findings",
-        "review_summary",
-        "missing_review_inputs"
+        "review_summary"
       ],
       "repair_conditions": [],
       "transitions": [
@@ -1682,18 +1692,6 @@
           "expected_value": false
         },
         {
-          "id": "approved_status_clears_missing_review_inputs",
-          "template": "conditional_equals",
-          "output_key": "missing_review_inputs",
-          "message": "If review_status is approved, missing_review_inputs must be empty.",
-          "when": {
-            "output_key": "review_status",
-            "operator": "equals",
-            "value": "approved"
-          },
-          "expected_value": []
-        },
-        {
           "id": "changes_requested_requires_findings",
           "template": "conditional_required",
           "output_key": "findings",
@@ -1720,7 +1718,7 @@
           ],
           "hint_pseudocode": [
             "Skip the requirement when findings is empty.",
-            "Require each finding string to begin with an explicit severity prefix such as critical:, high:, medium:, low:, major:, minor:, blocker:, or p0:.",
+            "Require each finding string to begin with an explicit severity prefix such as critical:, important:, high:, medium:, low:, major:, minor:, blocker:, p0:, or p1:.",
             "Reject findings whose severity is only implied in prose or negated by surrounding text.",
             "Reject findings that jump from lower severity back to higher severity later in the list."
           ],
@@ -1793,16 +1791,17 @@
           "Release QA risk next steps: {{release_qa_risk_next_steps}}",
           "Release QA artifacts: {{release_qa_artifacts}}",
           "Review status: {{review_status}}",
+          "Reviewed snapshot: {{reviewed_snapshot}}",
           "Review summary: {{review_summary}}",
           "Review findings: {{review_findings}}",
-          "Missing review inputs: {{missing_review_inputs}}",
+          "Changed files: {{changed_files}}",
           "Open issues: {{open_issues}}",
           "Latest release QA risk resolution summary: {{completion_release_qa_risk_resolution_summary}}"
         ],
         "boundaries": [
           "Do not claim the workflow is complete without fresh verification evidence gathered in this stage.",
           "Use the recorded verification commands, release QA results, and review findings as inputs, but re-check or freshly validate the evidence before approving completion.",
-          "If completion cannot be proven because required verification inputs or external evidence are missing, return observation.status=blocked instead of a succeeded payload with unresolved missing_verification_inputs.",
+          "If completion cannot be proven because required verification inputs or external evidence are missing, return observation.status=blocked instead of softening the outcome into a succeeded payload.",
           "Do not treat the workflow as complete unless release QA finished with ship and pre-merge code review finished with approved.",
           "If final verification finds missing evidence, unresolved risks, or failing checks, return a non-passing result instead of softening the outcome.",
           "Do not commit, push, create a PR, or imply merge readiness beyond the evidence produced here."
@@ -1815,14 +1814,13 @@
       "done_when": [
         "Fresh completion verification evidence is recorded.",
         "Verification clearly reports whether completion can be claimed.",
-        "Remaining risks or missing verification inputs are listed when verification does not pass."
+        "Remaining risks are listed when verification completes without passing."
       ],
       "output_schema": {
         "verification_passed": "boolean",
         "verification_summary": "string",
         "verification_evidence": "string[]",
         "remaining_risks": "string[]",
-        "missing_verification_inputs": "string[]",
         "release_qa_risks_resolved": "boolean?",
         "release_qa_risk_resolution_summary": "string?"
       },
@@ -1887,11 +1885,6 @@
           "kind": "list"
         },
         {
-          "state_key": "completion_missing_verification_inputs",
-          "output_key": "missing_verification_inputs",
-          "kind": "list"
-        },
-        {
           "state_key": "completion_release_qa_risks_resolved",
           "output_key": "release_qa_risks_resolved",
           "kind": "boolean"
@@ -1903,16 +1896,23 @@
         }
       ],
       "template_context_keys": [
+        "plan_path",
+        "implementation_summary",
+        "changed_files",
+        "verification_commands",
+        "release_qa_verdict",
+        "release_qa_summary",
         "release_qa_executed_checks",
+        "release_qa_target_scope",
+        "release_qa_blocked_checks",
+        "release_qa_risk_next_steps",
         "release_qa_artifacts",
+        "review_status",
+        "reviewed_snapshot",
         "review_summary",
-        "missing_review_inputs",
-        "completion_verification_passed",
+        "review_findings",
+        "open_issues",
         "completion_verification_summary",
-        "completion_verification_evidence",
-        "completion_remaining_risks",
-        "completion_missing_verification_inputs",
-        "completion_release_qa_risks_resolved",
         "completion_release_qa_risk_resolution_summary"
       ],
       "repair_conditions": [],
@@ -1977,18 +1977,6 @@
             "value": null
           },
           "expected_value": []
-        },
-        {
-          "id": "passed_verification_clears_missing_inputs",
-          "template": "conditional_equals",
-          "output_key": "missing_verification_inputs",
-          "message": "If verification_passed is true, missing_verification_inputs must be empty.",
-          "when": {
-            "output_key": "verification_passed",
-            "operator": "is_true",
-            "value": null
-          },
-          "expected_value": []
         }
       ],
       "custom_verifier_requirements": [
@@ -1998,8 +1986,7 @@
           "signals": [
             "verification_passed",
             "verification_evidence",
-            "remaining_risks",
-            "missing_verification_inputs"
+            "remaining_risks"
           ],
           "implementation_surface": [
             "verifier",
@@ -2008,7 +1995,7 @@
           "hint_pseudocode": [
             "Trim each list entry before validation.",
             "Reject verification_evidence that becomes empty after trimming.",
-            "If verification_passed is false, reject remaining_risks and missing_verification_inputs when they contain only blank placeholders."
+            "If verification_passed is false, reject remaining_risks when they contain only blank placeholders."
           ],
           "test_intent": [
             "Reject passing completion output with blank evidence items.",
@@ -2024,7 +2011,6 @@
             "verification_passed",
             "state.open_issues",
             "state.release_qa_blocked_checks",
-            "state.release_qa_risk_next_steps",
             "release_qa_risks_resolved"
           ],
           "implementation_surface": [
@@ -2036,7 +2022,7 @@
             "If verification_passed is true, require persisted state.review_status == approved.",
             "If verification_passed is true, reject the output when persisted open_issues is non-empty.",
             "If verification_passed is true and persisted release_qa_blocked_checks is non-empty, require release_qa_risks_resolved == true.",
-            "If verification_passed is true and persisted release_qa_risk_next_steps still contains unresolved remediation work, require release_qa_risks_resolved == true and a non-empty release_qa_risk_resolution_summary."
+            "If release_qa_risks_resolved is true, require a non-empty release_qa_risk_resolution_summary that explains the fresh recheck evidence."
           ],
           "test_intent": [
             "Reject passing completion output when release QA did not end in ship.",
@@ -2134,7 +2120,7 @@
     }
   },
   "final_step_id": "finalize_delivery_summary",
-  "final_prompt": "Prepare the final iOS Client AI-assisted development delivery summary using approved design summary {{approved_design_summary}}, approved design path {{approved_design_path}}, plan summary {{plan_summary}}, plan path {{plan_path}}, selected execution mode {{execution_mode}}, implementation summary {{implementation_summary}}, changed files {{changed_files}}, verification commands {{verification_commands}}, debugging summary {{debugging_summary}}, release QA target scope {{release_qa_target_scope}}, release QA verdict {{release_qa_verdict}}, release QA summary {{release_qa_summary}}, release QA executed checks {{release_qa_executed_checks}}, release QA blocked checks {{release_qa_blocked_checks}}, release QA risk next steps {{release_qa_risk_next_steps}}, release QA artifacts {{release_qa_artifacts}}, review status {{review_status}}, reviewed snapshot {{reviewed_snapshot}}, review summary {{review_summary}}, review findings {{review_findings}}, completion verification passed {{completion_verification_passed}}, completion verification summary {{completion_verification_summary}}, completion verification evidence {{completion_verification_evidence}}, completion verification missing inputs {{completion_missing_verification_inputs}}, completion remaining risks {{completion_remaining_risks}}, release QA risks resolved {{completion_release_qa_risks_resolved}}, release QA risk resolution summary {{completion_release_qa_risk_resolution_summary}}, and open issues {{open_issues}}.",
+  "final_prompt": "Prepare the final iOS Client AI-assisted development delivery summary using approved design summary {{approved_design_summary}}, approved design path {{approved_design_path}}, plan summary {{plan_summary}}, plan path {{plan_path}}, selected execution mode {{execution_mode}}, implementation summary {{implementation_summary}}, changed files {{changed_files}}, verification commands {{verification_commands}}, debugging summary {{debugging_summary}}, release QA target scope {{release_qa_target_scope}}, release QA verdict {{release_qa_verdict}}, release QA summary {{release_qa_summary}}, release QA executed checks {{release_qa_executed_checks}}, release QA blocked checks {{release_qa_blocked_checks}}, release QA risk next steps {{release_qa_risk_next_steps}}, release QA artifacts {{release_qa_artifacts}}, review status {{review_status}}, reviewed snapshot {{reviewed_snapshot}}, review summary {{review_summary}}, review findings {{review_findings}}, completion verification passed {{completion_verification_passed}}, completion verification summary {{completion_verification_summary}}, completion verification evidence {{completion_verification_evidence}}, completion remaining risks {{completion_remaining_risks}}, release QA risks resolved {{completion_release_qa_risks_resolved}}, release QA risk resolution summary {{completion_release_qa_risk_resolution_summary}}, and open issues {{open_issues}}.",
   "dependencies": [
     {
       "id": "brainstorming-nex",
@@ -2993,7 +2979,7 @@
       },
       "state": null,
       "expected_next_node": "repair_and_resume",
-      "expected_branch_kind": "repair"
+      "expected_branch_kind": "retry"
     },
     {
       "name": "release_qa_do_not_ship_routes_to_implementation",
@@ -3068,8 +3054,7 @@
           "findings": [
             "high: fix retain cycle in meeting footer"
           ],
-          "changes_requested": true,
-          "missing_review_inputs": []
+          "changes_requested": true
         }
       },
       "verifier_result": {
@@ -3079,6 +3064,29 @@
       "state": null,
       "expected_next_node": "execute_implementation",
       "expected_branch_kind": "retry"
+    },
+    {
+      "name": "review_approved_routes_to_completion_verification",
+      "type": "transition",
+      "current_step_id": "request_pre_merge_code_review",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Review approved the change.",
+        "structured_output": {
+          "review_status": "approved",
+          "reviewed_snapshot": "HEAD vs working tree",
+          "review_summary": "No actionable findings remain.",
+          "findings": [],
+          "changes_requested": false
+        }
+      },
+      "verifier_result": {
+        "passed": true,
+        "checks": []
+      },
+      "state": null,
+      "expected_next_node": "verify_completion",
+      "expected_branch_kind": "continue"
     },
     {
       "name": "completion_verification_failed_routes_to_implementation",
@@ -3096,7 +3104,6 @@
           "remaining_risks": [
             "Target regression case not re-run"
           ],
-          "missing_verification_inputs": [],
           "release_qa_risks_resolved": false
         }
       },
@@ -3120,7 +3127,6 @@
           "verification_summary": "Everything looks good.",
           "verification_evidence": [],
           "remaining_risks": [],
-          "missing_verification_inputs": [],
           "release_qa_risks_resolved": true,
           "release_qa_risk_resolution_summary": "Resolved residual QA risks."
         }
@@ -3143,9 +3149,7 @@
             "Manual smoke test on updated screen"
           ],
           "remaining_risks": [],
-          "missing_verification_inputs": [],
-          "release_qa_risks_resolved": true,
-          "release_qa_risk_resolution_summary": "Residual release QA risks were rechecked and cleared."
+          "release_qa_risks_resolved": false
         }
       },
       "verifier_result": {
@@ -3327,8 +3331,7 @@
             "   "
           ],
           "review_summary": "Need changes.",
-          "changes_requested": true,
-          "missing_review_inputs": []
+          "changes_requested": true
         }
       },
       "expected_passed": false,
@@ -3348,8 +3351,7 @@
             "Fix retain cycle in meeting footer presenter"
           ],
           "review_summary": "One issue must be fixed.",
-          "changes_requested": true,
-          "missing_review_inputs": []
+          "changes_requested": true
         }
       },
       "expected_passed": false,
@@ -3369,12 +3371,136 @@
             "medium: fix retain cycle in meeting footer presenter"
           ],
           "review_summary": "One medium-severity issue must be fixed.",
-          "changes_requested": true,
-          "missing_review_inputs": []
+          "changes_requested": true
         }
       },
       "expected_passed": true,
       "state": null
+    },
+    {
+      "name": "review_accepts_findings_with_important_prefix",
+      "type": "verifier",
+      "step_id": "request_pre_merge_code_review",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Review findings used the important severity label.",
+        "structured_output": {
+          "review_status": "changes_requested",
+          "reviewed_snapshot": "HEAD vs working tree",
+          "findings": [
+            "important: fix retain cycle in meeting footer presenter"
+          ],
+          "review_summary": "One important issue must be fixed.",
+          "changes_requested": true
+        }
+      },
+      "expected_passed": true,
+      "state": null
+    },
+    {
+      "name": "review_rejects_findings_out_of_severity_order",
+      "type": "verifier",
+      "step_id": "request_pre_merge_code_review",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Review findings jumped from lower severity back to higher severity.",
+        "structured_output": {
+          "review_status": "changes_requested",
+          "reviewed_snapshot": "HEAD vs working tree",
+          "findings": [
+            "medium: fix retain cycle in meeting footer presenter",
+            "important: fix leaked observer in toolbar coordinator"
+          ],
+          "review_summary": "Two findings need follow-up.",
+          "changes_requested": true
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "release_qa_verifier_failure_routes_to_repair",
+      "type": "transition",
+      "current_step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA returned invalid structured output.",
+        "structured_output": {
+          "release_qa_target_scope": "Changed meeting footer flow on iPhone simulator",
+          "release_qa_summary": "Core checks passed, but one visual confirmation is still blocked.",
+          "release_qa_verdict": "ship",
+          "release_qa_executed_checks": [
+            "Smoke",
+            "Regression"
+          ],
+          "release_qa_blocked_checks": [
+            "Final screenshot diff confirmation"
+          ],
+          "release_qa_risk_next_steps": [
+            "Resolve the blocked screenshot diff before shipping."
+          ],
+          "release_qa_artifacts": []
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "checks": []
+      },
+      "state": null,
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "retry"
+    },
+    {
+      "name": "review_verifier_failure_routes_to_repair",
+      "type": "transition",
+      "current_step_id": "request_pre_merge_code_review",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Review output violated the severity contract.",
+        "structured_output": {
+          "review_status": "changes_requested",
+          "reviewed_snapshot": "HEAD vs working tree",
+          "review_summary": "One issue must be fixed.",
+          "findings": [
+            "Fix retain cycle in meeting footer presenter"
+          ],
+          "changes_requested": true
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "checks": []
+      },
+      "state": null,
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "retry"
+    },
+    {
+      "name": "completion_verifier_failure_routes_to_repair",
+      "type": "transition",
+      "current_step_id": "verify_completion",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Completion output violated the final gate contract.",
+        "structured_output": {
+          "verification_passed": true,
+          "verification_summary": "Looks done.",
+          "verification_evidence": [
+            "xcodebuild test -scheme ZoomClient"
+          ],
+          "remaining_risks": [
+            "Residual issue"
+          ],
+          "release_qa_risks_resolved": false
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "checks": []
+      },
+      "state": null,
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "repair"
     },
     {
       "name": "review_rejects_approved_status_with_findings",
@@ -3390,8 +3516,7 @@
             "low: rename the leaked presenter helper before merge"
           ],
           "review_summary": "Mostly ready, but one cleanup item remains.",
-          "changes_requested": false,
-          "missing_review_inputs": []
+          "changes_requested": false
         }
       },
       "expected_passed": false,
@@ -3413,7 +3538,6 @@
           "remaining_risks": [
             "Residual issue"
           ],
-          "missing_verification_inputs": [],
           "release_qa_risks_resolved": false
         }
       },
@@ -3421,12 +3545,12 @@
       "state": null
     },
     {
-      "name": "completion_verification_rejects_pass_with_missing_inputs",
+      "name": "completion_verification_accepts_ship_without_resolved_flag_when_no_blocked_checks",
       "type": "verifier",
       "step_id": "verify_completion",
       "observation": {
         "status": "succeeded",
-        "summary": "Verification passed with missing inputs still listed.",
+        "summary": "Verification passed after ship verdict with only informational next steps left in state.",
         "structured_output": {
           "verification_passed": true,
           "verification_summary": "Looks done.",
@@ -3434,14 +3558,19 @@
             "xcodebuild test"
           ],
           "remaining_risks": [],
-          "missing_verification_inputs": [
-            "Need one more artifact"
-          ],
           "release_qa_risks_resolved": false
         }
       },
-      "expected_passed": false,
-      "state": null
+      "expected_passed": true,
+      "state": {
+        "release_qa_verdict": "ship",
+        "review_status": "approved",
+        "open_issues": [],
+        "release_qa_blocked_checks": [],
+        "release_qa_risk_next_steps": [
+          "Proceed to final delivery summary."
+        ]
+      }
     },
     {
       "name": "completion_verification_rejects_blank_evidence_items",
@@ -3457,7 +3586,6 @@
             "   "
           ],
           "remaining_risks": [],
-          "missing_verification_inputs": [],
           "release_qa_risks_resolved": false
         }
       },
@@ -3482,7 +3610,6 @@
             "xcodebuild test -scheme ZoomClient"
           ],
           "remaining_risks": [],
-          "missing_verification_inputs": [],
           "release_qa_risks_resolved": false
         }
       },
@@ -3507,7 +3634,6 @@
             "xcodebuild test -scheme ZoomClient"
           ],
           "remaining_risks": [],
-          "missing_verification_inputs": [],
           "release_qa_risks_resolved": false
         }
       },
@@ -3532,7 +3658,6 @@
             "xcodebuild test -scheme ZoomClient"
           ],
           "remaining_risks": [],
-          "missing_verification_inputs": [],
           "release_qa_risks_resolved": false
         }
       },
@@ -3559,7 +3684,6 @@
             "xcodebuild test -scheme ZoomClient"
           ],
           "remaining_risks": [],
-          "missing_verification_inputs": [],
           "release_qa_risks_resolved": false
         }
       },
@@ -3591,7 +3715,6 @@
             "Re-ran screenshot diff and compared against approved mock."
           ],
           "remaining_risks": [],
-          "missing_verification_inputs": [],
           "release_qa_risks_resolved": true,
           "release_qa_risk_resolution_summary": "Re-ran the screenshot diff and cleared the last release QA blocked check."
         }

@@ -125,7 +125,7 @@ the right workflow.
   same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Skip the requirement when findings is empty.
-    - Require each finding string to begin with an explicit severity prefix such as critical:, high:, medium:, low:, major:, minor:, blocker:, or p0:.
+    - Require each finding string to begin with an explicit severity prefix such as critical:, important:, high:, medium:, low:, major:, minor:, blocker:, p0:, or p1:.
     - Reject findings whose severity is only implied in prose or negated by surrounding text.
     - Reject findings that jump from lower severity back to higher severity later in the list.
   Test intent:
@@ -160,7 +160,7 @@ the right workflow.
 ### `verify_completion`
 
 - `completion_evidence_lists_require_meaningful_entries`: Completion evidence and risk lists must contain meaningful non-empty entries after trimming whitespace.
-  Signals: `verification_passed`, `verification_evidence`, `remaining_risks`, `missing_verification_inputs`
+  Signals: `verification_passed`, `verification_evidence`, `remaining_risks`
   Implementation surfaces: `verifier`, `tests`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
@@ -168,12 +168,12 @@ the right workflow.
   Hint pseudocode:
     - Trim each list entry before validation.
     - Reject verification_evidence that becomes empty after trimming.
-    - If verification_passed is false, reject remaining_risks and missing_verification_inputs when they contain only blank placeholders.
+    - If verification_passed is false, reject remaining_risks when they contain only blank placeholders.
   Test intent:
     - Reject passing completion output with blank evidence items.
     - Reject failed completion output whose remaining_risks are only blank placeholders.
 - `completion_requires_release_qa_and_review_approval`: Completion may pass only after release QA reached ship and pre-merge review reached approved; otherwise the workflow must keep iterating.
-  Signals: `state.release_qa_verdict`, `state.review_status`, `verification_passed`, `state.open_issues`, `state.release_qa_blocked_checks`, `state.release_qa_risk_next_steps`, `release_qa_risks_resolved`
+  Signals: `state.release_qa_verdict`, `state.review_status`, `verification_passed`, `state.open_issues`, `state.release_qa_blocked_checks`, `release_qa_risks_resolved`
   Implementation surfaces: `verifier`, `tests`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
@@ -183,7 +183,7 @@ the right workflow.
     - If verification_passed is true, require persisted state.review_status == approved.
     - If verification_passed is true, reject the output when persisted open_issues is non-empty.
     - If verification_passed is true and persisted release_qa_blocked_checks is non-empty, require release_qa_risks_resolved == true.
-    - If verification_passed is true and persisted release_qa_risk_next_steps still contains unresolved remediation work, require release_qa_risks_resolved == true and a non-empty release_qa_risk_resolution_summary.
+    - If release_qa_risks_resolved is true, require a non-empty release_qa_risk_resolution_summary that explains the fresh recheck evidence.
   Test intent:
     - Reject passing completion output when release QA did not end in ship.
     - Reject passing completion output when pre-merge review did not end in approved.
@@ -215,7 +215,7 @@ the right workflow.
    (`graphbuilder_runtime.py`, `policy.py`, and `references/flowchart.md`). If
    authorization is still missing, stop and report the workflow as blocked
    instead of falling back to a one-thread review. If the user explicitly
-   denies authorization, review `approve_subagent_review` as a normal business
+   denies authorization, review the authorization gate as a normal business
    completion branch that should close the workflow before implementation
    planning, not as an error-state block.
 2. Review `spec.json` first. Check whether it fully describes the intended
@@ -250,10 +250,6 @@ the right workflow.
    should use `verifier_templates`, and any remaining domain-specific verifier
    logic should be declared in `custom_verifier_requirements` with enough detail
    for generated custom verifier scaffolds to be completed before review.
-   Treat each requirement-scoped scaffold as the preservation-safe authoring
-   unit. Those scaffolds should be self-contained when practical or call stable
-   shared modules imported into `verifiers.py`; treat same-file helper
-   dependencies as a blocking review issue.
 7. Verify state promotion in the spec: every output needed by later prompts,
    final summary, repair logic, or tests should appear in `state_updates` and
    `template_context_keys` where appropriate.
@@ -295,9 +291,7 @@ the right workflow.
 - Declared `custom_verifier_requirements` now generate requirement-scoped
   scaffolds in `verifiers.py`. Treat those functions as authoring-time work:
   finish or tighten them before review sign-off, then use agent review to
-  validate/refine the resulting verifier logic and regression coverage. If a
-  scaffold needs reusable logic, move that logic into a stable shared module
-  instead of adding same-file helper layers in `verifiers.py`.
+  validate/refine the resulting verifier logic and regression coverage.
 - A generated `outcome_route`, `repair_condition`, `transition`, or recovery
   return follows the declared target; it does not know whether that target is
   the best business return point.

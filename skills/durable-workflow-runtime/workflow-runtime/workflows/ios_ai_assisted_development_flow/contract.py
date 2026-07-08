@@ -377,8 +377,7 @@ REQUEST_PRE_MERGE_CODE_REVIEW = StepContract(
  'reviewed_snapshot': 'string',
  'findings': 'string[]',
  'review_summary': 'string',
- 'changes_requested': 'boolean',
- 'missing_review_inputs': 'string[]'},
+ 'changes_requested': 'boolean'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
     skill_routing=[REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_1, REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_2, REQUEST_PRE_MERGE_CODE_REVIEW_ROUTE_3],
     verifier=StepVerifier(
@@ -412,12 +411,11 @@ VERIFY_COMPLETION_ROUTE_2 = SkillRoute(
 VERIFY_COMPLETION = StepContract(
     done_when=['Fresh completion verification evidence is recorded.',
  'Verification clearly reports whether completion can be claimed.',
- 'Remaining risks or missing verification inputs are listed when verification does not pass.'],
+ 'Remaining risks are listed when verification completes without passing.'],
     output_schema={'verification_passed': 'boolean',
  'verification_summary': 'string',
  'verification_evidence': 'string[]',
  'remaining_risks': 'string[]',
- 'missing_verification_inputs': 'string[]',
  'release_qa_risks_resolved': 'boolean?',
  'release_qa_risk_resolution_summary': 'string?'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},

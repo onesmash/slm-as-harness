@@ -24,7 +24,6 @@ Stage Context:
 - Latest completion verification summary: {{completion_verification_summary}}
 - Latest completion verification evidence: {{completion_verification_evidence}}
 - Latest completion remaining risks: {{completion_remaining_risks}}
-- Latest completion missing verification inputs: {{completion_missing_verification_inputs}}
 - Latest completion release QA risk resolution summary: {{completion_release_qa_risk_resolution_summary}}
 
 Stage Boundaries:

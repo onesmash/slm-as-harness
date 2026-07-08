@@ -68,12 +68,10 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     reviewed_snapshot: str | None = None
     review_findings: list = field(default_factory=list)
     review_summary: str | None = None
-    missing_review_inputs: list = field(default_factory=list)
     completion_verification_passed: bool | None = None
     completion_verification_summary: str | None = None
     completion_verification_evidence: list = field(default_factory=list)
     completion_remaining_risks: list = field(default_factory=list)
-    completion_missing_verification_inputs: list = field(default_factory=list)
     completion_release_qa_risks_resolved: bool | None = None
     completion_release_qa_risk_resolution_summary: str | None = None
     artifacts_by_stage: dict[str, list[dict]] = field(default_factory=dict)
@@ -151,12 +149,10 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         reviewed_snapshot=payload.get('reviewed_snapshot'),
         review_findings=list(payload.get('review_findings') or []),
         review_summary=payload.get('review_summary'),
-        missing_review_inputs=list(payload.get('missing_review_inputs') or []),
         completion_verification_passed=payload.get('completion_verification_passed'),
         completion_verification_summary=payload.get('completion_verification_summary'),
         completion_verification_evidence=list(payload.get('completion_verification_evidence') or []),
         completion_remaining_risks=list(payload.get('completion_remaining_risks') or []),
-        completion_missing_verification_inputs=list(payload.get('completion_missing_verification_inputs') or []),
         completion_release_qa_risks_resolved=payload.get('completion_release_qa_risks_resolved'),
         completion_release_qa_risk_resolution_summary=payload.get('completion_release_qa_risk_resolution_summary'),
         artifacts_by_stage=dict(payload.get("artifacts_by_stage") or {}),
@@ -223,13 +219,11 @@ def record_observation(
                 state.reviewed_snapshot = structured_output.get('reviewed_snapshot')
                 state.review_findings = _list_value(structured_output.get('findings'))
                 state.review_summary = structured_output.get('review_summary')
-                state.missing_review_inputs = _list_value(structured_output.get('missing_review_inputs'))
             elif current_step_id == 'verify_completion':
                 state.completion_verification_passed = structured_output.get('verification_passed')
                 state.completion_verification_summary = structured_output.get('verification_summary')
                 state.completion_verification_evidence = _list_value(structured_output.get('verification_evidence'))
                 state.completion_remaining_risks = _list_value(structured_output.get('remaining_risks'))
-                state.completion_missing_verification_inputs = _list_value(structured_output.get('missing_verification_inputs'))
                 state.completion_release_qa_risks_resolved = structured_output.get('release_qa_risks_resolved')
                 state.completion_release_qa_risk_resolution_summary = structured_output.get('release_qa_risk_resolution_summary')
             else:

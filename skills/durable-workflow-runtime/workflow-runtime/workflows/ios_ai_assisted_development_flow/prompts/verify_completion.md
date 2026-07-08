@@ -13,9 +13,10 @@ Stage Context:
 - Release QA risk next steps: {{release_qa_risk_next_steps}}
 - Release QA artifacts: {{release_qa_artifacts}}
 - Review status: {{review_status}}
+- Reviewed snapshot: {{reviewed_snapshot}}
 - Review summary: {{review_summary}}
 - Review findings: {{review_findings}}
-- Missing review inputs: {{missing_review_inputs}}
+- Changed files: {{changed_files}}
 - Open issues: {{open_issues}}
 - Latest release QA risk resolution summary: {{completion_release_qa_risk_resolution_summary}}
 
@@ -23,7 +24,7 @@ Stage Boundaries:
 
 - Do not claim the workflow is complete without fresh verification evidence gathered in this stage.
 - Use the recorded verification commands, release QA results, and review findings as inputs, but re-check or freshly validate the evidence before approving completion.
-- If completion cannot be proven because required verification inputs or external evidence are missing, return observation.status=blocked instead of a succeeded payload with unresolved missing_verification_inputs.
+- If completion cannot be proven because required verification inputs or external evidence are missing, return observation.status=blocked instead of softening the outcome into a succeeded payload.
 - Do not treat the workflow as complete unless release QA finished with ship and pre-merge code review finished with approved.
 - If final verification finds missing evidence, unresolved risks, or failing checks, return a non-passing result instead of softening the outcome.
 - Do not commit, push, create a PR, or imply merge readiness beyond the evidence produced here.

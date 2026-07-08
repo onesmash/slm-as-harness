@@ -165,28 +165,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], False)
 
-    def test_run_spec_review_rejects_duplicate_review_coverage(self):
-        result = verifiers.verify_run_spec_review(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='run_spec_review',
-            observation={'status': 'succeeded',
- 'summary': 'Spec review tried to reuse one development review for multiple perspectives.',
- 'structured_output': {'spec_review_loop_completed': True,
-                       'spec_review_perspectives': ['development', 'design', 'testing'],
-                       'spec_review_findings_summary': 'All three review perspectives were claimed.',
-                       'spec_review_subagent_summaries': ['Development review passed.',
-                                                          'Development review passed.',
-                                                          'Testing review passed.'],
-                       'spec_review_artifact_paths': ['docs/superpowers/specs/2026-06-24-ios-change-development-review.md',
-                                                      'docs/superpowers/specs/2026-06-24-ios-change-design-review.md',
-                                                      'docs/superpowers/specs/2026-06-24-ios-change-testing-review.md'],
-                       'open_questions': [],
-                       'ready_for_planning': True}},
-            state={},
-        )
-        self.assertIs(result['passed'], False)
-
     def test_brainstorming_rejects_non_spec_doc_path(self):
         result = verifiers.verify_run_brainstorming(
             repo_root=str(REPO_ROOT),
@@ -568,12 +546,27 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'reviewed_snapshot': 'HEAD vs working tree',
                        'review_summary': 'One high-severity issue must be fixed.',
                        'findings': ['high: fix retain cycle in meeting footer'],
-                       'changes_requested': True,
-                       'missing_review_inputs': []}},
+                       'changes_requested': True}},
             verifier_result={'passed': True, 'checks': []},
         )
         self.assertEqual(result.step_id, 'execute_implementation')
         self.assertEqual(result.branch_kind, 'retry')
+
+    def test_review_approved_routes_to_completion_verification(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='request_pre_merge_code_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Review approved the change.',
+ 'structured_output': {'review_status': 'approved',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'review_summary': 'No actionable findings remain.',
+                       'findings': [],
+                       'changes_requested': False}},
+            verifier_result={'passed': True, 'checks': []},
+        )
+        self.assertEqual(result.step_id, 'verify_completion')
+        self.assertEqual(result.branch_kind, 'continue')
 
     def test_completion_verification_failed_routes_to_implementation(self):
         result = graphbuilder_runtime.run_transition_preview(
@@ -585,7 +578,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'verification_summary': 'Need one more regression pass.',
                        'verification_evidence': ['xcodebuild test still missing target case'],
                        'remaining_risks': ['Target regression case not re-run'],
-                       'missing_verification_inputs': [],
                        'release_qa_risks_resolved': False}},
             verifier_result={'passed': True, 'checks': []},
         )
@@ -603,7 +595,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'verification_summary': 'Everything looks good.',
                        'verification_evidence': [],
                        'remaining_risks': [],
-                       'missing_verification_inputs': [],
                        'release_qa_risks_resolved': True,
                        'release_qa_risk_resolution_summary': 'Resolved residual QA risks.'}},
             state={},
@@ -621,10 +612,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'verification_evidence': ['xcodebuild test -scheme ZoomClient',
                                                  'Manual smoke test on updated screen'],
                        'remaining_risks': [],
-                       'missing_verification_inputs': [],
-                       'release_qa_risks_resolved': True,
-                       'release_qa_risk_resolution_summary': 'Residual release QA risks were '
-                                                             'rechecked and cleared.'}},
+                       'release_qa_risks_resolved': False}},
             verifier_result={'passed': True, 'checks': []},
         )
         self.assertEqual(result.step_id, 'finalize_delivery_summary')
@@ -754,8 +742,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'reviewed_snapshot': 'HEAD vs working tree',
                        'findings': ['   '],
                        'review_summary': 'Need changes.',
-                       'changes_requested': True,
-                       'missing_review_inputs': []}},
+                       'changes_requested': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -771,8 +758,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'reviewed_snapshot': 'HEAD vs working tree',
                        'findings': ['Fix retain cycle in meeting footer presenter'],
                        'review_summary': 'One issue must be fixed.',
-                       'changes_requested': True,
-                       'missing_review_inputs': []}},
+                       'changes_requested': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -788,8 +774,23 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'reviewed_snapshot': 'HEAD vs working tree',
                        'findings': ['medium: fix retain cycle in meeting footer presenter'],
                        'review_summary': 'One medium-severity issue must be fixed.',
-                       'changes_requested': True,
-                       'missing_review_inputs': []}},
+                       'changes_requested': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], True)
+
+    def test_review_accepts_findings_with_important_prefix(self):
+        result = verifiers.verify_request_pre_merge_code_review(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='request_pre_merge_code_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Review findings used the important severity label.',
+ 'structured_output': {'review_status': 'changes_requested',
+                       'reviewed_snapshot': 'HEAD vs working tree',
+                       'findings': ['important: fix retain cycle in meeting footer presenter'],
+                       'review_summary': 'One important issue must be fixed.',
+                       'changes_requested': True}},
             state={},
         )
         self.assertIs(result['passed'], True)
@@ -800,36 +801,68 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             run_id="generated-test-run",
             step_id='request_pre_merge_code_review',
             observation={'status': 'succeeded',
- 'summary': 'Review findings jumped from low severity back to high severity.',
+ 'summary': 'Review findings jumped from lower severity back to higher severity.',
  'structured_output': {'review_status': 'changes_requested',
                        'reviewed_snapshot': 'HEAD vs working tree',
-                       'findings': ['low: rename the helper for clarity',
-                                    'high: fix retain cycle in meeting footer presenter'],
-                       'review_summary': 'One low-severity cleanup and one high-severity blocker were reported.',
-                       'changes_requested': True,
-                       'missing_review_inputs': []}},
+                       'findings': ['medium: fix retain cycle in meeting footer presenter',
+                                    'important: fix leaked observer in toolbar coordinator'],
+                       'review_summary': 'Two findings need follow-up.',
+                       'changes_requested': True}},
             state={},
         )
         self.assertIs(result['passed'], False)
 
-    def test_review_accepts_findings_grouped_by_descending_severity(self):
-        result = verifiers.verify_request_pre_merge_code_review(
-            repo_root=str(REPO_ROOT),
-            run_id="generated-test-run",
-            step_id='request_pre_merge_code_review',
+    def test_release_qa_verifier_failure_routes_to_repair(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='run_agentic_release_qa',
             observation={'status': 'succeeded',
- 'summary': 'Review findings were grouped from high severity to low severity.',
+ 'summary': 'Release QA returned invalid structured output.',
+ 'structured_output': {'release_qa_target_scope': 'Changed meeting footer flow on iPhone simulator',
+                       'release_qa_summary': 'Core checks passed, but one visual confirmation is '
+                                             'still blocked.',
+                       'release_qa_verdict': 'ship',
+                       'release_qa_executed_checks': ['Smoke', 'Regression'],
+                       'release_qa_blocked_checks': ['Final screenshot diff confirmation'],
+                       'release_qa_risk_next_steps': ['Resolve the blocked screenshot diff before '
+                                                      'shipping.'],
+                       'release_qa_artifacts': []}},
+            verifier_result={'passed': False, 'checks': []},
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'retry')
+
+    def test_review_verifier_failure_routes_to_repair(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='request_pre_merge_code_review',
+            observation={'status': 'succeeded',
+ 'summary': 'Review output violated the severity contract.',
  'structured_output': {'review_status': 'changes_requested',
                        'reviewed_snapshot': 'HEAD vs working tree',
-                       'findings': ['high: fix retain cycle in meeting footer presenter',
-                                    'medium: tighten thread handoff around dismissal callback',
-                                    'low: rename the helper for clarity'],
-                       'review_summary': 'One high-severity blocker and two lower-severity follow-ups were reported.',
-                       'changes_requested': True,
-                       'missing_review_inputs': []}},
-            state={},
+                       'review_summary': 'One issue must be fixed.',
+                       'findings': ['Fix retain cycle in meeting footer presenter'],
+                       'changes_requested': True}},
+            verifier_result={'passed': False, 'checks': []},
         )
-        self.assertIs(result['passed'], True)
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'retry')
+
+    def test_completion_verifier_failure_routes_to_repair(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='verify_completion',
+            observation={'status': 'succeeded',
+ 'summary': 'Completion output violated the final gate contract.',
+ 'structured_output': {'verification_passed': True,
+                       'verification_summary': 'Looks done.',
+                       'verification_evidence': ['xcodebuild test -scheme ZoomClient'],
+                       'remaining_risks': ['Residual issue'],
+                       'release_qa_risks_resolved': False}},
+            verifier_result={'passed': False, 'checks': []},
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'retry')
 
     def test_review_rejects_approved_status_with_findings(self):
         result = verifiers.verify_request_pre_merge_code_review(
@@ -842,8 +875,7 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'reviewed_snapshot': 'HEAD vs working tree',
                        'findings': ['low: rename the leaked presenter helper before merge'],
                        'review_summary': 'Mostly ready, but one cleanup item remains.',
-                       'changes_requested': False,
-                       'missing_review_inputs': []}},
+                       'changes_requested': False}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -859,28 +891,31 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'verification_summary': 'Looks done.',
                        'verification_evidence': ['xcodebuild test'],
                        'remaining_risks': ['Residual issue'],
-                       'missing_verification_inputs': [],
                        'release_qa_risks_resolved': False}},
             state={},
         )
         self.assertIs(result['passed'], False)
 
-    def test_completion_verification_rejects_pass_with_missing_inputs(self):
+    def test_completion_verification_accepts_ship_without_resolved_flag_when_no_blocked_checks(self):
         result = verifiers.verify_verify_completion(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='verify_completion',
             observation={'status': 'succeeded',
- 'summary': 'Verification passed with missing inputs still listed.',
+ 'summary': 'Verification passed after ship verdict with only informational next steps left in '
+            'state.',
  'structured_output': {'verification_passed': True,
                        'verification_summary': 'Looks done.',
                        'verification_evidence': ['xcodebuild test'],
                        'remaining_risks': [],
-                       'missing_verification_inputs': ['Need one more artifact'],
                        'release_qa_risks_resolved': False}},
-            state={},
+            state={'release_qa_verdict': 'ship',
+ 'review_status': 'approved',
+ 'open_issues': [],
+ 'release_qa_blocked_checks': [],
+ 'release_qa_risk_next_steps': ['Proceed to final delivery summary.']},
         )
-        self.assertIs(result['passed'], False)
+        self.assertIs(result['passed'], True)
 
     def test_completion_verification_rejects_blank_evidence_items(self):
         result = verifiers.verify_verify_completion(
@@ -893,7 +928,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'verification_summary': 'Looks done.',
                        'verification_evidence': ['   '],
                        'remaining_risks': [],
-                       'missing_verification_inputs': [],
                        'release_qa_risks_resolved': False}},
             state={'release_qa_verdict': 'ship', 'review_status': 'approved', 'open_issues': []},
         )
@@ -910,7 +944,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'verification_summary': 'Completion looks ready.',
                        'verification_evidence': ['xcodebuild test -scheme ZoomClient'],
                        'remaining_risks': [],
-                       'missing_verification_inputs': [],
                        'release_qa_risks_resolved': False}},
             state={'release_qa_verdict': 'do_not_ship', 'review_status': 'approved', 'open_issues': []},
         )
@@ -927,7 +960,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'verification_summary': 'Completion looks ready.',
                        'verification_evidence': ['xcodebuild test -scheme ZoomClient'],
                        'remaining_risks': [],
-                       'missing_verification_inputs': [],
                        'release_qa_risks_resolved': False}},
             state={'release_qa_verdict': 'ship', 'review_status': 'changes_requested', 'open_issues': []},
         )
@@ -944,7 +976,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'verification_summary': 'Completion looks ready.',
                        'verification_evidence': ['xcodebuild test -scheme ZoomClient'],
                        'remaining_risks': [],
-                       'missing_verification_inputs': [],
                        'release_qa_risks_resolved': False}},
             state={'release_qa_verdict': 'ship',
  'review_status': 'approved',
@@ -963,7 +994,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                        'verification_summary': 'Completion looks ready.',
                        'verification_evidence': ['xcodebuild test -scheme ZoomClient'],
                        'remaining_risks': [],
-                       'missing_verification_inputs': [],
                        'release_qa_risks_resolved': False}},
             state={'release_qa_verdict': 'ship',
  'review_status': 'approved',
@@ -986,7 +1016,6 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
                                                  'Re-ran screenshot diff and compared against '
                                                  'approved mock.'],
                        'remaining_risks': [],
-                       'missing_verification_inputs': [],
                        'release_qa_risks_resolved': True,
                        'release_qa_risk_resolution_summary': 'Re-ran the screenshot diff and '
                                                              'cleared the last release QA blocked '

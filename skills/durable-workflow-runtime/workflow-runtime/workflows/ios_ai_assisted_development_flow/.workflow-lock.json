@@ -6,7 +6,7 @@
       "id": "brainstorming-nex",
       "type": "skill",
       "scope": "either",
-      "source": "https://git.zoom.us/ai-tools/skills/-/tree/main/plugins/skill-book/skills/brainstorming-nex?ref_type=heads",
+      "source": "skill-catalog:brainstorming-nex",
       "recorded_at": "2026-06-24T00:00:00Z",
       "recorded_by": "workflow-creator"
     },

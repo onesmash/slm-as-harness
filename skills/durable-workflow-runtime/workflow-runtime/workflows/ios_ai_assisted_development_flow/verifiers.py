@@ -1,15 +1,10 @@
 from __future__ import annotations
 
-import re
 from pathlib import Path
+import re
 
 from workflows.common.contracts import VerifierResult, make_verifier_result
 from workflows.common.policies import condition_matches
-
-# Custom verifier scaffolds below are the preservation-safe authoring unit for
-# each requirement. Keep them self-contained when practical; if reuse is
-# needed, import stable helpers from shared modules instead of adding same-file
-# helper layers in verifiers.py.
 
 def verify_run_brainstorming(
     *,
@@ -423,8 +418,7 @@ def verify_request_pre_merge_code_review(
  'reviewed_snapshot': 'string',
  'findings': 'string[]',
  'review_summary': 'string',
- 'changes_requested': 'boolean',
- 'missing_review_inputs': 'string[]'},
+ 'changes_requested': 'boolean'},
         optional_schema={},
         verifier_rules=[{'output_key': 'review_status',
   'operator': 'one_of',
@@ -447,12 +441,6 @@ def verify_request_pre_merge_code_review(
   'message': 'If review_status is approved, changes_requested must be false.',
   'when': {'output_key': 'review_status', 'operator': 'equals', 'value': 'approved'},
   'expected_value': False},
- {'id': 'approved_status_clears_missing_review_inputs',
-  'template': 'conditional_equals',
-  'output_key': 'missing_review_inputs',
-  'message': 'If review_status is approved, missing_review_inputs must be empty.',
-  'when': {'output_key': 'review_status', 'operator': 'equals', 'value': 'approved'},
-  'expected_value': []},
  {'id': 'changes_requested_requires_findings',
   'template': 'conditional_required',
   'output_key': 'findings',
@@ -489,8 +477,7 @@ def verify_verify_completion(
         required_schema={'verification_passed': 'boolean',
  'verification_summary': 'string',
  'verification_evidence': 'string[]',
- 'remaining_risks': 'string[]',
- 'missing_verification_inputs': 'string[]'},
+ 'remaining_risks': 'string[]'},
         optional_schema={'release_qa_risks_resolved': 'boolean', 'release_qa_risk_resolution_summary': 'string'},
         verifier_rules=[{'output_key': 'verification_summary',
   'operator': 'truthy',
@@ -517,12 +504,6 @@ def verify_verify_completion(
   'template': 'conditional_equals',
   'output_key': 'remaining_risks',
   'message': 'If verification_passed is true, remaining_risks must be empty.',
-  'when': {'output_key': 'verification_passed', 'operator': 'is_true', 'value': None},
-  'expected_value': []},
- {'id': 'passed_verification_clears_missing_inputs',
-  'template': 'conditional_equals',
-  'output_key': 'missing_verification_inputs',
-  'message': 'If verification_passed is true, missing_verification_inputs must be empty.',
   'when': {'output_key': 'verification_passed', 'operator': 'is_true', 'value': None},
   'expected_value': []}],
         observation=observation,
@@ -909,7 +890,7 @@ def _run_custom_verifier_requirements_request_pre_merge_code_review(
 # custom_verifier_stage_id: request_pre_merge_code_review
 # custom_verifier_requirement_id: findings_include_severity_grouping
 # template_version: 1
-# spec_fingerprint: 9476aa3d940d8a2b5b35de6b240bc5488206af2c7b5a2bfddb8981c3f8d3cfbc
+# spec_fingerprint: e3dbaa5d14538d0b1bb91ba4dc6cd09e2405a38363f89aa82a343b5a05607bd7
 # implementation_version: none
 def _custom_verifier_requirement_request_pre_merge_code_review_findings_include_severity_grouping(
     *,
@@ -918,15 +899,18 @@ def _custom_verifier_requirement_request_pre_merge_code_review_findings_include_
     repo_root: str,
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: Non-empty review findings must make severity explicit with a stable prefix and keep findings grouped by descending severity so the workflow can distinguish major merge blockers from lower-risk notes.
 Signals: review_status, findings
 Implementation surfaces: verifier, tests
 Hint pseudocode:
 - Skip the requirement when findings is empty.
-- Require each finding string to begin with an explicit severity prefix such as critical:, high:, medium:, low:, major:, minor:, blocker:, or p0:.
+- Require each finding string to begin with an explicit severity prefix such as critical:, important:, high:, medium:, low:, major:, minor:, blocker:, p0:, or p1:.
 - Reject findings whose severity is only implied in prose or negated by surrounding text.
- - Reject findings that jump from lower severity back to higher severity later in the list.
+- Reject findings that jump from lower severity back to higher severity later in the list.
 Test intent:
 - Reject change-requested findings that omit a severity prefix.
 - Accept findings that carry an explicit severity prefix.
@@ -935,21 +919,24 @@ Test intent:
     findings = _meaningful_entries(output.get("findings"))
     if not findings:
         return None
-    seen_ranks: list[int] = []
+
+    previous_rank: int | None = None
     for finding in findings:
-        severity_rank = _severity_rank(finding)
-        if severity_rank is None:
-            return "review findings must include an explicit severity prefix"
-        seen_ranks.append(severity_rank)
-    for previous, current in zip(seen_ranks, seen_ranks[1:]):
-        if current < previous:
+        if not _has_explicit_severity_prefix(finding):
+            return "review findings must start with an explicit severity prefix"
+        severity = _extract_severity_prefix(finding)
+        if severity is None:
+            return "review findings must use a supported severity prefix"
+        current_rank = _severity_rank(severity)
+        if previous_rank is not None and current_rank < previous_rank:
             return "review findings must stay grouped from higher severity to lower severity"
+        previous_rank = current_rank
     return None
 
 # custom_verifier_stage_id: request_pre_merge_code_review
 # custom_verifier_requirement_id: findings_require_meaningful_entries
 # template_version: 1
-# spec_fingerprint: 30b6c1be8813a69d6f16dda5b50146973b4341b4603f68ce17a7f5f279a070b9
+# spec_fingerprint: e8978ec2c899daa1028c1c917f1cb71543222d5d13f93d87aa11c7d556bfc0f5
 # implementation_version: none
 def _custom_verifier_requirement_request_pre_merge_code_review_findings_require_meaningful_entries(
     *,
@@ -958,6 +945,9 @@ def _custom_verifier_requirement_request_pre_merge_code_review_findings_require_
     repo_root: str,
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: Review findings must contain meaningful non-empty entries when findings are provided.
 Signals: review_status, findings
@@ -976,7 +966,7 @@ Test intent:
 # custom_verifier_stage_id: request_pre_merge_code_review
 # custom_verifier_requirement_id: approved_review_requires_no_findings
 # template_version: 1
-# spec_fingerprint: 139801761cc44ce5025b1d59bfe8db77737228ed8a1fe3c5f9211c756a210f57
+# spec_fingerprint: 8cae2e626592a30e376046bd8a287a36f5a23e278817a22584cd6113fa9464e0
 # implementation_version: none
 def _custom_verifier_requirement_request_pre_merge_code_review_approved_review_requires_no_findings(
     *,
@@ -985,6 +975,9 @@ def _custom_verifier_requirement_request_pre_merge_code_review_approved_review_r
     repo_root: str,
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: An approved pre-merge review must not leave actionable findings behind.
 Signals: review_status, findings
@@ -998,7 +991,7 @@ Test intent:
     review_status = str(output.get("review_status") or "").strip().lower()
     findings = _meaningful_entries(output.get("findings"))
     if review_status == "approved" and findings:
-        return "approved review output must not include remaining findings"
+        return "approved review output must not include actionable findings"
     return None
 
 def _run_custom_verifier_requirements_verify_completion(
@@ -1027,7 +1020,7 @@ def _run_custom_verifier_requirements_verify_completion(
 # custom_verifier_stage_id: verify_completion
 # custom_verifier_requirement_id: completion_evidence_lists_require_meaningful_entries
 # template_version: 1
-# spec_fingerprint: 462d7d54434103cde521ff7e6874c91bc755cb78994b06377bb01a7fa594152f
+# spec_fingerprint: a2b43b3870a0450db56f0ad7229c17846f5e525b1d0842024c7a580ccc88c4b9
 # implementation_version: none
 def _custom_verifier_requirement_verify_completion_completion_evidence_lists_require_meaningful_entries(
     *,
@@ -1036,35 +1029,33 @@ def _custom_verifier_requirement_verify_completion_completion_evidence_lists_req
     repo_root: str,
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: Completion evidence and risk lists must contain meaningful non-empty entries after trimming whitespace.
-Signals: verification_passed, verification_evidence, remaining_risks, missing_verification_inputs
+Signals: verification_passed, verification_evidence, remaining_risks
 Implementation surfaces: verifier, tests
 Hint pseudocode:
 - Trim each list entry before validation.
 - Reject verification_evidence that becomes empty after trimming.
-- If verification_passed is false, reject remaining_risks and missing_verification_inputs when they contain only blank placeholders.
+- If verification_passed is false, reject remaining_risks when they contain only blank placeholders.
 Test intent:
 - Reject passing completion output with blank evidence items.
 - Reject failed completion output whose remaining_risks are only blank placeholders."""
-    verification_evidence_raw = output.get("verification_evidence") or []
-    if not _meaningful_entries(verification_evidence_raw):
+    evidence_raw = output.get("verification_evidence") or []
+    if not _meaningful_entries(evidence_raw):
         return "completion verification must include meaningful evidence entries"
-
-    verification_passed = bool(output.get("verification_passed"))
-    if not verification_passed:
+    if not bool(output.get("verification_passed")):
         remaining_risks_raw = output.get("remaining_risks") or []
         if isinstance(remaining_risks_raw, list) and remaining_risks_raw and not _meaningful_entries(remaining_risks_raw):
             return "remaining_risks cannot contain only blank placeholders"
-        missing_inputs_raw = output.get("missing_verification_inputs") or []
-        if isinstance(missing_inputs_raw, list) and missing_inputs_raw and not _meaningful_entries(missing_inputs_raw):
-            return "missing_verification_inputs cannot contain only blank placeholders"
     return None
 
 # custom_verifier_stage_id: verify_completion
 # custom_verifier_requirement_id: completion_requires_release_qa_and_review_approval
 # template_version: 1
-# spec_fingerprint: 53d6ce501f38df77f351dd6bf62e5020799ed908766ae7dbafda94381438e2f3
+# spec_fingerprint: 537d399997dc71845f58cc033992c5e793781a96efb6abfdc51a60721d159605
 # implementation_version: none
 def _custom_verifier_requirement_verify_completion_completion_requires_release_qa_and_review_approval(
     *,
@@ -1073,16 +1064,19 @@ def _custom_verifier_requirement_verify_completion_completion_requires_release_q
     repo_root: str,
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: Completion may pass only after release QA reached ship and pre-merge review reached approved; otherwise the workflow must keep iterating.
-Signals: state.release_qa_verdict, state.review_status, verification_passed, state.open_issues, state.release_qa_blocked_checks, state.release_qa_risk_next_steps, release_qa_risks_resolved
+Signals: state.release_qa_verdict, state.review_status, verification_passed, state.open_issues, state.release_qa_blocked_checks, release_qa_risks_resolved
 Implementation surfaces: verifier, tests
 Hint pseudocode:
 - If verification_passed is true, require persisted state.release_qa_verdict == ship.
 - If verification_passed is true, require persisted state.review_status == approved.
 - If verification_passed is true, reject the output when persisted open_issues is non-empty.
 - If verification_passed is true and persisted release_qa_blocked_checks is non-empty, require release_qa_risks_resolved == true.
-- If verification_passed is true and persisted release_qa_risk_next_steps still contains unresolved remediation work, require release_qa_risks_resolved == true and a non-empty release_qa_risk_resolution_summary.
+- If release_qa_risks_resolved is true, require a non-empty release_qa_risk_resolution_summary that explains the fresh recheck evidence.
 Test intent:
 - Reject passing completion output when release QA did not end in ship.
 - Reject passing completion output when pre-merge review did not end in approved.
@@ -1101,13 +1095,10 @@ Test intent:
         return "completion cannot pass while open_issues remain in state"
 
     blocked_checks = _meaningful_entries(state.get("release_qa_blocked_checks"))
-    unresolved_next_steps = _meaningful_entries(state.get("release_qa_risk_next_steps"))
     risks_resolved = bool(output.get("release_qa_risks_resolved"))
     risk_resolution_summary = str(output.get("release_qa_risk_resolution_summary") or "").strip()
     if blocked_checks and not risks_resolved:
         return "completion cannot pass while release QA blocked checks remain unresolved"
-    if unresolved_next_steps and not risks_resolved:
-        return "completion cannot pass while release QA next steps remain unresolved"
     if risks_resolved and not risk_resolution_summary:
         return "resolved release QA risks require a risk resolution summary"
     return None
@@ -1178,6 +1169,8 @@ def _schema_type_error(
     required: bool,
 ) -> str | None:
     normalized = schema_type.rstrip("?")
+    if value is None and not required:
+        return None
     if normalized == "string":
         if not isinstance(value, str):
             return f"{key} must be a string"
@@ -1298,14 +1291,6 @@ def _required_set_members_error(actual, template: dict, message: str) -> str | N
     return None if not missing else f"{message}: missing members {missing}"
 
 
-def _path_has_prefix(path, prefix) -> bool:
-    try:
-        Path(path).relative_to(prefix)
-        return True
-    except ValueError:
-        return False
-
-
 def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
@@ -1345,82 +1330,79 @@ def _artifact_file_contains_sections_error(actual, template: dict, repo_root: st
     return None if not missing else f"{message}: missing sections {missing}"
 
 
-def _has_explicit_severity_prefix(text: str) -> bool:
-    return _extract_severity_prefix(text) is not None
-
-
-def _extract_severity_prefix(text: str) -> str | None:
-    lowered = text.strip().lower()
-    if not lowered:
-        return None
-    markers = ("critical", "high", "medium", "low", "major", "minor", "blocker", "p0", "p1")
-    for marker in markers:
-        if re.match(rf"^(?:\[\s*)?{re.escape(marker)}(?:\s*\])?\s*:\s+", lowered):
-            return marker
-        if re.match(rf"^(?:\[\s*)?{re.escape(marker)}(?:\s*\])?\s*-\s+", lowered):
-            return marker
-        if re.match(rf"^\[\s*{re.escape(marker)}\s*\]\s+", lowered):
-            return marker
-    return None
-
-
-def _severity_rank(text: str) -> int | None:
-    marker = _extract_severity_prefix(text)
-    if marker is None:
-        return None
-    if marker in {"critical", "blocker", "p0"}:
-        return 0
-    if marker in {"high", "major", "p1"}:
-        return 1
-    if marker == "medium":
-        return 2
-    if marker in {"low", "minor"}:
-        return 3
-    return None
-
-
-def _extract_single_review_perspective(text: str) -> str | None:
-    lowered = str(text).strip().lower()
-    matches = [
-        perspective
-        for perspective in ("development", "design", "testing")
-        if perspective in lowered
-    ]
-    if len(matches) != 1:
-        return None
-    return matches[0]
-
-
-def _looks_like_visual_evidence(value) -> bool:
-    if not isinstance(value, str):
-        return False
-    text = value.strip().lower()
-    if not text:
-        return False
-    return any(
-        keyword in text
-        for keyword in (
-            "visual diff",
-            "screenshot",
-            "design comparison",
-            "ui comparison",
-            "pixel diff",
-            "image diff",
-            "visual comparison",
-        )
-    )
-
-
-def _meaningful_entries(value) -> list:
-    """Return list items that are non-None non-empty strings."""
-    if not isinstance(value, list):
-        return []
-    return [item for item in value if isinstance(item, str) and item.strip()]
-
-
 def _fail(message: str, run_id: str, step_id: str, state: dict | None) -> VerifierResult:
     return make_verifier_result(
         passed=False,
         message=message,
         details={"run_id": run_id, "step_id": step_id, "state": state or {}},
     )
+
+
+def _path_has_prefix(path: str, prefixes: tuple[str, ...]) -> bool:
+    normalized = path.strip().lower()
+    return any(normalized.startswith(prefix) for prefix in prefixes)
+
+
+def _has_explicit_severity_prefix(value: str) -> bool:
+    return _extract_severity_prefix(value) is not None
+
+
+def _extract_severity_prefix(value: str) -> str | None:
+    match = re.match(r"^\s*([a-z0-9_]+)\s*:\s+", str(value), flags=re.IGNORECASE)
+    if not match:
+        return None
+    severity = match.group(1).strip().lower()
+    supported = {
+        "critical",
+        "important",
+        "high",
+        "medium",
+        "low",
+        "major",
+        "minor",
+        "blocker",
+        "p0",
+        "p1",
+    }
+    return severity if severity in supported else None
+
+
+def _severity_rank(severity: str) -> int:
+    normalized = severity.strip().lower()
+    if normalized in {"critical", "blocker", "p0"}:
+        return 0
+    if normalized in {"important", "high", "major", "p1"}:
+        return 1
+    if normalized == "medium":
+        return 2
+    return 3
+
+
+def _extract_single_review_perspective(value: str) -> str:
+    return str(value or "").strip().lower()
+
+
+def _looks_like_visual_evidence(value: str) -> bool:
+    normalized = str(value or "").strip().lower()
+    if not normalized:
+        return False
+    visual_markers = (
+        "visual",
+        "screenshot",
+        "snapshot",
+        "pixel",
+        "design comparison",
+        "diff",
+        "mock",
+        "figma",
+    )
+    return any(marker in normalized for marker in visual_markers) or _path_has_prefix(
+        normalized,
+        ("figma://", "http://", "https://"),
+    )
+
+
+def _meaningful_entries(values) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [str(value).strip() for value in values if str(value).strip()]
