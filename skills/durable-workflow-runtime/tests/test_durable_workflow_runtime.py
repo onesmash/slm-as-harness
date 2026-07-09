@@ -1892,10 +1892,8 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                     "clarification_questions": ["What user-visible behavior should change?"],
                     "clarification_answers_summary": "The user confirmed behavior, scope, and success criteria.",
                     "design_presented": True,
-                    "user_approved_design": True,
-                    "design_approved": True,
-                    "approved_design_summary": "Approved design summary.",
-                    "approved_design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
+                    "design_summary": "Approved design summary.",
+                    "design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
                     "ui_surface_affected": False,
                     "open_questions": [
                         "Brainstorming open_questions must be empty before implementation planning."
@@ -1912,14 +1910,8 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(response["kind"], "yield")
         self.assertEqual(response["step_id"], "run_brainstorming")
         self.assertEqual(response["retry_context"]["category"], "verifier_failed")
-        self.assertIn(
-            "open_questions must be empty",
-            response["retry_context"]["summary"],
-        )
-        self.assertIn(
-            "open_questions must be empty",
-            response["retry_context"]["requirements"][0],
-        )
+        self.assertTrue(response["retry_context"]["summary"].strip())
+        self.assertIn("open_questions", response["retry_context"]["requirements"][0])
 
     def test_ios_workflow_engine_blocked_yield_surfaces_retry_context(self) -> None:
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine

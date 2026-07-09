@@ -150,6 +150,11 @@
           "state_key": "open_questions",
           "output_key": "open_questions",
           "kind": "list"
+        },
+        {
+          "state_key": "ready_for_subagent_review",
+          "output_key": "ready_for_subagent_review",
+          "kind": "boolean"
         }
       ],
       "template_context_keys": [
@@ -160,6 +165,7 @@
         "ui_surface_affected",
         "design_comparison_source",
         "runtime_visual_comparison_scope",
+        "ready_for_subagent_review",
         "spec_review_perspectives",
         "spec_review_findings_summary",
         "spec_review_subagent_summaries",
@@ -328,13 +334,19 @@
           "state_key": "authorization_summary",
           "output_key": "authorization_summary",
           "kind": "string"
+        },
+        {
+          "state_key": "ready_for_spec_review",
+          "output_key": "ready_for_spec_review",
+          "kind": "boolean"
         }
       ],
       "template_context_keys": [
         "design_path",
         "design_summary",
         "subagent_review_approved",
-        "authorization_summary"
+        "authorization_summary",
+        "ready_for_spec_review"
       ],
       "repair_conditions": [],
       "transitions": [
@@ -489,6 +501,11 @@
           "state_key": "open_questions",
           "output_key": "open_questions",
           "kind": "list"
+        },
+        {
+          "state_key": "ready_for_planning",
+          "output_key": "ready_for_planning",
+          "kind": "boolean"
         }
       ],
       "template_context_keys": [
@@ -502,7 +519,8 @@
         "spec_review_findings_summary",
         "spec_review_subagent_summaries",
         "spec_review_artifact_paths",
-        "open_questions"
+        "open_questions",
+        "ready_for_planning"
       ],
       "repair_conditions": [],
       "transitions": [
@@ -724,6 +742,11 @@
           "state_key": "plan_revision_reason",
           "output_key": "plan_revision_reason",
           "kind": "string"
+        },
+        {
+          "state_key": "ready_for_implementation",
+          "output_key": "ready_for_implementation",
+          "kind": "boolean"
         }
       ],
       "template_context_keys": [
@@ -736,7 +759,8 @@
         "plan_revision_reason",
         "plan_update_summary",
         "debugging_summary",
-        "open_issues"
+        "open_issues",
+        "ready_for_implementation"
       ],
       "repair_conditions": [],
       "transitions": [
@@ -817,7 +841,7 @@
             "Normalize execution_mode to lowercase.",
             "Accept only subagent-driven as the implementation-ready mode.",
             "If execution_mode is inline or any other value, reject the output or require ready_for_implementation to remain false.",
-            "If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary."
+            "If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason."
           ],
           "test_intent": [
             "Reject planning outputs that pick inline execution while claiming implementation is ready.",
@@ -1067,6 +1091,11 @@
           "state_key": "plan_update_summary",
           "output_key": "plan_update_summary",
           "kind": "string"
+        },
+        {
+          "state_key": "tasks_completed",
+          "output_key": "tasks_completed",
+          "kind": "boolean"
         }
       ],
       "template_context_keys": [
@@ -1084,6 +1113,7 @@
         "implementation_verification_passed",
         "implementation_plan_updates_required",
         "plan_update_summary",
+        "tasks_completed",
         "release_qa_verdict",
         "release_qa_summary",
         "release_qa_blocked_checks",
@@ -1611,6 +1641,11 @@
           "state_key": "review_summary",
           "output_key": "review_summary",
           "kind": "string"
+        },
+        {
+          "state_key": "changes_requested",
+          "output_key": "changes_requested",
+          "kind": "boolean"
         }
       ],
       "template_context_keys": [
@@ -1625,7 +1660,8 @@
         "review_status",
         "reviewed_snapshot",
         "review_findings",
-        "review_summary"
+        "review_summary",
+        "changes_requested"
       ],
       "repair_conditions": [],
       "transitions": [
@@ -1916,7 +1952,14 @@
           "reason": "Final completion verification found remaining implementation or verification risks that must be resolved before the workflow can claim completion."
         }
       ],
-      "outcome_routes": [],
+      "outcome_routes": [
+        {
+          "outcome": "verifier_failed",
+          "next_node": "execute_implementation",
+          "branch_kind": "retry",
+          "reason": "Final completion verification did not pass and the workflow must re-enter implementation to clear remaining issues or evidence gaps."
+        }
+      ],
       "verifier_rules": [
         {
           "output_key": "verification_summary",
@@ -2155,7 +2198,7 @@
     }
   },
   "final_step_id": "finalize_delivery_summary",
-  "final_prompt": "Prepare the final iOS Client AI-assisted development delivery summary using approved design summary {{design_summary}}, approved design path {{design_path}}, plan summary {{plan_summary}}, plan path {{plan_path}}, selected execution mode {{execution_mode}}, implementation summary {{implementation_summary}}, changed files {{changed_files}}, verification commands {{verification_commands}}, debugging summary {{debugging_summary}}, release QA target scope {{release_qa_target_scope}}, release QA verdict {{release_qa_verdict}}, release QA summary {{release_qa_summary}}, release QA executed checks {{release_qa_executed_checks}}, release QA blocked checks {{release_qa_blocked_checks}}, release QA risk next steps {{release_qa_risk_next_steps}}, release QA artifacts {{release_qa_artifacts}}, review status {{review_status}}, reviewed snapshot {{reviewed_snapshot}}, review summary {{review_summary}}, review findings {{review_findings}}, completion verification passed {{completion_verification_passed}}, completion verification summary {{completion_verification_summary}}, completion verification evidence {{completion_verification_evidence}}, completion remaining risks {{completion_remaining_risks}}, release QA risks resolved {{completion_release_qa_risks_resolved}}, release QA risk resolution summary {{completion_release_qa_risk_resolution_summary}}, and open issues {{open_issues}}.",
+  "final_prompt": "/verification-before-completion finalize the iOS Client AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, and {{completion_verification_passed}} as the minimum completion inputs.",
   "dependencies": [
     {
       "id": "brainstorming-nex",

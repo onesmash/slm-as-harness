@@ -188,6 +188,12 @@ def choose_next_node(
         )
 
     if current_step_id == "verify_completion":
+        if observation["status"] == "succeeded" and verifier_result is not None and not verifier_result["passed"]:
+            return TransitionDecision(
+                next_node='execute_implementation',
+                branch_kind='retry',
+                reason='Final completion verification did not pass and the workflow must re-enter implementation to clear remaining issues or evidence gaps.',
+            )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,

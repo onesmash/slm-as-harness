@@ -637,11 +637,11 @@ Hint pseudocode:
 - Normalize execution_mode to lowercase.
 - Accept only subagent-driven as the implementation-ready mode.
 - If execution_mode is inline or any other value, reject the output or require ready_for_implementation to remain false.
-- If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
+- If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason.
 Test intent:
 - Reject planning outputs that pick inline execution while claiming implementation is ready.
 - Accept planning outputs that record subagent-driven execution with a written plan.
-- Reject replanning output that ignores recorded plan-update or implementation-learned reasons when such context exists in state."""
+    - Reject replanning output that ignores recorded plan-update or implementation-learned reasons when such context exists in state."""
     _ = repo_root
     execution_mode = str(output.get("execution_mode") or "").strip().lower()
     ready_for_implementation = output.get("ready_for_implementation")
@@ -658,9 +658,8 @@ Test intent:
     )
     if replanning_context_present:
         has_plan_revision_reason = bool(str(output.get("plan_revision_reason") or "").strip())
-        has_plan_summary = bool(str(output.get("plan_summary") or "").strip())
-        if not has_plan_revision_reason and not has_plan_summary:
-            return "planning must acknowledge replanning context via plan_revision_reason or plan_summary"
+        if not has_plan_revision_reason:
+            return "planning must acknowledge replanning context via plan_revision_reason"
     return None
 
 def _run_custom_verifier_requirements_execute_implementation(

@@ -26,6 +26,6 @@ Stage Boundaries:
 
 Blocked Conditions:
 
-- Block if no clarification question has been asked and answered.
+- Block if the requested change still cannot be scoped to a concrete iOS Client objective after reviewing the request and asking the minimum clarification question(s) needed.
 - Block if the requested change cannot be scoped to a concrete iOS Client objective.
 - Block if a user-visible UI change lacks implementation-ready visual detail, a design-comparison source, or runtime screenshot/view scope.

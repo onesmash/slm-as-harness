@@ -21,5 +21,5 @@ Stage Boundaries:
 Blocked Conditions:
 
 - Block if the design package is missing or ambiguous.
-- Block if the plan file has not been written yet.
+- Block if the design package is missing or still ambiguous after incorporating the recorded replanning feedback.
 - Block if the recorded execution mode is not subagent-driven.

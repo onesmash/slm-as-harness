@@ -1,1 +1,23 @@
-Prepare the final iOS Client AI-assisted development delivery summary using approved design summary {{design_summary}}, approved design path {{design_path}}, plan summary {{plan_summary}}, plan path {{plan_path}}, selected execution mode {{execution_mode}}, implementation summary {{implementation_summary}}, changed files {{changed_files}}, verification commands {{verification_commands}}, debugging summary {{debugging_summary}}, release QA target scope {{release_qa_target_scope}}, release QA verdict {{release_qa_verdict}}, release QA summary {{release_qa_summary}}, release QA executed checks {{release_qa_executed_checks}}, release QA blocked checks {{release_qa_blocked_checks}}, release QA risk next steps {{release_qa_risk_next_steps}}, release QA artifacts {{release_qa_artifacts}}, review status {{review_status}}, reviewed snapshot {{reviewed_snapshot}}, review summary {{review_summary}}, review findings {{review_findings}}, completion verification passed {{completion_verification_passed}}, completion verification summary {{completion_verification_summary}}, completion verification evidence {{completion_verification_evidence}}, completion remaining risks {{completion_remaining_risks}}, release QA risks resolved {{completion_release_qa_risks_resolved}}, release QA risk resolution summary {{completion_release_qa_risk_resolution_summary}}, and open issues {{open_issues}}.
+/verification-before-completion finalize the iOS Client AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, and {{completion_verification_passed}} as the minimum completion inputs.
+
+Stage Context:
+
+- Design summary: {{design_summary}}
+- Design path: {{design_path}}
+- Plan summary: {{plan_summary}}
+- Plan path: {{plan_path}}
+- Implementation summary: {{implementation_summary}}
+- Release QA verdict: {{release_qa_verdict}}
+- Review status: {{review_status}}
+- Completion verification passed: {{completion_verification_passed}}
+
+Stage Boundaries:
+
+- Do not claim delivery completion unless the completion verification stage has passed.
+- Do not invent new implementation or QA facts that are not already grounded in the recorded workflow state.
+- Keep the final summary concise and evidence-based so the user can reuse it as a handoff artifact.
+
+Blocked Conditions:
+
+- Block if the final completion evidence is missing or inconsistent.
+- Block if the workflow cannot produce a grounded final handoff summary from the recorded state.

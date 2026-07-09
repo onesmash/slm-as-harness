@@ -38,19 +38,24 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     design_comparison_source: str | None = None
     runtime_visual_comparison_scope: str | None = None
     open_questions: list = field(default_factory=list)
+    ready_for_subagent_review: bool | None = None
     subagent_review_approved: bool | None = None
     authorization_summary: str | None = None
+    ready_for_spec_review: bool | None = None
     spec_review_perspectives: list = field(default_factory=list)
     spec_review_findings_summary: str | None = None
     spec_review_subagent_summaries: list = field(default_factory=list)
     spec_review_artifact_paths: list = field(default_factory=list)
+    ready_for_planning: bool | None = None
     plan_summary: str | None = None
     plan_path: str | None = None
     execution_mode: str | None = None
     plan_revision_reason: str | None = None
+    ready_for_implementation: bool | None = None
     implementation_summary: str | None = None
     implementation_completed_tasks: list = field(default_factory=list)
     implementation_remaining_tasks: list = field(default_factory=list)
+    tasks_completed: bool | None = None
     changed_files: list = field(default_factory=list)
     verification_commands: list = field(default_factory=list)
     open_issues: list = field(default_factory=list)
@@ -69,6 +74,7 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     reviewed_snapshot: str | None = None
     review_findings: list = field(default_factory=list)
     review_summary: str | None = None
+    changes_requested: bool | None = None
     completion_verification_passed: bool | None = None
     completion_verification_summary: str | None = None
     completion_verification_evidence: list = field(default_factory=list)
@@ -126,19 +132,24 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         design_comparison_source=payload.get('design_comparison_source'),
         runtime_visual_comparison_scope=payload.get('runtime_visual_comparison_scope'),
         open_questions=list(payload.get('open_questions') or []),
+        ready_for_subagent_review=payload.get('ready_for_subagent_review'),
         subagent_review_approved=payload.get('subagent_review_approved'),
         authorization_summary=payload.get('authorization_summary'),
+        ready_for_spec_review=payload.get('ready_for_spec_review'),
         spec_review_perspectives=list(payload.get('spec_review_perspectives') or []),
         spec_review_findings_summary=payload.get('spec_review_findings_summary'),
         spec_review_subagent_summaries=list(payload.get('spec_review_subagent_summaries') or []),
         spec_review_artifact_paths=list(payload.get('spec_review_artifact_paths') or []),
+        ready_for_planning=payload.get('ready_for_planning'),
         plan_summary=payload.get('plan_summary'),
         plan_path=payload.get('plan_path'),
         execution_mode=payload.get('execution_mode'),
         plan_revision_reason=payload.get('plan_revision_reason'),
+        ready_for_implementation=payload.get('ready_for_implementation'),
         implementation_summary=payload.get('implementation_summary'),
         implementation_completed_tasks=list(payload.get('implementation_completed_tasks') or []),
         implementation_remaining_tasks=list(payload.get('implementation_remaining_tasks') or []),
+        tasks_completed=payload.get('tasks_completed'),
         changed_files=list(payload.get('changed_files') or []),
         verification_commands=list(payload.get('verification_commands') or []),
         open_issues=list(payload.get('open_issues') or []),
@@ -157,6 +168,7 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         reviewed_snapshot=payload.get('reviewed_snapshot'),
         review_findings=list(payload.get('review_findings') or []),
         review_summary=payload.get('review_summary'),
+        changes_requested=payload.get('changes_requested'),
         completion_verification_passed=payload.get('completion_verification_passed'),
         completion_verification_summary=payload.get('completion_verification_summary'),
         completion_verification_evidence=list(payload.get('completion_verification_evidence') or []),
@@ -187,6 +199,29 @@ def record_observation(
         and verifier_result is not None
         and not verifier_result.get("passed", False)
     ):
+        repair_payload = build_default_agent_repair_payload(
+            current_step_id=current_step_id,
+            observation=observation,
+            verifier_result=verifier_result,
+        )
+        if repair_payload is not None:
+            return_stage_id = determine_return_stage_id(
+                current_step_id=current_step_id,
+                existing_return_stage_id=state.return_stage_id,
+            )
+            state.return_stage_id = return_stage_id
+            state.repair_context = _build_repair_context(
+                current_step_id=current_step_id,
+                return_stage_id=return_stage_id,
+                transition_reason="verifier_failed",
+                repair_payload=repair_payload,
+            )
+            _apply_repair_payload(
+                state,
+                transition_reason="verifier_failed",
+                repair_payload=repair_payload,
+                reset_blocked_attempts=True,
+            )
         return
     if current_step_id == "repair_and_resume":
         if observation.get("status") == "blocked":
@@ -206,25 +241,30 @@ def record_observation(
                 state.design_comparison_source = structured_output.get('design_comparison_source')
                 state.runtime_visual_comparison_scope = structured_output.get('runtime_visual_comparison_scope')
                 state.open_questions = _list_value(structured_output.get('open_questions'))
+                state.ready_for_subagent_review = structured_output.get('ready_for_subagent_review')
             elif current_step_id == 'approve_subagent_review':
                 state.subagent_review_approved = structured_output.get('subagent_review_approved')
                 state.authorization_summary = structured_output.get('authorization_summary')
+                state.ready_for_spec_review = structured_output.get('ready_for_spec_review')
             elif current_step_id == 'run_spec_review':
                 state.spec_review_perspectives = _list_value(structured_output.get('spec_review_perspectives'))
                 state.spec_review_findings_summary = structured_output.get('spec_review_findings_summary')
                 state.spec_review_subagent_summaries = _list_value(structured_output.get('spec_review_subagent_summaries'))
                 state.spec_review_artifact_paths = _list_value(structured_output.get('spec_review_artifact_paths'))
                 state.open_questions = _list_value(structured_output.get('open_questions'))
+                state.ready_for_planning = structured_output.get('ready_for_planning')
             elif current_step_id == 'write_implementation_plan':
                 state.plan_summary = structured_output.get('plan_summary')
                 state.plan_path = structured_output.get('plan_path')
                 state.execution_mode = structured_output.get('execution_mode')
                 state.open_questions = _list_value(structured_output.get('open_questions'))
                 state.plan_revision_reason = structured_output.get('plan_revision_reason')
+                state.ready_for_implementation = structured_output.get('ready_for_implementation')
             elif current_step_id == 'execute_implementation':
                 state.implementation_summary = structured_output.get('implementation_summary')
                 state.implementation_completed_tasks = _list_value(structured_output.get('completed_tasks'))
                 state.implementation_remaining_tasks = _list_value(structured_output.get('remaining_tasks'))
+                state.tasks_completed = structured_output.get('tasks_completed')
                 state.changed_files = _list_value(structured_output.get('changed_files'))
                 state.verification_commands = _list_value(structured_output.get('verification_commands'))
                 state.open_issues = _list_value(structured_output.get('open_issues'))
@@ -245,6 +285,7 @@ def record_observation(
                 state.reviewed_snapshot = structured_output.get('reviewed_snapshot')
                 state.review_findings = _list_value(structured_output.get('findings'))
                 state.review_summary = structured_output.get('review_summary')
+                state.changes_requested = structured_output.get('changes_requested')
             elif current_step_id == 'verify_completion':
                 state.completion_verification_passed = structured_output.get('verification_passed')
                 state.completion_verification_summary = structured_output.get('verification_summary')
@@ -266,17 +307,24 @@ def record_observation(
             current_step_id=current_step_id,
             existing_return_stage_id=state.return_stage_id,
         )
+        repair_payload = make_agent_repair_payload(
+            category="blocked",
+            summary=max_steps_decision.reason,
+            requirements=[],
+            evidence=[],
+        )
         state.return_stage_id = return_stage_id
         state.repair_context = _build_repair_context(
             current_step_id=current_step_id,
             return_stage_id=return_stage_id,
             transition_reason="max_steps_exceeded",
-            repair_payload=make_agent_repair_payload(
-                category="blocked",
-                summary=max_steps_decision.reason,
-                requirements=[],
-                evidence=[],
-            ),
+            repair_payload=repair_payload,
+        )
+        _apply_repair_payload(
+            state,
+            transition_reason="max_steps_exceeded",
+            repair_payload=repair_payload,
+            reset_blocked_attempts=True,
         )
         return
 
@@ -346,6 +394,7 @@ def apply_transition(state: IosAiAssistedDevelopmentFlowWorkflowState, *, curren
     if _is_forward_completion_transition(current_step_id, next_step_id):
         if current_step_id not in state.completed_stages:
             state.completed_stages.append(current_step_id)
+        _clear_repair_state(state)
 
     if current_step_id == "request_unblocking_input" and next_step_id == "repair_and_resume":
         state.repair_blocked_attempts = 0
