@@ -1,6 +1,6 @@
 {
   "workflow_id": "ios_ai_assisted_development_flow",
-  "flow_description": "Run the iOS Client AI-assisted development path from brainstorming-nex through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
+  "flow_description": "Run the AI-assisted development path from brainstorming-nex through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -25,7 +25,7 @@
       "expected_artifact": "a brainstorming design package with a written design document path that is ready for subagent review authorization",
       "prompt": "/brainstorming-nex {{goal}} in {{repo_root}}; use knowledge-base as supporting context and produce a brainstorming design package under docs/superpowers/specs/ that is ready for subagent review authorization before any implementation planning begins.",
       "prompt_sections": {
-        "stage_goal": "Turn the user's iOS Client development goal into clarified requirements and a written brainstorming design document before spec review, planning, or implementation work begins.",
+        "stage_goal": "Turn the user's development goal into clarified requirements and a written brainstorming design document before spec review, planning, or implementation work begins.",
         "context": [
           "Repository root: {{repo_root}}",
           "Source process doc: {{source_doc_url}}",
@@ -50,7 +50,7 @@
         ],
         "blocked_conditions": [
           "Block if no clarification question has been asked and answered.",
-          "Block if the requested change cannot be scoped to a concrete iOS Client objective.",
+          "Block if the requested change cannot be scoped to a concrete project objective.",
           "Block if a user-visible UI change lacks implementation-ready visual detail, a design-comparison source, or runtime screenshot/view scope."
         ]
       },
@@ -2198,7 +2198,7 @@
     }
   },
   "final_step_id": "finalize_delivery_summary",
-  "final_prompt": "/verification-before-completion finalize the iOS Client AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, and {{completion_verification_passed}} as the minimum completion inputs.",
+  "final_prompt": "/verification-before-completion finalize the AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, and {{completion_verification_passed}} as the minimum completion inputs.",
   "dependencies": [
     {
       "id": "brainstorming-nex",
@@ -2481,7 +2481,7 @@
           "clarification_questions": [
             "What user-visible behavior should change?"
           ],
-          "clarification_answers_summary": "The change should update one iOS Client behavior with no scope expansion.",
+          "clarification_answers_summary": "The change should update one behavior with no scope expansion.",
           "design_presented": true,
           "design_summary": "Approved design summary.",
           "open_questions": [],

@@ -36,8 +36,8 @@ class IosAiAssistedDevelopmentFlowWorkflowGeneratedTests(unittest.TestCase):
             observation={'status': 'succeeded',
  'summary': 'Design package completed without a written design path.',
  'structured_output': {'clarification_questions': ['What user-visible behavior should change?'],
-                       'clarification_answers_summary': 'The change should update one iOS Client '
-                                                        'behavior with no scope expansion.',
+                       'clarification_answers_summary': 'The change should update one behavior '
+                                                        'with no scope expansion.',
                        'design_presented': True,
                        'design_summary': 'Approved design summary.',
                        'open_questions': [],

@@ -1,4 +1,4 @@
-/verification-before-completion finalize the iOS Client AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, and {{completion_verification_passed}} as the minimum completion inputs.
+/verification-before-completion finalize the AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, and {{completion_verification_passed}} as the minimum completion inputs.
 
 Stage Context:
 
