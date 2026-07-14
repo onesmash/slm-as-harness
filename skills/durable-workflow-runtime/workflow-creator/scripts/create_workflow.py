@@ -2257,28 +2257,50 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
             continue
 
         recovery_return_node = stage["recovery_return_node"] or first_main_stage_id
-        lines.extend(
-            [
-                f'    if current_step_id == "{stage["step_id"]}":',
-                *(_policy_outcome_route_lines(stage) if stage["outcome_routes"] else []),
+        recovery_lines = [
+            f'    if current_step_id == "{stage["step_id"]}":',
+            *(_policy_outcome_route_lines(stage) if stage["outcome_routes"] else []),
+        ]
+        if not _stage_handles_outcome(stage, "blocked"):
+            recovery_lines.extend(
+                [
                 '        if observation["status"] == "blocked":',
                 "            return TransitionDecision(",
                 '                next_node="repair_and_resume",',
                 '                branch_kind="repair",',
                 f'                reason="{stage["step_id"]} is blocked and should be triaged by shared repair first",',
                 "            )",
+                ]
+            )
+        if not _stage_handles_outcome(stage, "verifier_failed"):
+            recovery_lines.extend(
+                [
                 '        if verifier_result is not None and not verifier_result["passed"]:',
                 "            return TransitionDecision(",
                 f'                next_node="{stage["step_id"]}",',
                 '                branch_kind="retry",',
                 f'                reason="{stage["step_id"]} repair output did not satisfy verifier checks",',
                 "            )",
-                '        if observation["status"] in {"partial", "failed"}:',
+                ]
+            )
+        unhandled_recovery_statuses = [
+            status
+            for status in ("partial", "failed")
+            if not _stage_handles_outcome(stage, status)
+        ]
+        if unhandled_recovery_statuses:
+            recovery_lines.extend(
+                [
+                f'        if observation["status"] in {tuple(unhandled_recovery_statuses)!r}:',
                 "            return TransitionDecision(",
                 f'                next_node="{stage["step_id"]}",',
                 '                branch_kind="retry",',
                 f'                reason="{stage["step_id"]} recovery stage still needs more iteration",',
                 "            )",
+                ]
+            )
+        recovery_lines.extend(
+            [
                 '        if observation["status"] == "succeeded":',
                 "            return TransitionDecision(",
                 f'                next_node="{recovery_return_node}",',
@@ -2293,6 +2315,7 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                 "",
             ]
         )
+        lines.extend(recovery_lines)
     lines.extend(
         [
             '    if current_step_id == "request_unblocking_input":',
@@ -3613,7 +3636,16 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
         if stage["stage_kind"] == "recovery":
             target = _render_transition_target(stage["recovery_return_node"], workflow_spec)
             lines.append(f"    {stage['step_id']} -->|recovery complete| {target}")
-            lines.append(f"    {stage['step_id']} -.->|partial / failed / verifier| {stage['step_id']}")
+            unhandled_recovery_outcomes = [
+                outcome
+                for outcome in ("partial", "failed", "verifier_failed")
+                if not _stage_handles_outcome(stage, outcome)
+            ]
+            if unhandled_recovery_outcomes:
+                label_parts = ["verifier" if outcome == "verifier_failed" else outcome for outcome in unhandled_recovery_outcomes]
+                lines.append(
+                    f"    {stage['step_id']} -.->|{' / '.join(label_parts)}| {stage['step_id']}"
+                )
             if not _stage_handles_outcome(stage, "blocked"):
                 lines.append(f"    {stage['step_id']} -.->|blocked| repair_loop")
     lines.append("    unblock_loop[[request_unblocking_input]]")

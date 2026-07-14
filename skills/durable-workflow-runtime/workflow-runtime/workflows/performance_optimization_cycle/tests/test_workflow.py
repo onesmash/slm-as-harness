@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 
 RUNTIME_ROOT = Path(__file__).resolve().parents[3]
@@ -65,6 +66,8 @@ class PerformanceOptimizationCycleWorkflowGeneratedTests(unittest.TestCase):
             observation={'status': 'succeeded',
  'summary': 'Submission test failed.',
  'structured_output': {'implementation_summary': 'candidate',
+                       'planned_change_summary': 'reduce dependency pressure',
+                       'verification_plan': ['python tests/submission_tests.py'],
                        'changed_paths': ['perf_takehome.py'],
                        'submission_test_output': 'failed',
                        'submission_tests_passed': False,
@@ -87,6 +90,107 @@ class PerformanceOptimizationCycleWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertEqual(result.step_id, 'diagnose_performance')
         self.assertEqual(result.branch_kind, 'continue')
+
+    def test_research_directly_feeds_implementation_without_plan_stage(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='research_optimization',
+            observation={'status': 'succeeded',
+ 'summary': 'Research produced an evidence-backed brief.',
+ 'structured_output': {'research_brief_path': '.tmp/research-nex/brief.md',
+                       'evidence_summary': 'Measured improvement opportunity.',
+                       'open_risks': [],
+                       'planned_change_summary': 'Reduce dependency pressure in the hot path.',
+                       'verification_plan': ['python tests/submission_tests.py'],
+                       'ready_for_implementation': True}},
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, 'implement_optimization')
+        self.assertEqual(result.branch_kind, 'continue')
+
+    def test_research_action_line_renders_exactly(self):
+        prompt = graphbuilder_runtime.load_prompt_body(
+            'research_optimization',
+            {
+                'optimization_hypotheses': '["reduce dependency pressure"]',
+                'goal': 'reduce latency',
+                'repo_root': '/repo',
+                'success_criteria': 'lower P99',
+                'brainstorm_artifact_path': '.tmp/brainstorm.md',
+            },
+        )
+        self.assertEqual(
+            prompt.splitlines()[0],
+            '/research-nex investigate ["reduce dependency pressure"] for reduce latency in /repo',
+        )
+
+    def test_research_promotes_implementation_handoff_into_prompt_context(self):
+        state = self._make_state(None)
+        workflow_state.record_observation(
+            state,
+            current_step_id='research_optimization',
+            observation={'status': 'succeeded',
+                         'summary': 'Research produced an implementation-ready handoff.',
+                         'structured_output': {'research_brief_path': '.tmp/research-nex/brief.md',
+                                               'evidence_summary': 'Measured improvement opportunity.',
+                                               'open_risks': [],
+                                               'planned_change_summary': 'Reduce dependency pressure in the hot path.',
+                                               'verification_plan': ['python tests/submission_tests.py'],
+                                               'ready_for_implementation': True}},
+            verifier_result=None,
+        )
+        prompt = graphbuilder_runtime.load_prompt_body(
+            'implement_optimization',
+            graphbuilder_runtime.build_template_context(
+                step_id='implement_optimization',
+                run_state=SimpleNamespace(graph_state=workflow_state.serialize_state(state)),
+            ),
+        )
+        self.assertIn('Reduce dependency pressure in the hot path.', prompt)
+        self.assertIn('python tests/submission_tests.py', prompt)
+
+    def test_flowchart_does_not_claim_a_handled_recovery_self_loop(self):
+        flowchart = (Path(__file__).resolve().parents[1] / 'references' / 'flowchart.md').read_text(
+            encoding='utf-8'
+        )
+        self.assertNotIn(
+            'capture_blocked_cycle_knowledge -.->|partial / failed / verifier| capture_blocked_cycle_knowledge',
+            flowchart,
+        )
+
+    def test_research_rejects_missing_brief_path(self):
+        result = verifiers.verify_research_optimization(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='research_optimization',
+            observation={'status': 'succeeded',
+ 'summary': 'Research completed without a saved brief.',
+ 'structured_output': {'research_brief_path': '.tmp/research-nex/missing.md',
+                       'evidence_summary': 'Measured improvement opportunity.',
+                       'open_risks': [],
+                       'planned_change_summary': 'Reduce dependency pressure in the hot path.',
+                       'verification_plan': ['python tests/submission_tests.py'],
+                       'ready_for_implementation': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_research_accepts_complete_implementation_handoff(self):
+        result = verifiers.verify_research_optimization(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='research_optimization',
+            observation={'status': 'succeeded',
+ 'summary': 'Research produced an implementation-ready handoff.',
+ 'structured_output': {'research_brief_path': 'skills/durable-workflow-runtime/workflow-binding.json',
+                       'evidence_summary': 'Measured improvement opportunity.',
+                       'open_risks': [],
+                       'planned_change_summary': 'Reduce dependency pressure in the hot path.',
+                       'verification_plan': ['python tests/submission_tests.py'],
+                       'ready_for_implementation': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], True)
 
     def test_blocked_main_stage_records_knowledge_without_requesting_user_input(self):
         result = graphbuilder_runtime.run_transition_preview(
@@ -153,6 +257,8 @@ class PerformanceOptimizationCycleWorkflowGeneratedTests(unittest.TestCase):
             observation={'status': 'succeeded',
  'summary': 'Claimed candidate completed.',
  'structured_output': {'implementation_summary': 'candidate',
+                       'planned_change_summary': 'reduce dependency pressure',
+                       'verification_plan': ['python tests/submission_tests.py'],
                        'changed_paths': ['tests/submission_tests.py'],
                        'submission_test_command': 'python tests/submission_tests.py',
                        'submission_test_output': 'passed',
@@ -237,7 +343,7 @@ class PerformanceOptimizationCycleWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, "repair_and_resume")
         self.assertEqual(result.branch_kind, "retry")
 
-    def test_generated_repair_and_resume_blocked_records_knowledge_without_requesting_user_input(self):
+    def test_generated_repair_and_resume_blocked_before_threshold_retries_locally(self):
         state = self._make_state(None)
         state.return_stage_id = 'update_optimization_knowledge_base'
         result = graphbuilder_runtime.run_transition_preview(
@@ -246,11 +352,11 @@ class PerformanceOptimizationCycleWorkflowGeneratedTests(unittest.TestCase):
             observation={'status': 'blocked', 'summary': 'Repair still needs external input.', 'structured_output': {'missing_inputs': ['approval']}},
             verifier_result=None,
         )
-        self.assertEqual(result.step_id, "capture_blocked_cycle_knowledge")
-        self.assertEqual(result.branch_kind, "continue")
+        self.assertEqual(result.step_id, "repair_and_resume")
+        self.assertEqual(result.branch_kind, "retry")
         self.assertEqual(state.return_stage_id, 'update_optimization_knowledge_base')
 
-    def test_generated_repair_and_resume_blocked_after_prior_attempts_still_records_knowledge(self):
+    def test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking(self):
         state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})
         state.return_stage_id = 'update_optimization_knowledge_base'
         result = graphbuilder_runtime.run_transition_preview(
@@ -259,8 +365,8 @@ class PerformanceOptimizationCycleWorkflowGeneratedTests(unittest.TestCase):
             observation={'status': 'blocked', 'summary': 'Repair still needs external input.', 'structured_output': {'missing_inputs': ['approval']}},
             verifier_result=None,
         )
-        self.assertEqual(result.step_id, "capture_blocked_cycle_knowledge")
-        self.assertEqual(result.branch_kind, "continue")
+        self.assertEqual(result.step_id, "request_unblocking_input")
+        self.assertEqual(result.branch_kind, "repair")
         self.assertEqual(state.return_stage_id, 'update_optimization_knowledge_base')
 
     def test_generated_blocked_repair_context_preserves_host_visible_summary(self):

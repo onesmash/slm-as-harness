@@ -1,4 +1,4 @@
-/research-nex investigate {{optimization_hypotheses}} for {{goal}} in {{repo_root}}; produce an evidence-backed research brief that distinguishes supported opportunities from open risks.
+/research-nex investigate {{optimization_hypotheses}} for {{goal}} in {{repo_root}}
 
 Stage Context:
 
@@ -7,7 +7,7 @@ Stage Context:
 
 Stage Boundaries:
 
-- Do not implement the candidate in this stage.
+- Do not modify source code in this stage.
 - Mark unsupported claims and open risks explicitly.
 
 Blocked Conditions:

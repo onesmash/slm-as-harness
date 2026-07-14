@@ -9,7 +9,7 @@ Stage Context:
 
 Stage Boundaries:
 
-- Do not write an implementation plan or modify source code.
+- Do not define the implementation change or modify source code.
 - Do not prescribe .tmp/search_engine.py, .tmp/expL.py, or tools/ as required workflow inputs.
 
 Blocked Conditions:

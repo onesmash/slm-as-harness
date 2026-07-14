@@ -1,9 +1,11 @@
-/requesting-code-review review {{implementation_summary}} using {{implementation_plan_path}} and {{submission_test_output}}; return actionable findings and whether the change is ready for knowledge-base maintenance.
+/requesting-code-review review {{implementation_summary}} against {{research_brief_path}}, {{verification_plan}}, and {{submission_test_output}}; return actionable findings and whether the change is ready for knowledge-base maintenance.
 
 Stage Context:
 
 - Changed paths: {{changed_paths}}
 - Success criteria: {{success_criteria}}
+- Research brief: {{research_brief_path}}
+- Verification plan: {{verification_plan}}
 
 Stage Boundaries:
 

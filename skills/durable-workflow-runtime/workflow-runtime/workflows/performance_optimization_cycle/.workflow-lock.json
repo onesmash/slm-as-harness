@@ -35,10 +35,10 @@
       "recorded_by": "workflow-creator"
     },
     {
-      "id": "writing-plans",
+      "id": "search-nex",
       "type": "skill",
       "scope": "either",
-      "source": "skill-catalog:writing-plans",
+      "source": "skill-catalog:search-nex",
       "recorded_at": "2026-07-14T00:00:00Z",
       "recorded_by": "workflow-creator"
     },

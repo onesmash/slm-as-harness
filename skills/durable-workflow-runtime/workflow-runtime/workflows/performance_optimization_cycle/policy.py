@@ -65,29 +65,9 @@ def choose_next_node(
         if status_decision is not None:
             return status_decision
         return TransitionDecision(
-            next_node="plan_optimization",
-            branch_kind="continue",
-            reason="research_optimization completed; continue to plan_optimization",
-        )
-
-    if current_step_id == "plan_optimization":
-        if observation["status"] == "blocked":
-            return TransitionDecision(
-                next_node='capture_blocked_cycle_knowledge',
-                branch_kind='continue',
-                reason='A blocked planning stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input.',
-            )
-        status_decision = _route_common_failure(
-            current_step_id=current_step_id,
-            observation=observation,
-            verifier_result=verifier_result,
-        )
-        if status_decision is not None:
-            return status_decision
-        return TransitionDecision(
             next_node="implement_optimization",
             branch_kind="continue",
-            reason="plan_optimization completed; continue to implement_optimization",
+            reason="research_optimization completed; continue to implement_optimization",
         )
 
     if current_step_id == "implement_optimization":
@@ -220,10 +200,17 @@ def choose_next_node(
 
     if current_step_id == "repair_and_resume":
         if observation["status"] == "blocked":
+            repair_attempts = int((state.get("attempt_counts") or {}).get("repair_and_resume") or 0)
+            if repair_attempts < 3:
+                return TransitionDecision(
+                    next_node="repair_and_resume",
+                    branch_kind="retry",
+                    reason="repair must attempt self-repair at least 3 times before requesting external help",
+                )
             return TransitionDecision(
-                next_node="capture_blocked_cycle_knowledge",
-                branch_kind="continue",
-                reason="repair is blocked; record the blocker and begin a fresh optimization cycle without requesting user input",
+                next_node="request_unblocking_input",
+                branch_kind="repair",
+                reason="repair exhausted 3 self-repair attempts and now requires external help before retry",
             )
         if observation["status"] == "succeeded":
             return_stage_id = state.get("return_stage_id")

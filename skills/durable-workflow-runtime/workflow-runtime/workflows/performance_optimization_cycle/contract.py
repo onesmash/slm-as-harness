@@ -73,43 +73,20 @@ RESEARCH_OPTIMIZATION_ROUTE_1 = SkillRoute(
 )
 
 RESEARCH_OPTIMIZATION = StepContract(
-    done_when=['A research brief path and evidence summary are recorded.',
+    done_when=['A research brief path, evidence summary, implementation-ready change summary, and verification '
+ 'plan are recorded.',
  'Implementation risks and open questions are explicit.'],
     output_schema={'research_brief_path': 'string',
  'evidence_summary': 'string',
  'open_risks': 'string[]',
- 'ready_for_plan': 'boolean'},
+ 'planned_change_summary': 'string',
+ 'verification_plan': 'string[]',
+ 'ready_for_implementation': 'boolean'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
     skill_routing=[RESEARCH_OPTIMIZATION_ROUTE_1],
     verifier=StepVerifier(
         kind="python_callable",
         ref="workflows.performance_optimization_cycle.verifiers:verify_research_optimization",
-        timeout_seconds=15,
-        run_on_status=["succeeded"],
-    ),
-)
-
-PLAN_OPTIMIZATION_ROUTE_1 = SkillRoute(
-    skill='writing-plans',
-    use_when=SkillUseWhen(
-        operations=['test-first implementation planning'],
-        file_patterns=['docs/superpowers/plans/*.md'],
-    ),
-    usage_notes=['Primary owner for the actionable implementation plan.'],
-)
-
-PLAN_OPTIMIZATION = StepContract(
-    done_when=['An implementation plan path is recorded.',
- 'The plan names the submission-test verification command.'],
-    output_schema={'implementation_plan_path': 'string',
- 'planned_change_summary': 'string',
- 'verification_plan': 'string[]',
- 'ready_for_implementation': 'boolean'},
-    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
-    skill_routing=[PLAN_OPTIMIZATION_ROUTE_1],
-    verifier=StepVerifier(
-        kind="python_callable",
-        ref="workflows.performance_optimization_cycle.verifiers:verify_plan_optimization",
         timeout_seconds=15,
         run_on_status=["succeeded"],
     ),
@@ -121,13 +98,16 @@ IMPLEMENT_OPTIMIZATION_ROUTE_1 = SkillRoute(
         operations=['task-scoped implementation', 'task review', 'submission-test verification'],
         file_patterns=['perf_takehome.py', 'problem.py'],
     ),
-    usage_notes=['Primary owner for the implementation plan execution with per-task review.'],
+    usage_notes=['Primary owner for direct implementation of the researched change with per-task review.'],
 )
 
 IMPLEMENT_OPTIMIZATION = StepContract(
-    done_when=['The implemented change and changed paths are recorded.',
+    done_when=['The smallest testable change and verification commands are recorded.',
+ 'The implemented change and changed paths are recorded.',
  'python tests/submission_tests.py has passed.'],
     output_schema={'implementation_summary': 'string',
+ 'planned_change_summary': 'string',
+ 'verification_plan': 'string[]',
  'changed_paths': 'string[]',
  'submission_test_command': 'string',
  'submission_test_output': 'string',
@@ -246,7 +226,6 @@ STEP_CONTRACTS = {
     "diagnose_performance": DIAGNOSE_PERFORMANCE,
     "brainstorm_optimization": BRAINSTORM_OPTIMIZATION,
     "research_optimization": RESEARCH_OPTIMIZATION,
-    "plan_optimization": PLAN_OPTIMIZATION,
     "implement_optimization": IMPLEMENT_OPTIMIZATION,
     "review_optimization": REVIEW_OPTIMIZATION,
     "update_optimization_knowledge_base": UPDATE_OPTIMIZATION_KNOWLEDGE_BASE,

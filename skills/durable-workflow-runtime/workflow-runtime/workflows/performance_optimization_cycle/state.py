@@ -9,7 +9,6 @@ from workflows.common.repair_payloads import build_default_agent_repair_payload,
 MAIN_STAGE_IDS = ('diagnose_performance',
  'brainstorm_optimization',
  'research_optimization',
- 'plan_optimization',
  'implement_optimization',
  'review_optimization',
  'update_optimization_knowledge_base')
@@ -40,13 +39,15 @@ class PerformanceOptimizationCycleWorkflowState:
     research_brief_path: str | None = None
     evidence_summary: str | None = None
     open_risks: list = field(default_factory=list)
-    implementation_plan_path: str | None = None
     planned_change_summary: str | None = None
     verification_plan: list = field(default_factory=list)
     implementation_summary: str | None = None
     changed_paths: list = field(default_factory=list)
     submission_test_output: str | None = None
     submission_test_exit_code: object | None = None
+    submission_test_command: str | None = None
+    submission_tests_passed: object | None = None
+    ready_for_review: object | None = None
     review_summary: str | None = None
     review_findings: list = field(default_factory=list)
     knowledge_base_update_summary: str | None = None
@@ -98,13 +99,15 @@ def deserialize_state(payload: dict | None) -> PerformanceOptimizationCycleWorkf
         research_brief_path=payload.get('research_brief_path'),
         evidence_summary=payload.get('evidence_summary'),
         open_risks=list(payload.get('open_risks') or []),
-        implementation_plan_path=payload.get('implementation_plan_path'),
         planned_change_summary=payload.get('planned_change_summary'),
         verification_plan=list(payload.get('verification_plan') or []),
         implementation_summary=payload.get('implementation_summary'),
         changed_paths=list(payload.get('changed_paths') or []),
         submission_test_output=payload.get('submission_test_output'),
         submission_test_exit_code=payload.get('submission_test_exit_code'),
+        submission_test_command=payload.get('submission_test_command'),
+        submission_tests_passed=payload.get('submission_tests_passed'),
+        ready_for_review=payload.get('ready_for_review'),
         review_summary=payload.get('review_summary'),
         review_findings=list(payload.get('review_findings') or []),
         knowledge_base_update_summary=payload.get('knowledge_base_update_summary'),
@@ -139,15 +142,18 @@ def record_observation(
                 state.research_brief_path = structured_output.get('research_brief_path')
                 state.evidence_summary = structured_output.get('evidence_summary')
                 state.open_risks = _list_value(structured_output.get('open_risks'))
-            elif current_step_id == 'plan_optimization':
-                state.implementation_plan_path = structured_output.get('implementation_plan_path')
                 state.planned_change_summary = structured_output.get('planned_change_summary')
                 state.verification_plan = _list_value(structured_output.get('verification_plan'))
             elif current_step_id == 'implement_optimization':
                 state.implementation_summary = structured_output.get('implementation_summary')
+                state.planned_change_summary = structured_output.get('planned_change_summary')
+                state.verification_plan = _list_value(structured_output.get('verification_plan'))
                 state.changed_paths = _list_value(structured_output.get('changed_paths'))
                 state.submission_test_output = structured_output.get('submission_test_output')
                 state.submission_test_exit_code = structured_output.get('submission_test_exit_code')
+                state.submission_test_command = structured_output.get('submission_test_command')
+                state.submission_tests_passed = structured_output.get('submission_tests_passed')
+                state.ready_for_review = structured_output.get('ready_for_review')
             elif current_step_id == 'review_optimization':
                 state.review_summary = structured_output.get('review_summary')
                 state.review_findings = _list_value(structured_output.get('review_findings'))

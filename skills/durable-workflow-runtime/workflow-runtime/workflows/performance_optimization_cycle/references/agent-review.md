@@ -10,7 +10,6 @@ the right workflow.
 - `diagnose_performance`
 - `brainstorm_optimization`
 - `research_optimization`
-- `plan_optimization`
 - `implement_optimization`
 - `review_optimization`
 - `update_optimization_knowledge_base`

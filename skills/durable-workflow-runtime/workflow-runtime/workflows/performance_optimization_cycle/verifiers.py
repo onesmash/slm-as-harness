@@ -101,57 +101,30 @@ def verify_research_optimization(
         required_schema={'research_brief_path': 'string',
  'evidence_summary': 'string',
  'open_risks': 'string[]',
- 'ready_for_plan': 'boolean'},
+ 'planned_change_summary': 'string',
+ 'verification_plan': 'string[]',
+ 'ready_for_implementation': 'boolean'},
         optional_schema={},
         verifier_rules=[{'output_key': 'research_brief_path',
-  'operator': 'truthy',
+  'operator': 'path_exists',
   'value': None,
   'message': 'research must return a brief path'},
  {'output_key': 'evidence_summary',
   'operator': 'truthy',
   'value': None,
   'message': 'research must return an evidence summary'},
- {'output_key': 'ready_for_plan',
-  'operator': 'is_true',
-  'value': None,
-  'message': 'research must declare plan readiness'}],
-        verifier_templates=[],
-        observation=observation,
-        repo_root=repo_root,
-        state=state,
-    )
-    if not result["passed"]:
-        return result
-    return result
-
-def verify_plan_optimization(
-    *,
-    repo_root: str,
-    run_id: str,
-    step_id: str,
-    observation: dict,
-    state: dict | None = None,
-) -> VerifierResult:
-    result = _verify_structured_output_schema(
-        run_id=run_id,
-        step_id=step_id,
-        required_schema={'implementation_plan_path': 'string',
- 'planned_change_summary': 'string',
- 'verification_plan': 'string[]',
- 'ready_for_implementation': 'boolean'},
-        optional_schema={},
-        verifier_rules=[{'output_key': 'implementation_plan_path',
+ {'output_key': 'planned_change_summary',
   'operator': 'truthy',
   'value': None,
-  'message': 'planning must return an implementation plan path'},
+  'message': 'research must define the implementation-ready change'},
  {'output_key': 'verification_plan',
   'operator': 'non_empty',
   'value': None,
-  'message': 'planning must name verification commands'},
+  'message': 'research must name verification commands'},
  {'output_key': 'ready_for_implementation',
   'operator': 'is_true',
   'value': None,
-  'message': 'planning must declare implementation readiness'}],
+  'message': 'research must declare implementation readiness'}],
         verifier_templates=[],
         observation=observation,
         repo_root=repo_root,
@@ -173,6 +146,8 @@ def verify_implement_optimization(
         run_id=run_id,
         step_id=step_id,
         required_schema={'implementation_summary': 'string',
+ 'planned_change_summary': 'string',
+ 'verification_plan': 'string[]',
  'changed_paths': 'string[]',
  'submission_test_command': 'string',
  'submission_test_output': 'string',
@@ -184,6 +159,14 @@ def verify_implement_optimization(
   'operator': 'truthy',
   'value': None,
   'message': 'implementation must report its change'},
+ {'output_key': 'planned_change_summary',
+  'operator': 'truthy',
+  'value': None,
+  'message': 'implementation must define the smallest testable change'},
+ {'output_key': 'verification_plan',
+  'operator': 'non_empty',
+  'value': None,
+  'message': 'implementation must name verification commands'},
  {'output_key': 'submission_test_command',
   'operator': 'equals',
   'value': 'python tests/submission_tests.py',
@@ -334,7 +317,7 @@ def _run_custom_verifier_requirements_implement_optimization(
 # custom_verifier_stage_id: implement_optimization
 # custom_verifier_requirement_id: enforce_submission_constraints
 # template_version: 1
-# spec_fingerprint: 61435df281a47d3af1e7dc4edbb28ca39d80b5831158f654373564da54c81a87
+# spec_fingerprint: eebbbd2b6a9326b8c0c06540eff8dc5a867d585b672e764fdddce3f6afd98a4f
 # implementation_version: none
 def _custom_verifier_requirement_implement_optimization_enforce_submission_constraints(
     *,
@@ -359,45 +342,52 @@ Test intent:
 - Reject a changed tests/ path.
 - Reject N_CORES other than 1.
 - Reject a failing submission command."""
-    import ast
-    import subprocess
-
     _ = state
-    changed_paths = output.get("changed_paths")
-    if not isinstance(changed_paths, list):
-        return "changed_paths must be a list"
-    if any(str(path).replace("\\", "/").strip("/") == "tests" or str(path).replace("\\", "/").strip("/").startswith("tests/") for path in changed_paths):
-        return "changed_paths must not include tests/"
+    changed_paths = output.get("changed_paths") or []
+    if any(str(path).replace("\\", "/").split("/")[0] == "tests" for path in changed_paths):
+        return "changed_paths must not modify tests/"
+
     repo = Path(repo_root)
-    try:
-        diff = subprocess.run(
-            ["git", "diff", "--quiet", "origin/main", "--", "tests/"],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except OSError as exc:
-        return f"cannot check tests/ diff: {exc}"
-    if diff.returncode != 0:
-        return "tests/ differs from origin/main"
-    try:
-        module = ast.parse((repo / "problem.py").read_text(encoding="utf-8"))
-    except (OSError, SyntaxError) as exc:
-        return f"cannot inspect problem.py: {exc}"
-    assignments = [node for node in ast.walk(module) if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "N_CORES" for target in node.targets)]
-    module_assignments = [node for node in module.body if isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "N_CORES" for target in node.targets)]
-    if len(assignments) != 1 or len(module_assignments) != 1 or not isinstance(module_assignments[0].value, ast.Constant) or module_assignments[0].value.value != 1:
-        return "problem.py must assign N_CORES = 1"
-    run = subprocess.run(
-        ["python", "tests/submission_tests.py"],
+    diff = subprocess.run(
+        ["git", "diff", "--quiet", "origin/main", "--", "tests/"],
         cwd=repo,
         capture_output=True,
         text=True,
-        check=False,
+        timeout=30,
     )
-    if run.returncode != 0:
-        return "python tests/submission_tests.py did not pass"
+    if diff.returncode != 0:
+        return "tests/ differs from origin/main"
+
+    problem_path = repo / "problem.py"
+    if not problem_path.is_file():
+        return "problem.py is required to verify N_CORES = 1"
+    try:
+        tree = ast.parse(problem_path.read_text(encoding="utf-8"), filename=str(problem_path))
+    except (OSError, SyntaxError) as exc:
+        return f"problem.py could not be parsed: {exc}"
+    n_cores_values = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "N_CORES":
+                    n_cores_values.append(node.value)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "N_CORES":
+            n_cores_values.append(node.value)
+    if not any(isinstance(value, ast.Constant) and value.value == 1 for value in n_cores_values):
+        return "problem.py must assign N_CORES = 1"
+
+    try:
+        submission = subprocess.run(
+            ["python", "tests/submission_tests.py"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"submission tests could not run: {exc}"
+    if submission.returncode != 0:
+        return "python tests/submission_tests.py failed"
     return None
 
 def _verify_structured_output_schema(

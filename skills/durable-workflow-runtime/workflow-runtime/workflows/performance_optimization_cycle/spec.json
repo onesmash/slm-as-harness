@@ -1,6 +1,6 @@
 {
   "workflow_id": "performance_optimization_cycle",
-  "flow_description": "适用于性能敏感内核的通用、可恢复优化闭环：从头脑风暴、研究、计划、实现与评审到知识库更新，并将已验证结果带入下一轮优化。",
+  "flow_description": "适用于性能敏感内核的通用、可恢复优化闭环：从头脑风暴、研究、直接实现与评审到知识库更新，并将已验证结果带入下一轮优化。",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -142,7 +142,7 @@
           "Prior cycle summary: {{knowledge_base_update_summary}}"
         ],
         "boundaries": [
-          "Do not write an implementation plan or modify source code.",
+          "Do not define the implementation change or modify source code.",
           "Do not prescribe .tmp/search_engine.py, .tmp/expL.py, or tools/ as required workflow inputs."
         ],
         "blocked_conditions": [
@@ -247,16 +247,16 @@
       "stage_kind": "main",
       "recovery_return_node": null,
       "intent": "gather_optimization_evidence",
-      "expected_artifact": "research brief and evidence map for the selected hypothesis",
-      "prompt": "/research-nex investigate {{optimization_hypotheses}} for {{goal}} in {{repo_root}}; produce an evidence-backed research brief that distinguishes supported opportunities from open risks.",
+      "expected_artifact": "research brief, implementation-ready change summary, verification plan, and evidence map",
+      "prompt": "/research-nex investigate {{optimization_hypotheses}} for {{goal}} in {{repo_root}}",
       "prompt_sections": {
-        "stage_goal": "Turn the selected hypothesis into traceable technical evidence suitable for an implementation plan.",
+        "stage_goal": "Turn the selected hypothesis into traceable technical evidence, a bounded change summary, and a verification plan for implementation.",
         "context": [
           "Success criteria: {{success_criteria}}",
           "Brainstorm artifact: {{brainstorm_artifact_path}}"
         ],
         "boundaries": [
-          "Do not implement the candidate in this stage.",
+          "Do not modify source code in this stage.",
           "Mark unsupported claims and open risks explicitly."
         ],
         "blocked_conditions": [
@@ -264,14 +264,16 @@
         ]
       },
       "done_when": [
-        "A research brief path and evidence summary are recorded.",
+        "A research brief path, evidence summary, implementation-ready change summary, and verification plan are recorded.",
         "Implementation risks and open questions are explicit."
       ],
       "output_schema": {
         "research_brief_path": "string",
         "evidence_summary": "string",
         "open_risks": "string[]",
-        "ready_for_plan": "boolean"
+        "planned_change_summary": "string",
+        "verification_plan": "string[]",
+        "ready_for_implementation": "boolean"
       },
       "failure_schema": {
         "blocked_reason": "string?",
@@ -308,12 +310,24 @@
           "state_key": "open_risks",
           "output_key": "open_risks",
           "kind": "list"
+        },
+        {
+          "state_key": "planned_change_summary",
+          "output_key": "planned_change_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "verification_plan",
+          "output_key": "verification_plan",
+          "kind": "list"
         }
       ],
       "template_context_keys": [
         "research_brief_path",
         "evidence_summary",
-        "open_risks"
+        "open_risks",
+        "planned_change_summary",
+        "verification_plan"
       ],
       "repair_conditions": [],
       "transitions": [],
@@ -328,7 +342,7 @@
       "verifier_rules": [
         {
           "output_key": "research_brief_path",
-          "operator": "truthy",
+          "operator": "path_exists",
           "value": null,
           "message": "research must return a brief path"
         },
@@ -339,115 +353,22 @@
           "message": "research must return an evidence summary"
         },
         {
-          "output_key": "ready_for_plan",
-          "operator": "is_true",
-          "value": null,
-          "message": "research must declare plan readiness"
-        }
-      ],
-      "verifier_templates": [],
-      "custom_verifier_requirements": []
-    },
-    {
-      "step_id": "plan_optimization",
-      "stage_kind": "main",
-      "recovery_return_node": null,
-      "intent": "write_optimization_implementation_plan",
-      "expected_artifact": "test-first implementation plan for the selected optimization",
-      "prompt": "/writing-plans create the implementation plan for {{goal}} using {{brainstorm_artifact_path}} and {{research_brief_path}}; define the smallest testable change and its verification commands.",
-      "prompt_sections": {
-        "stage_goal": "Produce a concrete, test-first plan that turns validated research into a bounded implementation change.",
-        "context": [
-          "Success criteria: {{success_criteria}}",
-          "Open risks: {{open_risks}}"
-        ],
-        "boundaries": [
-          "Do not modify implementation code.",
-          "The plan must preserve N_CORES=1, never modify tests/, and require python tests/submission_tests.py."
-        ],
-        "blocked_conditions": [
-          "Block if the brainstorm or research artifact is missing."
-        ]
-      },
-      "done_when": [
-        "An implementation plan path is recorded.",
-        "The plan names the submission-test verification command."
-      ],
-      "output_schema": {
-        "implementation_plan_path": "string",
-        "planned_change_summary": "string",
-        "verification_plan": "string[]",
-        "ready_for_implementation": "boolean"
-      },
-      "failure_schema": {
-        "blocked_reason": "string?",
-        "error_message": "string?",
-        "missing_inputs": "string[]?"
-      },
-      "skill_routing": [
-        {
-          "skill": "writing-plans",
-          "operations": [
-            "test-first implementation planning"
-          ],
-          "file_patterns": [
-            "docs/superpowers/plans/*.md"
-          ],
-          "usage_notes": [
-            "Primary owner for the actionable implementation plan."
-          ]
-        }
-      ],
-      "state_updates": [
-        {
-          "state_key": "implementation_plan_path",
-          "output_key": "implementation_plan_path",
-          "kind": "string"
-        },
-        {
-          "state_key": "planned_change_summary",
           "output_key": "planned_change_summary",
-          "kind": "string"
-        },
-        {
-          "state_key": "verification_plan",
-          "output_key": "verification_plan",
-          "kind": "list"
-        }
-      ],
-      "template_context_keys": [
-        "implementation_plan_path",
-        "planned_change_summary",
-        "verification_plan"
-      ],
-      "repair_conditions": [],
-      "transitions": [],
-      "outcome_routes": [
-        {
-          "outcome": "blocked",
-          "next_node": "capture_blocked_cycle_knowledge",
-          "branch_kind": "continue",
-          "reason": "A blocked planning stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input."
-        }
-      ],
-      "verifier_rules": [
-        {
-          "output_key": "implementation_plan_path",
           "operator": "truthy",
           "value": null,
-          "message": "planning must return an implementation plan path"
+          "message": "research must define the implementation-ready change"
         },
         {
           "output_key": "verification_plan",
           "operator": "non_empty",
           "value": null,
-          "message": "planning must name verification commands"
+          "message": "research must name verification commands"
         },
         {
           "output_key": "ready_for_implementation",
           "operator": "is_true",
           "value": null,
-          "message": "planning must declare implementation readiness"
+          "message": "research must declare implementation readiness"
         }
       ],
       "verifier_templates": [],
@@ -459,12 +380,15 @@
       "recovery_return_node": null,
       "intent": "implement_and_verify_optimization",
       "expected_artifact": "implemented candidate with submission-test evidence",
-      "prompt": "/subagent-driven-development implement {{planned_change_summary}} using {{implementation_plan_path}} in {{repo_root}}; use isolated task implementers and reviewers, run python tests/submission_tests.py, and return changed paths and verification evidence.",
+      "prompt": "/subagent-driven-development implement {{planned_change_summary}} from {{research_brief_path}} in {{repo_root}} using {{verification_plan}}; use isolated task implementers and reviewers, run python tests/submission_tests.py, and return changed paths and verification evidence.",
       "prompt_sections": {
         "stage_goal": "Implement the planned optimization and prove correctness with the repository submission tests.",
         "context": [
           "Success criteria: {{success_criteria}}",
-          "Research evidence: {{evidence_summary}}"
+          "Research evidence: {{evidence_summary}}",
+          "Open risks: {{open_risks}}",
+          "Research-defined change: {{planned_change_summary}}",
+          "Research-defined verification: {{verification_plan}}"
         ],
         "boundaries": [
           "Never modify anything under tests/.",
@@ -472,15 +396,18 @@
           "Do not substitute .tmp/search_engine.py, .tmp/expL.py, or tools/ for submission testing."
         ],
         "blocked_conditions": [
-          "Block if the implementation plan is missing or submission tests cannot run."
+          "Block if the researched change or submission tests cannot run."
         ]
       },
       "done_when": [
+        "The smallest testable change and verification commands are recorded.",
         "The implemented change and changed paths are recorded.",
         "python tests/submission_tests.py has passed."
       ],
       "output_schema": {
         "implementation_summary": "string",
+        "planned_change_summary": "string",
+        "verification_plan": "string[]",
         "changed_paths": "string[]",
         "submission_test_command": "string",
         "submission_test_output": "string",
@@ -506,7 +433,7 @@
             "problem.py"
           ],
           "usage_notes": [
-            "Primary owner for the implementation plan execution with per-task review."
+            "Primary owner for direct implementation of the researched change with per-task review."
           ]
         }
       ],
@@ -515,6 +442,16 @@
           "state_key": "implementation_summary",
           "output_key": "implementation_summary",
           "kind": "string"
+        },
+        {
+          "state_key": "planned_change_summary",
+          "output_key": "planned_change_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "verification_plan",
+          "output_key": "verification_plan",
+          "kind": "list"
         },
         {
           "state_key": "changed_paths",
@@ -530,12 +467,36 @@
           "state_key": "submission_test_exit_code",
           "output_key": "submission_test_exit_code",
           "kind": "scalar"
+        },
+        {
+          "state_key": "submission_test_command",
+          "output_key": "submission_test_command",
+          "kind": "string"
+        },
+        {
+          "state_key": "submission_tests_passed",
+          "output_key": "submission_tests_passed",
+          "kind": "scalar"
+        },
+        {
+          "state_key": "ready_for_review",
+          "output_key": "ready_for_review",
+          "kind": "scalar"
         }
       ],
       "template_context_keys": [
+        "research_brief_path",
+        "planned_change_summary",
+        "verification_plan",
+        "success_criteria",
+        "evidence_summary",
+        "open_risks",
         "implementation_summary",
         "changed_paths",
-        "submission_test_output"
+        "submission_test_output",
+        "submission_test_command",
+        "submission_tests_passed",
+        "ready_for_review"
       ],
       "repair_conditions": [],
       "transitions": [],
@@ -553,6 +514,18 @@
           "operator": "truthy",
           "value": null,
           "message": "implementation must report its change"
+        },
+        {
+          "output_key": "planned_change_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "implementation must define the smallest testable change"
+        },
+        {
+          "output_key": "verification_plan",
+          "operator": "non_empty",
+          "value": null,
+          "message": "implementation must name verification commands"
         },
         {
           "output_key": "submission_test_command",
@@ -614,12 +587,14 @@
       "recovery_return_node": null,
       "intent": "review_optimization_change",
       "expected_artifact": "review findings and acceptance decision for the optimized kernel",
-      "prompt": "/requesting-code-review review {{implementation_summary}} using {{implementation_plan_path}} and {{submission_test_output}}; return actionable findings and whether the change is ready for knowledge-base maintenance.",
+      "prompt": "/requesting-code-review review {{implementation_summary}} against {{research_brief_path}}, {{verification_plan}}, and {{submission_test_output}}; return actionable findings and whether the change is ready for knowledge-base maintenance.",
       "prompt_sections": {
         "stage_goal": "Review correctness, performance evidence, and compliance with the optimization constraints before knowledge-base maintenance.",
         "context": [
           "Changed paths: {{changed_paths}}",
-          "Success criteria: {{success_criteria}}"
+          "Success criteria: {{success_criteria}}",
+          "Research brief: {{research_brief_path}}",
+          "Verification plan: {{verification_plan}}"
         ],
         "boundaries": [
           "Do not approve a change that modified tests/ or re-enabled multicore.",
@@ -671,6 +646,11 @@
         }
       ],
       "template_context_keys": [
+        "research_brief_path",
+        "verification_plan",
+        "submission_test_output",
+        "success_criteria",
+        "changed_paths",
         "review_summary",
         "review_findings"
       ],
@@ -1068,12 +1048,12 @@
       "purpose": "Produce evidence-backed research for the hypothesis."
     },
     {
-      "id": "writing-plans",
+      "id": "search-nex",
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "skill-catalog:writing-plans",
-      "purpose": "Create the implementation plan."
+      "source": "skill-catalog:search-nex",
+      "purpose": "Provide web search and source discovery support for research-nex."
     },
     {
       "id": "subagent-driven-development",
@@ -1081,7 +1061,7 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:subagent-driven-development",
-      "purpose": "Execute the implementation plan with task-scoped implementer and reviewer agents."
+      "purpose": "Execute the researched change with task-scoped implementer and reviewer agents."
     },
     {
       "id": "requesting-code-review",
@@ -1134,10 +1114,10 @@
       "recorded_by": "workflow-creator"
     },
     {
-      "id": "writing-plans",
+      "id": "search-nex",
       "type": "skill",
       "scope": "either",
-      "source": "skill-catalog:writing-plans",
+      "source": "skill-catalog:search-nex",
       "recorded_at": "2026-07-14T00:00:00Z",
       "recorded_by": "workflow-creator"
     },
@@ -1216,6 +1196,10 @@
         "summary": "Submission test failed.",
         "structured_output": {
           "implementation_summary": "candidate",
+          "planned_change_summary": "reduce dependency pressure",
+          "verification_plan": [
+            "python tests/submission_tests.py"
+          ],
           "changed_paths": [
             "perf_takehome.py"
           ],
@@ -1253,6 +1237,71 @@
       "state": null,
       "expected_next_node": "diagnose_performance",
       "expected_branch_kind": "continue"
+    },
+    {
+      "name": "research_directly_feeds_implementation_without_plan_stage",
+      "type": "transition",
+      "current_step_id": "research_optimization",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Research produced an evidence-backed brief.",
+        "structured_output": {
+          "research_brief_path": ".tmp/research-nex/brief.md",
+          "evidence_summary": "Measured improvement opportunity.",
+          "open_risks": [],
+          "planned_change_summary": "Reduce dependency pressure in the hot path.",
+          "verification_plan": [
+            "python tests/submission_tests.py"
+          ],
+          "ready_for_implementation": true
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "implement_optimization",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "research_rejects_missing_brief_path",
+      "type": "verifier",
+      "step_id": "research_optimization",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Research completed without a saved brief.",
+        "structured_output": {
+          "research_brief_path": ".tmp/research-nex/missing.md",
+          "evidence_summary": "Measured improvement opportunity.",
+          "open_risks": [],
+          "planned_change_summary": "Reduce dependency pressure in the hot path.",
+          "verification_plan": [
+            "python tests/submission_tests.py"
+          ],
+          "ready_for_implementation": true
+        }
+      },
+      "expected_passed": false,
+      "state": {}
+    },
+    {
+      "name": "research_accepts_complete_implementation_handoff",
+      "type": "verifier",
+      "step_id": "research_optimization",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Research produced an implementation-ready handoff.",
+        "structured_output": {
+          "research_brief_path": "skills/durable-workflow-runtime/workflow-binding.json",
+          "evidence_summary": "Measured improvement opportunity.",
+          "open_risks": [],
+          "planned_change_summary": "Reduce dependency pressure in the hot path.",
+          "verification_plan": [
+            "python tests/submission_tests.py"
+          ],
+          "ready_for_implementation": true
+        }
+      },
+      "expected_passed": true,
+      "state": {}
     },
     {
       "name": "blocked_main_stage_records_knowledge_without_requesting_user_input",
@@ -1338,6 +1387,10 @@
         "summary": "Claimed candidate completed.",
         "structured_output": {
           "implementation_summary": "candidate",
+          "planned_change_summary": "reduce dependency pressure",
+          "verification_plan": [
+            "python tests/submission_tests.py"
+          ],
           "changed_paths": [
             "tests/submission_tests.py"
           ],

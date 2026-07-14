@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "workflow_id": "performance_optimization_cycle",
-  "description": "适用于性能敏感内核的通用、可恢复优化闭环：从头脑风暴、研究、计划、实现与评审到知识库更新，并将已验证结果带入下一轮优化。",
+  "description": "适用于性能敏感内核的通用、可恢复优化闭环：从头脑风暴、研究、直接实现与评审到知识库更新，并将已验证结果带入下一轮优化。",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -46,12 +46,12 @@
       "purpose": "Produce evidence-backed research for the hypothesis."
     },
     {
-      "id": "writing-plans",
+      "id": "search-nex",
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "skill-catalog:writing-plans",
-      "purpose": "Create the implementation plan."
+      "source": "skill-catalog:search-nex",
+      "purpose": "Provide web search and source discovery support for research-nex."
     },
     {
       "id": "subagent-driven-development",
@@ -59,7 +59,7 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:subagent-driven-development",
-      "purpose": "Execute the implementation plan with task-scoped implementer and reviewer agents."
+      "purpose": "Execute the researched change with task-scoped implementer and reviewer agents."
     },
     {
       "id": "requesting-code-review",
