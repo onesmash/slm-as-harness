@@ -1,0 +1,201 @@
+from workflows.common.contracts import (SkillRoute, SkillUseWhen, StepContract, StepVerifier, WorkflowInputContract)
+
+
+WORKFLOW_ID = 'performance_optimization_cycle'
+
+WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
+    task_input_schema={'goal': 'string', 'baseline_cycles': 'integer?'},
+    context_schema={'repo_root': 'string'},
+    constraints_schema={},
+)
+
+BRAINSTORM_OPTIMIZATION_ROUTE_1 = SkillRoute(
+    skill='brainstorming-nex',
+    use_when=SkillUseWhen(
+        operations=['optimization hypothesis generation', 'hypothesis scoring and shortlisting'],
+        file_patterns=['.tmp/brainstorming-nex/**'],
+    ),
+    usage_notes=['Primary owner for optimization ideation and candidate shortlisting before research.'],
+)
+
+BRAINSTORM_OPTIMIZATION = StepContract(
+    done_when=['At least one testable hypothesis is recorded.',
+ 'Success criteria and a scored ideation artifact path are recorded.',
+ 'The work is ready for evidence gathering.'],
+    output_schema={'optimization_hypotheses': 'string[]',
+ 'success_criteria': 'string',
+ 'brainstorm_artifact_path': 'string',
+ 'ready_for_research': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[BRAINSTORM_OPTIMIZATION_ROUTE_1],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.performance_optimization_cycle.verifiers:verify_brainstorm_optimization",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
+RESEARCH_OPTIMIZATION_ROUTE_1 = SkillRoute(
+    skill='research-nex',
+    use_when=SkillUseWhen(
+        operations=['evidence synthesis', 'technical opportunity analysis'],
+        file_patterns=['.tmp/research-nex/**'],
+    ),
+    usage_notes=['Primary owner for research evidence; it must not publish the knowledge base.'],
+)
+
+RESEARCH_OPTIMIZATION = StepContract(
+    done_when=['A research brief path and evidence summary are recorded.',
+ 'Implementation risks and open questions are explicit.'],
+    output_schema={'research_brief_path': 'string',
+ 'evidence_summary': 'string',
+ 'open_risks': 'string[]',
+ 'ready_for_plan': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[RESEARCH_OPTIMIZATION_ROUTE_1],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.performance_optimization_cycle.verifiers:verify_research_optimization",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
+PLAN_OPTIMIZATION_ROUTE_1 = SkillRoute(
+    skill='writing-plans',
+    use_when=SkillUseWhen(
+        operations=['test-first implementation planning'],
+        file_patterns=['docs/superpowers/plans/*.md'],
+    ),
+    usage_notes=['Primary owner for the actionable implementation plan.'],
+)
+
+PLAN_OPTIMIZATION = StepContract(
+    done_when=['An implementation plan path is recorded.',
+ 'The plan names the submission-test verification command.'],
+    output_schema={'implementation_plan_path': 'string',
+ 'planned_change_summary': 'string',
+ 'verification_plan': 'string[]',
+ 'ready_for_implementation': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[PLAN_OPTIMIZATION_ROUTE_1],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.performance_optimization_cycle.verifiers:verify_plan_optimization",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
+IMPLEMENT_OPTIMIZATION_ROUTE_1 = SkillRoute(
+    skill='subagent-driven-development',
+    use_when=SkillUseWhen(
+        operations=['task-scoped implementation', 'task review', 'submission-test verification'],
+        file_patterns=['perf_takehome.py', 'problem.py'],
+    ),
+    usage_notes=['Primary owner for the implementation plan execution with per-task review.'],
+)
+
+IMPLEMENT_OPTIMIZATION = StepContract(
+    done_when=['The implemented change and changed paths are recorded.',
+ 'python tests/submission_tests.py has passed.'],
+    output_schema={'implementation_summary': 'string',
+ 'changed_paths': 'string[]',
+ 'submission_test_command': 'string',
+ 'submission_test_output': 'string',
+ 'submission_test_exit_code': 'integer',
+ 'submission_tests_passed': 'boolean',
+ 'ready_for_review': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[IMPLEMENT_OPTIMIZATION_ROUTE_1],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.performance_optimization_cycle.verifiers:verify_implement_optimization",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
+REVIEW_OPTIMIZATION_ROUTE_1 = SkillRoute(
+    skill='requesting-code-review',
+    use_when=SkillUseWhen(
+        operations=['implementation review', 'constraint compliance review'],
+        file_patterns=['perf_takehome.py', 'problem.py'],
+    ),
+    usage_notes=['Primary owner for review before knowledge-base maintenance.'],
+)
+
+REVIEW_OPTIMIZATION = StepContract(
+    done_when=['Review findings and a readiness decision are recorded.'],
+    output_schema={'review_summary': 'string', 'review_findings': 'string[]', 'ready_for_knowledge_base': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[REVIEW_OPTIMIZATION_ROUTE_1],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.performance_optimization_cycle.verifiers:verify_review_optimization",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
+UPDATE_OPTIMIZATION_KNOWLEDGE_BASE_ROUTE_1 = SkillRoute(
+    skill='code-kb-workflow',
+    use_when=SkillUseWhen(
+        operations=['knowledge-base maintenance', 'optimization evidence documentation'],
+        file_patterns=['knowledge-base/llms.txt', 'knowledge-base/_meta/*.md', 'knowledge-base/**/*.md'],
+    ),
+    usage_notes=['Primary owner for the durable knowledge-base update.'],
+)
+
+UPDATE_OPTIMIZATION_KNOWLEDGE_BASE = StepContract(
+    done_when=['The updated knowledge-base artifacts and update summary are recorded.',
+ 'The workflow explicitly decides whether to start another optimization iteration.'],
+    output_schema={'knowledge_base_update_summary': 'string',
+ 'knowledge_base_artifacts': 'string[]',
+ 'continue_optimization': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[UPDATE_OPTIMIZATION_KNOWLEDGE_BASE_ROUTE_1],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.performance_optimization_cycle.verifiers:verify_update_optimization_knowledge_base",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
+REQUEST_UNBLOCKING_INPUT = StepContract(
+    done_when=['Identify the blocking reason',
+ 'Ask the user for the input, approval, or resource required to continue'],
+    output_schema={'blocking_reason': 'string', 'user_action_needed': 'string', 'suggested_next_input': 'string?'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+)
+
+REPAIR_AND_RESUME = StepContract(
+    done_when=['Explain why the original step needs repair',
+ 'Return retry_reason, retry_notes, and repair_actions'],
+    output_schema={'retry_reason': 'string', 'retry_notes': 'string', 'repair_actions': 'string[]'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+)
+
+STEP_CONTRACTS = {
+    "brainstorm_optimization": BRAINSTORM_OPTIMIZATION,
+    "research_optimization": RESEARCH_OPTIMIZATION,
+    "plan_optimization": PLAN_OPTIMIZATION,
+    "implement_optimization": IMPLEMENT_OPTIMIZATION,
+    "review_optimization": REVIEW_OPTIMIZATION,
+    "update_optimization_knowledge_base": UPDATE_OPTIMIZATION_KNOWLEDGE_BASE,
+    "request_unblocking_input": REQUEST_UNBLOCKING_INPUT,
+    "repair_and_resume": REPAIR_AND_RESUME,
+}
+
+
+def get_step_contract(step_id: str) -> StepContract:
+    try:
+        return STEP_CONTRACTS[step_id]
+    except KeyError as exc:  # pragma: no cover - generated guard
+        raise LookupError(f"unknown step contract: {step_id}") from exc
+
+
+def list_step_contract_ids() -> list[str]:
+    return list(STEP_CONTRACTS.keys())

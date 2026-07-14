@@ -1,0 +1,952 @@
+{
+  "workflow_id": "performance_optimization_cycle",
+  "flow_description": "适用于性能敏感内核的通用、可恢复优化闭环：从头脑风暴、研究、计划、实现与评审到知识库更新，并将已验证结果带入下一轮优化。",
+  "start_input_schema": {
+    "task_input": {
+      "goal": "string",
+      "baseline_cycles": "integer?"
+    },
+    "context": {
+      "repo_root": "string"
+    },
+    "constraints": {}
+  },
+  "stages": [
+    {
+      "step_id": "brainstorm_optimization",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "form_optimization_hypotheses",
+      "expected_artifact": "scored optimization-hypothesis shortlist and ideation artifact",
+      "prompt": "/brainstorming-nex {{goal}} in {{repo_root}}; generate, score, and shortlist testable, implementation-independent optimization hypotheses before research begins.",
+      "prompt_sections": {
+        "stage_goal": "Establish the next optimization hypothesis, measurable success criteria, and scored ideation artifact without changing implementation code.",
+        "context": [
+          "Repository root: {{repo_root}}",
+          "Current goal: {{goal}}",
+          "Prior cycle summary: {{knowledge_base_update_summary}}"
+        ],
+        "boundaries": [
+          "Do not write an implementation plan or modify source code.",
+          "Do not prescribe .tmp/search_engine.py, .tmp/expL.py, or tools/ as required workflow inputs."
+        ],
+        "blocked_conditions": [
+          "Block when the optimization objective or measurable success criteria are not clear."
+        ]
+      },
+      "done_when": [
+        "At least one testable hypothesis is recorded.",
+        "Success criteria and a scored ideation artifact path are recorded.",
+        "The work is ready for evidence gathering."
+      ],
+      "output_schema": {
+        "optimization_hypotheses": "string[]",
+        "success_criteria": "string",
+        "brainstorm_artifact_path": "string",
+        "ready_for_research": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "brainstorming-nex",
+          "operations": [
+            "optimization hypothesis generation",
+            "hypothesis scoring and shortlisting"
+          ],
+          "file_patterns": [
+            ".tmp/brainstorming-nex/**"
+          ],
+          "usage_notes": [
+            "Primary owner for optimization ideation and candidate shortlisting before research."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "optimization_hypotheses",
+          "output_key": "optimization_hypotheses",
+          "kind": "list"
+        },
+        {
+          "state_key": "success_criteria",
+          "output_key": "success_criteria",
+          "kind": "string"
+        },
+        {
+          "state_key": "brainstorm_artifact_path",
+          "output_key": "brainstorm_artifact_path",
+          "kind": "string"
+        }
+      ],
+      "template_context_keys": [
+        "optimization_hypotheses",
+        "success_criteria",
+        "brainstorm_artifact_path",
+        "knowledge_base_update_summary"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "optimization_hypotheses",
+          "operator": "non_empty",
+          "value": null,
+          "message": "brainstorming must record at least one optimization hypothesis"
+        },
+        {
+          "output_key": "success_criteria",
+          "operator": "truthy",
+          "value": null,
+          "message": "brainstorming must state measurable success criteria"
+        },
+        {
+          "output_key": "brainstorm_artifact_path",
+          "operator": "truthy",
+          "value": null,
+          "message": "brainstorming must return an ideation artifact path"
+        },
+        {
+          "output_key": "ready_for_research",
+          "operator": "is_true",
+          "value": null,
+          "message": "brainstorming must be ready for research"
+        }
+      ],
+      "verifier_templates": [],
+      "custom_verifier_requirements": []
+    },
+    {
+      "step_id": "research_optimization",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "gather_optimization_evidence",
+      "expected_artifact": "research brief and evidence map for the selected hypothesis",
+      "prompt": "/research-nex investigate {{optimization_hypotheses}} for {{goal}} in {{repo_root}}; produce an evidence-backed research brief that distinguishes supported opportunities from open risks.",
+      "prompt_sections": {
+        "stage_goal": "Turn the selected hypothesis into traceable technical evidence suitable for an implementation plan.",
+        "context": [
+          "Success criteria: {{success_criteria}}",
+          "Brainstorm artifact: {{brainstorm_artifact_path}}"
+        ],
+        "boundaries": [
+          "Do not implement the candidate in this stage.",
+          "Mark unsupported claims and open risks explicitly."
+        ],
+        "blocked_conditions": [
+          "Block if the hypothesis or repository context is unavailable."
+        ]
+      },
+      "done_when": [
+        "A research brief path and evidence summary are recorded.",
+        "Implementation risks and open questions are explicit."
+      ],
+      "output_schema": {
+        "research_brief_path": "string",
+        "evidence_summary": "string",
+        "open_risks": "string[]",
+        "ready_for_plan": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "research-nex",
+          "operations": [
+            "evidence synthesis",
+            "technical opportunity analysis"
+          ],
+          "file_patterns": [
+            ".tmp/research-nex/**"
+          ],
+          "usage_notes": [
+            "Primary owner for research evidence; it must not publish the knowledge base."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "research_brief_path",
+          "output_key": "research_brief_path",
+          "kind": "string"
+        },
+        {
+          "state_key": "evidence_summary",
+          "output_key": "evidence_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "open_risks",
+          "output_key": "open_risks",
+          "kind": "list"
+        }
+      ],
+      "template_context_keys": [
+        "research_brief_path",
+        "evidence_summary",
+        "open_risks"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "research_brief_path",
+          "operator": "truthy",
+          "value": null,
+          "message": "research must return a brief path"
+        },
+        {
+          "output_key": "evidence_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "research must return an evidence summary"
+        },
+        {
+          "output_key": "ready_for_plan",
+          "operator": "is_true",
+          "value": null,
+          "message": "research must declare plan readiness"
+        }
+      ],
+      "verifier_templates": [],
+      "custom_verifier_requirements": []
+    },
+    {
+      "step_id": "plan_optimization",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "write_optimization_implementation_plan",
+      "expected_artifact": "test-first implementation plan for the selected optimization",
+      "prompt": "/writing-plans create the implementation plan for {{goal}} using {{brainstorm_artifact_path}} and {{research_brief_path}}; define the smallest testable change and its verification commands.",
+      "prompt_sections": {
+        "stage_goal": "Produce a concrete, test-first plan that turns validated research into a bounded implementation change.",
+        "context": [
+          "Success criteria: {{success_criteria}}",
+          "Open risks: {{open_risks}}"
+        ],
+        "boundaries": [
+          "Do not modify implementation code.",
+          "The plan must preserve N_CORES=1, never modify tests/, and require python tests/submission_tests.py."
+        ],
+        "blocked_conditions": [
+          "Block if the brainstorm or research artifact is missing."
+        ]
+      },
+      "done_when": [
+        "An implementation plan path is recorded.",
+        "The plan names the submission-test verification command."
+      ],
+      "output_schema": {
+        "implementation_plan_path": "string",
+        "planned_change_summary": "string",
+        "verification_plan": "string[]",
+        "ready_for_implementation": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "writing-plans",
+          "operations": [
+            "test-first implementation planning"
+          ],
+          "file_patterns": [
+            "docs/superpowers/plans/*.md"
+          ],
+          "usage_notes": [
+            "Primary owner for the actionable implementation plan."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "implementation_plan_path",
+          "output_key": "implementation_plan_path",
+          "kind": "string"
+        },
+        {
+          "state_key": "planned_change_summary",
+          "output_key": "planned_change_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "verification_plan",
+          "output_key": "verification_plan",
+          "kind": "list"
+        }
+      ],
+      "template_context_keys": [
+        "implementation_plan_path",
+        "planned_change_summary",
+        "verification_plan"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "implementation_plan_path",
+          "operator": "truthy",
+          "value": null,
+          "message": "planning must return an implementation plan path"
+        },
+        {
+          "output_key": "verification_plan",
+          "operator": "non_empty",
+          "value": null,
+          "message": "planning must name verification commands"
+        },
+        {
+          "output_key": "ready_for_implementation",
+          "operator": "is_true",
+          "value": null,
+          "message": "planning must declare implementation readiness"
+        }
+      ],
+      "verifier_templates": [],
+      "custom_verifier_requirements": []
+    },
+    {
+      "step_id": "implement_optimization",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "implement_and_verify_optimization",
+      "expected_artifact": "implemented candidate with submission-test evidence",
+      "prompt": "/subagent-driven-development implement {{planned_change_summary}} using {{implementation_plan_path}} in {{repo_root}}; use isolated task implementers and reviewers, run python tests/submission_tests.py, and return changed paths and verification evidence.",
+      "prompt_sections": {
+        "stage_goal": "Implement the planned optimization and prove correctness with the repository submission tests.",
+        "context": [
+          "Success criteria: {{success_criteria}}",
+          "Research evidence: {{evidence_summary}}"
+        ],
+        "boundaries": [
+          "Never modify anything under tests/.",
+          "Keep N_CORES=1.",
+          "Do not substitute .tmp/search_engine.py, .tmp/expL.py, or tools/ for submission testing."
+        ],
+        "blocked_conditions": [
+          "Block if the implementation plan is missing or submission tests cannot run."
+        ]
+      },
+      "done_when": [
+        "The implemented change and changed paths are recorded.",
+        "python tests/submission_tests.py has passed."
+      ],
+      "output_schema": {
+        "implementation_summary": "string",
+        "changed_paths": "string[]",
+        "submission_test_command": "string",
+        "submission_test_output": "string",
+        "submission_test_exit_code": "integer",
+        "submission_tests_passed": "boolean",
+        "ready_for_review": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "subagent-driven-development",
+          "operations": [
+            "task-scoped implementation",
+            "task review",
+            "submission-test verification"
+          ],
+          "file_patterns": [
+            "perf_takehome.py",
+            "problem.py"
+          ],
+          "usage_notes": [
+            "Primary owner for the implementation plan execution with per-task review."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "implementation_summary",
+          "output_key": "implementation_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "changed_paths",
+          "output_key": "changed_paths",
+          "kind": "list"
+        },
+        {
+          "state_key": "submission_test_output",
+          "output_key": "submission_test_output",
+          "kind": "string"
+        },
+        {
+          "state_key": "submission_test_exit_code",
+          "output_key": "submission_test_exit_code",
+          "kind": "scalar"
+        }
+      ],
+      "template_context_keys": [
+        "implementation_summary",
+        "changed_paths",
+        "submission_test_output"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "implementation_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "implementation must report its change"
+        },
+        {
+          "output_key": "submission_test_command",
+          "operator": "equals",
+          "value": "python tests/submission_tests.py",
+          "message": "implementation must report the required submission-test command"
+        },
+        {
+          "output_key": "submission_test_exit_code",
+          "operator": "equals",
+          "value": 0,
+          "message": "the required submission-test command must exit with status 0"
+        },
+        {
+          "output_key": "submission_tests_passed",
+          "operator": "is_true",
+          "value": null,
+          "message": "python tests/submission_tests.py must pass before review"
+        },
+        {
+          "output_key": "ready_for_review",
+          "operator": "is_true",
+          "value": null,
+          "message": "implementation must be ready for review"
+        }
+      ],
+      "verifier_templates": [],
+      "custom_verifier_requirements": [
+        {
+          "id": "enforce_submission_constraints",
+          "description": "Verify directly that tests/ is unchanged from origin/main, problem.py assigns N_CORES = 1, and python tests/submission_tests.py succeeds from repo_root.",
+          "signals": [
+            "changed_paths",
+            "submission_test_command",
+            "submission_test_exit_code",
+            "submission_tests_passed"
+          ],
+          "implementation_surface": [
+            "verifiers.py",
+            "tests/test_workflow.py"
+          ],
+          "hint_pseudocode": [
+            "Reject changed_paths containing tests or tests/.",
+            "Run git diff --quiet origin/main -- tests/.",
+            "Parse problem.py and require literal N_CORES = 1.",
+            "Run python tests/submission_tests.py in repo_root and require exit code 0."
+          ],
+          "test_intent": [
+            "Reject a changed tests/ path.",
+            "Reject N_CORES other than 1.",
+            "Reject a failing submission command."
+          ]
+        }
+      ]
+    },
+    {
+      "step_id": "review_optimization",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "review_optimization_change",
+      "expected_artifact": "review findings and acceptance decision for the optimized kernel",
+      "prompt": "/requesting-code-review review {{implementation_summary}} using {{implementation_plan_path}} and {{submission_test_output}}; return actionable findings and whether the change is ready for knowledge-base maintenance.",
+      "prompt_sections": {
+        "stage_goal": "Review correctness, performance evidence, and compliance with the optimization constraints before knowledge-base maintenance.",
+        "context": [
+          "Changed paths: {{changed_paths}}",
+          "Success criteria: {{success_criteria}}"
+        ],
+        "boundaries": [
+          "Do not approve a change that modified tests/ or re-enabled multicore.",
+          "Do not update the knowledge base in this stage."
+        ],
+        "blocked_conditions": [
+          "Block if submission-test evidence is missing."
+        ]
+      },
+      "done_when": [
+        "Review findings and a readiness decision are recorded."
+      ],
+      "output_schema": {
+        "review_summary": "string",
+        "review_findings": "string[]",
+        "ready_for_knowledge_base": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "requesting-code-review",
+          "operations": [
+            "implementation review",
+            "constraint compliance review"
+          ],
+          "file_patterns": [
+            "perf_takehome.py",
+            "problem.py"
+          ],
+          "usage_notes": [
+            "Primary owner for review before knowledge-base maintenance."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "review_summary",
+          "output_key": "review_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "review_findings",
+          "output_key": "review_findings",
+          "kind": "list"
+        }
+      ],
+      "template_context_keys": [
+        "review_summary",
+        "review_findings"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "review_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "review must provide a summary"
+        },
+        {
+          "output_key": "ready_for_knowledge_base",
+          "operator": "is_true",
+          "value": null,
+          "message": "review must approve knowledge-base maintenance"
+        }
+      ],
+      "verifier_templates": [],
+      "custom_verifier_requirements": []
+    },
+    {
+      "step_id": "update_optimization_knowledge_base",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "update_optimization_knowledge_base",
+      "expected_artifact": "updated durable knowledge-base record and next-cycle decision",
+      "prompt": "/code-kb-workflow update the optimization knowledge base in {{repo_root}} using {{research_brief_path}}, {{implementation_summary}}, and {{review_summary}}; record durable findings and decide whether another brainstorm iteration is required.",
+      "prompt_sections": {
+        "stage_goal": "Persist the evidence, implementation outcome, and review decision in the repository knowledge base, then make an explicit next-cycle decision.",
+        "context": [
+          "Review findings: {{review_findings}}",
+          "Submission-test evidence: {{submission_test_output}}"
+        ],
+        "boundaries": [
+          "Use the smallest Code KB stage that updates the affected durable artifacts.",
+          "Do not rewrite the entire knowledge base unless the evidence requires it."
+        ],
+        "blocked_conditions": [
+          "Block if review approval or implementation evidence is missing."
+        ]
+      },
+      "done_when": [
+        "The updated knowledge-base artifacts and update summary are recorded.",
+        "The workflow explicitly decides whether to start another optimization iteration."
+      ],
+      "output_schema": {
+        "knowledge_base_update_summary": "string",
+        "knowledge_base_artifacts": "string[]",
+        "continue_optimization": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "code-kb-workflow",
+          "operations": [
+            "knowledge-base maintenance",
+            "optimization evidence documentation"
+          ],
+          "file_patterns": [
+            "knowledge-base/llms.txt",
+            "knowledge-base/_meta/*.md",
+            "knowledge-base/**/*.md"
+          ],
+          "usage_notes": [
+            "Primary owner for the durable knowledge-base update."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "knowledge_base_update_summary",
+          "output_key": "knowledge_base_update_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "knowledge_base_artifacts",
+          "output_key": "knowledge_base_artifacts",
+          "kind": "list"
+        }
+      ],
+      "template_context_keys": [
+        "knowledge_base_update_summary",
+        "knowledge_base_artifacts"
+      ],
+      "repair_conditions": [],
+      "transitions": [
+        {
+          "output_key": "continue_optimization",
+          "operator": "is_true",
+          "value": null,
+          "next_node": "brainstorm_optimization",
+          "branch_kind": "continue",
+          "reason": "Knowledge-base maintenance requested another optimization iteration."
+        }
+      ],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "knowledge_base_update_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "knowledge-base maintenance must report its update"
+        },
+        {
+          "output_key": "knowledge_base_artifacts",
+          "operator": "non_empty",
+          "value": null,
+          "message": "knowledge-base maintenance must record durable artifacts"
+        }
+      ],
+      "verifier_templates": [],
+      "custom_verifier_requirements": []
+    }
+  ],
+  "shared_repair_helpers": {
+    "request_unblocking_input": {
+      "intent": "request_unblocking_input",
+      "expected_artifact": "user action needed to unblock the workflow",
+      "prompt": "Request the exact external input needed to unblock the workflow, then return control to the repair stage when repair still owns the retry.",
+      "prompt_sections": {
+        "stage_goal": "Identify the exact external input, approval, credential, file, or decision required to unblock the workflow, while preserving whether the next hop should return to repair or directly to the original stage.",
+        "context": [
+          "Current step: {{current_step_id}}",
+          "Return stage: {{return_stage_id}}",
+          "Source stage: {{source_stage_id}}",
+          "Repair category: {{repair_category}}",
+          "Repair summary: {{repair_summary}}",
+          "Required external inputs or approvals:",
+          "{{repair_requirements}}",
+          "Relevant evidence:",
+          "{{repair_evidence}}"
+        ],
+        "boundaries": [
+          "Do not resume the workflow until the exact missing external dependency is identified.",
+          "Do not invent files, credentials, or user decisions that are not already available.",
+          "Use this helper only after repair has already attempted self-repair 3 times and still requires external help."
+        ],
+        "blocked_conditions": [
+          "Stay blocked if the missing external input still cannot be named concretely."
+        ]
+      },
+      "skill_routing": [],
+      "done_when": [
+        "Identify the blocking reason",
+        "Ask the user for the input, approval, or resource required to continue"
+      ],
+      "output_schema": {
+        "blocking_reason": "string",
+        "user_action_needed": "string",
+        "suggested_next_input": "string?"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      }
+    },
+    "repair_and_resume": {
+      "intent": "repair_and_resume",
+      "expected_artifact": "repair actions needed before returning to the original stage",
+      "prompt": "Repair the previous workflow step using the persisted failure details, and decide whether the workflow can retry directly or must first ask for external unblocking input.",
+      "prompt_sections": {
+        "stage_goal": "Use the persisted repair context to explain what failed, propose concrete repair actions, and decide whether the workflow can retry the original stage safely or must first request external help.",
+        "context": [
+          "Current step: {{current_step_id}}",
+          "Return stage: {{return_stage_id}}",
+          "Source stage: {{source_stage_id}}",
+          "Repair category: {{repair_category}}",
+          "Repair summary: {{repair_summary}}",
+          "Repair requirements:",
+          "{{repair_requirements}}",
+          "Relevant evidence:",
+          "{{repair_evidence}}"
+        ],
+        "boundaries": [
+          "Keep the retry scoped to the original return stage instead of changing workflow routing.",
+          "Base the repair plan on the persisted repair requirements rather than generic retries.",
+          "Attempt self-repair up to 3 times before escalating to request_unblocking_input."
+        ],
+        "blocked_conditions": [
+          "Return blocked only when repair still cannot proceed after 3 self-repair attempts and now requires external input or approval."
+        ]
+      },
+      "skill_routing": [],
+      "done_when": [
+        "Explain why the original step needs repair",
+        "Return retry_reason, retry_notes, and repair_actions"
+      ],
+      "output_schema": {
+        "retry_reason": "string",
+        "retry_notes": "string",
+        "repair_actions": "string[]"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      }
+    }
+  },
+  "final_step_id": "finalize_optimization_cycle",
+  "final_prompt": "Summarize the completed optimization cycle, including its hypothesis, evidence, implementation verification, review result, knowledge-base artifacts, and the reason no further iteration is scheduled.",
+  "dependencies": [
+    {
+      "id": "brainstorming-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:brainstorming-nex",
+      "purpose": "Generate and prioritize optimization hypotheses."
+    },
+    {
+      "id": "research-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "purpose": "Produce evidence-backed research for the hypothesis."
+    },
+    {
+      "id": "writing-plans",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:writing-plans",
+      "purpose": "Create the implementation plan."
+    },
+    {
+      "id": "subagent-driven-development",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:subagent-driven-development",
+      "purpose": "Execute the implementation plan with task-scoped implementer and reviewer agents."
+    },
+    {
+      "id": "requesting-code-review",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:requesting-code-review",
+      "purpose": "Review the implementation before KB maintenance."
+    },
+    {
+      "id": "code-kb-workflow",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:code-kb-workflow",
+      "purpose": "Maintain the optimization knowledge base."
+    }
+  ],
+  "installed": [
+    {
+      "id": "brainstorming-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:brainstorming-nex",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "research-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "writing-plans",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:writing-plans",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "subagent-driven-development",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:subagent-driven-development",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "requesting-code-review",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:requesting-code-review",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "code-kb-workflow",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:code-kb-workflow",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    }
+  ],
+  "regression_tests": [
+    {
+      "name": "starts_with_brainstorming",
+      "type": "transition",
+      "current_step_id": "brainstorm_optimization",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Hypothesis ready.",
+        "structured_output": {
+          "optimization_hypotheses": [
+            "reduce dependency pressure"
+          ],
+          "success_criteria": "fewer cycles",
+          "brainstorm_artifact_path": ".tmp/brainstorming-nex/brainstorm_output.md",
+          "ready_for_research": true
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "research_optimization",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "submission_test_failure_routes_to_repair",
+      "type": "transition",
+      "current_step_id": "implement_optimization",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Submission test failed.",
+        "structured_output": {
+          "implementation_summary": "candidate",
+          "changed_paths": [
+            "perf_takehome.py"
+          ],
+          "submission_test_output": "failed",
+          "submission_tests_passed": false,
+          "ready_for_review": false
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "messages": [
+          "python tests/submission_tests.py must pass before review"
+        ]
+      },
+      "state": null,
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "retry"
+    },
+    {
+      "name": "knowledge_base_continues_to_brainstorming",
+      "type": "transition",
+      "current_step_id": "update_optimization_knowledge_base",
+      "observation": {
+        "status": "succeeded",
+        "summary": "KB updated; continue.",
+        "structured_output": {
+          "knowledge_base_update_summary": "Recorded result.",
+          "knowledge_base_artifacts": [
+            "knowledge-base/topics/applied-optimization-log.md"
+          ],
+          "continue_optimization": true
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "brainstorm_optimization",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "implementation_rejects_changed_tests_path",
+      "type": "verifier",
+      "step_id": "implement_optimization",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Claimed candidate completed.",
+        "structured_output": {
+          "implementation_summary": "candidate",
+          "changed_paths": [
+            "tests/submission_tests.py"
+          ],
+          "submission_test_command": "python tests/submission_tests.py",
+          "submission_test_output": "passed",
+          "submission_test_exit_code": 0,
+          "submission_tests_passed": true,
+          "ready_for_review": true
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "implementation_requires_submission_tests",
+      "type": "verifier",
+      "step_id": "implement_optimization",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Candidate built.",
+        "structured_output": {
+          "implementation_summary": "candidate",
+          "changed_paths": [
+            "perf_takehome.py"
+          ],
+          "submission_test_output": "not run",
+          "submission_tests_passed": false,
+          "ready_for_review": false
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    }
+  ]
+}

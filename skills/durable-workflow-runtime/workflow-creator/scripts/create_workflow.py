@@ -1896,7 +1896,7 @@ def _render_state_py(workflow_spec: dict[str, Any]) -> str:
 
 from dataclasses import asdict, dataclass, field
 
-from workflows.common.policies import condition_matches, max_steps_exceeded_decision
+from workflows.common.policies import condition_matches
 from workflows.common.repair_payloads import build_default_agent_repair_payload, make_agent_repair_payload
 
 
@@ -1975,29 +1975,6 @@ def record_observation(
         if observation.get("status") == "succeeded":
 {chr(10).join(record_update_lines) if record_update_lines else "            pass"}
 
-    max_steps_decision = max_steps_exceeded_decision(
-        current_step_id=current_step_id,
-        state=serialize_state(state),
-    )
-    if max_steps_decision is not None:
-        return_stage_id = determine_return_stage_id(
-            current_step_id=current_step_id,
-            existing_return_stage_id=state.return_stage_id,
-        )
-        state.return_stage_id = return_stage_id
-        state.repair_context = _build_repair_context(
-            current_step_id=current_step_id,
-            return_stage_id=return_stage_id,
-            transition_reason="max_steps_exceeded",
-            repair_payload=make_agent_repair_payload(
-                category="blocked",
-                summary=max_steps_decision.reason,
-                requirements=[],
-                evidence=[],
-            ),
-        )
-        return
-
     transition_reason = determine_transition_reason(
         current_step_id=current_step_id,
         observation=observation,
@@ -2071,7 +2048,7 @@ def _is_forward_completion_transition(current_step_id: str, next_step_id: str) -
         return False
     if next_step_id == current_step_id or next_step_id in REPAIR_STAGE_IDS:
         return False
-    if next_step_id == "finalize_delivery_summary":
+    if next_step_id == {workflow_spec["final_step_id"]!r}:
         return True
     if next_step_id not in MAIN_STAGE_IDS:
         return False
@@ -2221,7 +2198,7 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
     lines = [
         "from __future__ import annotations",
         "",
-        "from workflows.common.policies import TransitionDecision, condition_matches, max_steps_exceeded_decision",
+        "from workflows.common.policies import TransitionDecision, condition_matches",
         "",
         "",
         "def choose_next_node(",
@@ -2231,13 +2208,6 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
         "    observation: dict,",
         "    verifier_result: dict | None,",
         ") -> TransitionDecision:",
-        "    max_steps_decision = max_steps_exceeded_decision(",
-        "        current_step_id=current_step_id,",
-        "        state=state,",
-        "    )",
-        "    if max_steps_decision is not None:",
-        "        return max_steps_decision",
-        "",
     ]
     for stage in stages:
         if stage["stage_kind"] == "main":
@@ -4112,19 +4082,6 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "        self.assertEqual(response['retry_context']['category'], 'blocked')",
                 "        self.assertEqual(response['retry_context']['summary'], 'awaiting approval')",
                 "        self.assertEqual(response['retry_context']['requirements'], ['approval'])",
-                "",
-                "    def test_generated_max_steps_preserves_return_stage_for_repair(self):",
-                "        state = self._make_state({'constraints': {'max_steps': 1}, 'attempt_counts': {}})",
-                f"        expected_return_stage = {preserved_return_stage!r}",
-                "        result = graphbuilder_runtime.run_transition_preview(",
-                "            state=state,",
-                "            current_step_id=expected_return_stage,",
-                "            observation={'status': 'succeeded', 'summary': 'Workflow hit max steps.', 'structured_output': {}},",
-                "            verifier_result={'passed': True, 'checks': []},",
-                "        )",
-                '        self.assertEqual(result.step_id, "repair_and_resume")',
-                '        self.assertEqual(result.branch_kind, "repair")',
-                "        self.assertEqual(state.return_stage_id, expected_return_stage)",
                 "",
             ]
         )

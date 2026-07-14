@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "workflow_id": "performance_optimization_cycle",
+  "installed": [
+    {
+      "id": "brainstorming-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:brainstorming-nex",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "research-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "writing-plans",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:writing-plans",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "subagent-driven-development",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:subagent-driven-development",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "requesting-code-review",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:requesting-code-review",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "code-kb-workflow",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:code-kb-workflow",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    }
+  ]
+}

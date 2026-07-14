@@ -63,6 +63,20 @@
           "require_user_approval": "boolean?"
         }
       }
+    },
+    {
+      "workflow_id": "performance_optimization_cycle",
+      "flow_description": "适用于性能敏感内核的通用、可恢复优化闭环：从头脑风暴、研究、计划、实现与评审到知识库更新，并将已验证结果带入下一轮优化。",
+      "start_input_schema": {
+        "task_input": {
+          "goal": "string",
+          "baseline_cycles": "integer?"
+        },
+        "context": {
+          "repo_root": "string"
+        },
+        "constraints": {}
+      }
     }
   ]
 }
