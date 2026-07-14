@@ -1886,7 +1886,12 @@ def _state_repair_condition_lines(workflow_spec: dict[str, Any]) -> list[str]:
 
 def _render_state_py(workflow_spec: dict[str, Any]) -> str:
     class_name = _workflow_class_prefix(workflow_spec["workflow_id"]) + "State"
-    main_stage_ids = tuple(stage["step_id"] for stage in workflow_spec["stages"])
+    main_stage_ids = tuple(
+        stage["step_id"] for stage in workflow_spec["stages"] if stage["stage_kind"] == "main"
+    )
+    recovery_stage_ids = tuple(
+        stage["step_id"] for stage in workflow_spec["stages"] if stage["stage_kind"] == "recovery"
+    )
     state_updates = _collect_state_updates(workflow_spec)
     state_field_lines = [_state_field_line(update) for update in state_updates]
     deserialize_lines = [_state_deserialize_line(update) for update in state_updates]
@@ -1902,9 +1907,11 @@ from workflows.common.repair_payloads import build_default_agent_repair_payload,
 
 MAIN_STAGE_IDS = {_python_literal(main_stage_ids)}
 REPAIR_STAGE_IDS = (
+{chr(10).join(f'    {stage_id!r},' for stage_id in recovery_stage_ids)}
     "request_unblocking_input",
     "repair_and_resume",
 )
+DECLARED_RECOVERY_STAGE_IDS = {_python_literal(recovery_stage_ids)}
 
 
 @dataclass
@@ -2037,6 +2044,9 @@ def apply_transition(state: {class_name}, *, current_step_id: str, next_step_id:
             state.completed_stages.append(current_step_id)
 
     if current_step_id in REPAIR_STAGE_IDS and next_step_id == state.return_stage_id:
+        state.return_stage_id = None
+        state.repair_context = {{}}
+    elif current_step_id in DECLARED_RECOVERY_STAGE_IDS and next_step_id != current_step_id:
         state.return_stage_id = None
         state.repair_context = {{}}
 
@@ -3604,12 +3614,14 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
             target = _render_transition_target(stage["recovery_return_node"], workflow_spec)
             lines.append(f"    {stage['step_id']} -->|recovery complete| {target}")
             lines.append(f"    {stage['step_id']} -.->|partial / failed / verifier| {stage['step_id']}")
-            lines.append(f"    {stage['step_id']} -.->|blocked| repair_loop")
+            if not _stage_handles_outcome(stage, "blocked"):
+                lines.append(f"    {stage['step_id']} -.->|blocked| repair_loop")
     lines.append("    unblock_loop[[request_unblocking_input]]")
     lines.append("    repair_loop[[repair_and_resume]]")
     lines.append("    resume_target[[return_stage_id / originating stage]]")
     for stage in main_stages:
-        lines.append(f"    {stage['step_id']} -.->|blocked| repair_loop")
+        if not _stage_handles_outcome(stage, "blocked"):
+            lines.append(f"    {stage['step_id']} -.->|blocked| repair_loop")
         lines.append(
             f"    {stage['step_id']} -.->|{_main_stage_repair_loop_label(stage)}| repair_loop"
         )
@@ -3671,6 +3683,13 @@ def _main_stage_repair_loop_label(stage: dict[str, Any]) -> str:
     if "verifier_failed" not in handled_outcomes:
         labels.append("verifier")
     return " / ".join(labels)
+
+
+def _stage_handles_outcome(stage: dict[str, Any], outcome: str) -> bool:
+    return any(
+        str(route.get("outcome")) == outcome
+        for route in stage.get("outcome_routes") or []
+    )
 
 
 def _render_transition_target(next_node: str, workflow_spec: dict[str, Any]) -> str:

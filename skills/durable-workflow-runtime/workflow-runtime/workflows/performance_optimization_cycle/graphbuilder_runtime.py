@@ -64,6 +64,13 @@ class GraphBuilderTransition:
 
 
 NODE_DEFINITIONS = {
+    "diagnose_performance": NodeDefinition(
+        step_id="diagnose_performance",
+        prompt_asset_path=PROMPTS_DIR / "diagnose_performance.md",
+        intent="establish_performance_baseline_and_bottleneck",
+        expected_artifact="performance baseline, bottleneck summary, and diagnostic report",
+        resume_instructions="Return an Observation preserving run_id and step_id.",
+    ),
     "brainstorm_optimization": NodeDefinition(
         step_id="brainstorm_optimization",
         prompt_asset_path=PROMPTS_DIR / "brainstorm_optimization.md",
@@ -104,6 +111,13 @@ NODE_DEFINITIONS = {
         prompt_asset_path=PROMPTS_DIR / "update_optimization_knowledge_base.md",
         intent="update_optimization_knowledge_base",
         expected_artifact="updated durable knowledge-base record and next-cycle decision",
+        resume_instructions="Return an Observation preserving run_id and step_id.",
+    ),
+    "capture_blocked_cycle_knowledge": NodeDefinition(
+        step_id="capture_blocked_cycle_knowledge",
+        prompt_asset_path=PROMPTS_DIR / "capture_blocked_cycle_knowledge.md",
+        intent="capture_blocked_cycle_knowledge",
+        expected_artifact="durable knowledge-base record of the blocked stage and its next-cycle learning",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "request_unblocking_input": NodeDefinition(
@@ -201,10 +215,10 @@ START_BUILDER = GraphBuilder(
 )
 
 
-@START_BUILDER.step(node_id="emit_brainstorm_optimization")
-async def emit_brainstorm_optimization(ctx) -> YieldResponse:
-    node_definition = get_node_definition("brainstorm_optimization")
-    contract = workflow_contract.get_step_contract("brainstorm_optimization")
+@START_BUILDER.step(node_id="emit_diagnose_performance")
+async def emit_diagnose_performance(ctx) -> YieldResponse:
+    node_definition = get_node_definition("diagnose_performance")
+    contract = workflow_contract.get_step_contract("diagnose_performance")
     prompt_envelope = build_prompt_envelope(
         run_id=ctx.inputs.run_id,
         step_id=node_definition.step_id,
@@ -229,8 +243,8 @@ async def emit_brainstorm_optimization(ctx) -> YieldResponse:
     )
 
 
-START_BUILDER.add_edge(START_BUILDER.start_node, emit_brainstorm_optimization)
-START_BUILDER.add_edge(emit_brainstorm_optimization, START_BUILDER.end_node)
+START_BUILDER.add_edge(START_BUILDER.start_node, emit_diagnose_performance)
+START_BUILDER.add_edge(emit_diagnose_performance, START_BUILDER.end_node)
 
 
 START_GRAPH = START_BUILDER.build()
@@ -294,6 +308,9 @@ def _template_context_from_state(state: workflow_state.PerformanceOptimizationCy
     context.update(
         {
         "artifacts_by_stage_json": json.dumps(state.artifacts_by_stage, ensure_ascii=False, indent=2),
+        "baseline_metrics": _format_prompt_value(state.baseline_metrics),
+        "bottleneck_summary": _format_prompt_value(state.bottleneck_summary),
+        "performance_report_path": _format_prompt_value(state.performance_report_path),
         "optimization_hypotheses": _format_prompt_value(state.optimization_hypotheses),
         "success_criteria": _format_prompt_value(state.success_criteria),
         "brainstorm_artifact_path": _format_prompt_value(state.brainstorm_artifact_path),
@@ -311,6 +328,7 @@ def _template_context_from_state(state: workflow_state.PerformanceOptimizationCy
         "review_findings": _format_prompt_value(state.review_findings),
         "knowledge_base_update_summary": _format_prompt_value(state.knowledge_base_update_summary),
         "knowledge_base_artifacts": _format_prompt_value(state.knowledge_base_artifacts),
+        "blocked_cycle_next_lead": _format_prompt_value(state.blocked_cycle_next_lead),
         "goal": _format_prompt_value(task_input_values.get("goal")),
         "baseline_cycles": _format_prompt_value(task_input_values.get("baseline_cycles")),
         "repo_root": _format_prompt_value(context_values.get("repo_root")),

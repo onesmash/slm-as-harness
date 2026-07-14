@@ -13,17 +13,132 @@
   },
   "stages": [
     {
+      "step_id": "diagnose_performance",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "establish_performance_baseline_and_bottleneck",
+      "expected_artifact": "performance baseline, bottleneck summary, and diagnostic report",
+      "prompt": "/performance-nex diagnose {{goal}} in {{repo_root}}; establish the performance baseline, identify the dominant bottleneck, and produce a report that can constrain optimization ideation.",
+      "prompt_sections": {
+        "stage_goal": "Produce a measurable baseline and a prioritized bottleneck diagnosis before optimization hypotheses are generated.",
+        "context": [
+          "Repository root: {{repo_root}}",
+          "Optimization goal: {{goal}}"
+        ],
+        "boundaries": [
+          "Do not modify source code or select an implementation approach.",
+          "Separate measured evidence from assumptions and missing telemetry."
+        ],
+        "blocked_conditions": [
+          "Block when the target system, available measurements, or performance objective cannot be identified."
+        ]
+      },
+      "done_when": [
+        "Baseline metrics and their measurement context are recorded.",
+        "A dominant bottleneck and a diagnostic report path are recorded.",
+        "The diagnosis is ready to constrain hypothesis generation."
+      ],
+      "output_schema": {
+        "baseline_metrics": "string",
+        "bottleneck_summary": "string",
+        "performance_report_path": "string",
+        "ready_for_brainstorm": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "performance-nex",
+          "operations": [
+            "performance baseline measurement",
+            "bottleneck diagnosis",
+            "capacity and latency analysis"
+          ],
+          "file_patterns": [
+            ".tmp/performance-nex/**"
+          ],
+          "usage_notes": [
+            "Primary owner for measured performance diagnosis before optimization ideation."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "baseline_metrics",
+          "output_key": "baseline_metrics",
+          "kind": "string"
+        },
+        {
+          "state_key": "bottleneck_summary",
+          "output_key": "bottleneck_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "performance_report_path",
+          "output_key": "performance_report_path",
+          "kind": "string"
+        }
+      ],
+      "template_context_keys": [
+        "baseline_metrics",
+        "bottleneck_summary",
+        "performance_report_path"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [
+        {
+          "outcome": "blocked",
+          "next_node": "capture_blocked_cycle_knowledge",
+          "branch_kind": "continue",
+          "reason": "A blocked diagnosis must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input."
+        }
+      ],
+      "verifier_rules": [
+        {
+          "output_key": "baseline_metrics",
+          "operator": "truthy",
+          "value": null,
+          "message": "performance diagnosis must record baseline metrics"
+        },
+        {
+          "output_key": "bottleneck_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "performance diagnosis must identify a bottleneck"
+        },
+        {
+          "output_key": "performance_report_path",
+          "operator": "path_exists",
+          "value": null,
+          "message": "performance diagnosis must return an existing report path"
+        },
+        {
+          "output_key": "ready_for_brainstorm",
+          "operator": "is_true",
+          "value": null,
+          "message": "performance diagnosis must declare brainstorming readiness"
+        }
+      ],
+      "verifier_templates": [],
+      "custom_verifier_requirements": []
+    },
+    {
       "step_id": "brainstorm_optimization",
       "stage_kind": "main",
       "recovery_return_node": null,
       "intent": "form_optimization_hypotheses",
       "expected_artifact": "scored optimization-hypothesis shortlist and ideation artifact",
-      "prompt": "/brainstorming-nex {{goal}} in {{repo_root}}; generate, score, and shortlist testable, implementation-independent optimization hypotheses before research begins.",
+      "prompt": "/brainstorming-nex {{goal}} in {{repo_root}} using {{baseline_metrics}} and {{bottleneck_summary}}; generate, score, and shortlist testable, implementation-independent optimization hypotheses before research begins.",
       "prompt_sections": {
         "stage_goal": "Establish the next optimization hypothesis, measurable success criteria, and scored ideation artifact without changing implementation code.",
         "context": [
           "Repository root: {{repo_root}}",
           "Current goal: {{goal}}",
+          "Performance diagnosis: {{performance_report_path}}",
           "Prior cycle summary: {{knowledge_base_update_summary}}"
         ],
         "boundaries": [
@@ -90,7 +205,14 @@
       ],
       "repair_conditions": [],
       "transitions": [],
-      "outcome_routes": [],
+      "outcome_routes": [
+        {
+          "outcome": "blocked",
+          "next_node": "capture_blocked_cycle_knowledge",
+          "branch_kind": "continue",
+          "reason": "A blocked ideation stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input."
+        }
+      ],
       "verifier_rules": [
         {
           "output_key": "optimization_hypotheses",
@@ -195,7 +317,14 @@
       ],
       "repair_conditions": [],
       "transitions": [],
-      "outcome_routes": [],
+      "outcome_routes": [
+        {
+          "outcome": "blocked",
+          "next_node": "capture_blocked_cycle_knowledge",
+          "branch_kind": "continue",
+          "reason": "A blocked research stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input."
+        }
+      ],
       "verifier_rules": [
         {
           "output_key": "research_brief_path",
@@ -293,7 +422,14 @@
       ],
       "repair_conditions": [],
       "transitions": [],
-      "outcome_routes": [],
+      "outcome_routes": [
+        {
+          "outcome": "blocked",
+          "next_node": "capture_blocked_cycle_knowledge",
+          "branch_kind": "continue",
+          "reason": "A blocked planning stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input."
+        }
+      ],
       "verifier_rules": [
         {
           "output_key": "implementation_plan_path",
@@ -403,7 +539,14 @@
       ],
       "repair_conditions": [],
       "transitions": [],
-      "outcome_routes": [],
+      "outcome_routes": [
+        {
+          "outcome": "blocked",
+          "next_node": "capture_blocked_cycle_knowledge",
+          "branch_kind": "continue",
+          "reason": "A blocked implementation stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input."
+        }
+      ],
       "verifier_rules": [
         {
           "output_key": "implementation_summary",
@@ -533,7 +676,14 @@
       ],
       "repair_conditions": [],
       "transitions": [],
-      "outcome_routes": [],
+      "outcome_routes": [
+        {
+          "outcome": "blocked",
+          "next_node": "capture_blocked_cycle_knowledge",
+          "branch_kind": "continue",
+          "reason": "A blocked review stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input."
+        }
+      ],
       "verifier_rules": [
         {
           "output_key": "review_summary",
@@ -625,12 +775,19 @@
           "output_key": "continue_optimization",
           "operator": "is_true",
           "value": null,
-          "next_node": "brainstorm_optimization",
+          "next_node": "diagnose_performance",
           "branch_kind": "continue",
-          "reason": "Knowledge-base maintenance requested another optimization iteration."
+          "reason": "Knowledge-base maintenance requested another optimization iteration, so performance must be re-diagnosed."
         }
       ],
-      "outcome_routes": [],
+      "outcome_routes": [
+        {
+          "outcome": "blocked",
+          "next_node": "capture_blocked_cycle_knowledge",
+          "branch_kind": "continue",
+          "reason": "A blocked knowledge-base update must immediately begin a fresh optimization cycle rather than request user unblocking input."
+        }
+      ],
       "verifier_rules": [
         {
           "output_key": "knowledge_base_update_summary",
@@ -643,6 +800,132 @@
           "operator": "non_empty",
           "value": null,
           "message": "knowledge-base maintenance must record durable artifacts"
+        }
+      ],
+      "verifier_templates": [],
+      "custom_verifier_requirements": []
+    },
+    {
+      "step_id": "capture_blocked_cycle_knowledge",
+      "stage_kind": "recovery",
+      "recovery_return_node": "diagnose_performance",
+      "intent": "capture_blocked_cycle_knowledge",
+      "expected_artifact": "durable knowledge-base record of the blocked stage and its next-cycle learning",
+      "prompt": "/code-kb-workflow record the blocked optimization stage {{source_stage_id}} in the knowledge base at {{repo_root}} using {{repair_summary}} and {{repair_requirements}}; preserve the blocker, available evidence, and next-cycle hypothesis, then hand off directly to a fresh diagnosis.",
+      "prompt_sections": {
+        "stage_goal": "Persist the blocker and any usable evidence as a concise durable learning record, so the next optimization cycle starts without asking the user to unblock this one.",
+        "context": [
+          "Blocked source stage: {{source_stage_id}}",
+          "Blocked reason: {{repair_summary}}",
+          "Missing or constrained inputs: {{repair_requirements}}",
+          "Relevant evidence: {{repair_evidence}}"
+        ],
+        "boundaries": [
+          "Do not request user input, approval, credentials, or a decision.",
+          "Record only observed facts, explicit assumptions, and actionable next-cycle leads.",
+          "After this stage succeeds, routing must begin a fresh diagnose_performance cycle rather than retry the blocked stage."
+        ],
+        "blocked_conditions": [
+          "If the knowledge base itself cannot be updated, retain the blocker in runtime state and begin a fresh diagnosis without requesting user input."
+        ]
+      },
+      "done_when": [
+        "A concise record of the blocked stage, blocker, evidence, and next-cycle lead is written to the knowledge base.",
+        "The workflow is ready to begin a fresh performance diagnosis without waiting for user input."
+      ],
+      "output_schema": {
+        "knowledge_base_update_summary": "string",
+        "knowledge_base_artifacts": "string[]",
+        "next_cycle_lead": "string"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "code-kb-workflow",
+          "operations": [
+            "blocked-work documentation",
+            "optimization learning capture"
+          ],
+          "file_patterns": [
+            "knowledge-base/**/*.md",
+            "knowledge-base/llms.txt"
+          ],
+          "usage_notes": [
+            "Primary owner for recording blockers as reusable optimization knowledge before a new cycle."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "knowledge_base_update_summary",
+          "output_key": "knowledge_base_update_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "knowledge_base_artifacts",
+          "output_key": "knowledge_base_artifacts",
+          "kind": "list"
+        },
+        {
+          "state_key": "blocked_cycle_next_lead",
+          "output_key": "next_cycle_lead",
+          "kind": "string"
+        }
+      ],
+      "template_context_keys": [
+        "knowledge_base_update_summary",
+        "knowledge_base_artifacts"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [
+        {
+          "outcome": "blocked",
+          "next_node": "diagnose_performance",
+          "branch_kind": "continue",
+          "reason": "Knowledge-base capture is unavailable; retain the runtime blocker and begin a fresh diagnosis without requesting user input."
+        },
+        {
+          "outcome": "partial",
+          "next_node": "diagnose_performance",
+          "branch_kind": "continue",
+          "reason": "Knowledge-base capture is incomplete; retain its runtime evidence and begin a fresh diagnosis without requesting user input."
+        },
+        {
+          "outcome": "failed",
+          "next_node": "diagnose_performance",
+          "branch_kind": "continue",
+          "reason": "Knowledge-base capture failed; retain its runtime evidence and begin a fresh diagnosis without requesting user input."
+        },
+        {
+          "outcome": "verifier_failed",
+          "next_node": "diagnose_performance",
+          "branch_kind": "continue",
+          "reason": "Knowledge-base capture could not be verified; retain its runtime evidence and begin a fresh diagnosis without requesting user input."
+        }
+      ],
+      "verifier_rules": [
+        {
+          "output_key": "knowledge_base_update_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "blocked-cycle capture must summarize the knowledge-base record"
+        },
+        {
+          "output_key": "knowledge_base_artifacts",
+          "operator": "non_empty",
+          "value": null,
+          "message": "blocked-cycle capture must record at least one knowledge-base artifact"
+        },
+        {
+          "output_key": "next_cycle_lead",
+          "operator": "truthy",
+          "value": null,
+          "message": "blocked-cycle capture must identify a next-cycle lead"
         }
       ],
       "verifier_templates": [],
@@ -695,9 +978,9 @@
     "repair_and_resume": {
       "intent": "repair_and_resume",
       "expected_artifact": "repair actions needed before returning to the original stage",
-      "prompt": "Repair the previous workflow step using the persisted failure details, and decide whether the workflow can retry directly or must first ask for external unblocking input.",
+      "prompt": "/systematic-debugging investigate the persisted verification failure for {{return_stage_id}} using {{repair_summary}} and {{repair_evidence}}; identify the root cause before defining repair actions for a retry.",
       "prompt_sections": {
-        "stage_goal": "Use the persisted repair context to explain what failed, propose concrete repair actions, and decide whether the workflow can retry the original stage safely or must first request external help.",
+        "stage_goal": "Use the persisted repair context to identify the root cause of verification failure before proposing concrete repair actions for the original stage.",
         "context": [
           "Current step: {{current_step_id}}",
           "Return stage: {{return_stage_id}}",
@@ -711,14 +994,28 @@
         ],
         "boundaries": [
           "Keep the retry scoped to the original return stage instead of changing workflow routing.",
-          "Base the repair plan on the persisted repair requirements rather than generic retries.",
-          "Attempt self-repair up to 3 times before escalating to request_unblocking_input."
+          "Do not implement a fix until the root cause and the evidence supporting it are recorded.",
+          "For blocked work, record the blocker and begin a new cycle rather than requesting user input."
         ],
         "blocked_conditions": [
-          "Return blocked only when repair still cannot proceed after 3 self-repair attempts and now requires external input or approval."
+          "Return blocked when the evidence needed for root-cause investigation is unavailable; runtime will record the blocker and begin a new cycle."
         ]
       },
-      "skill_routing": [],
+      "skill_routing": [
+        {
+          "skill": "systematic-debugging",
+          "operations": [
+            "root-cause investigation",
+            "verification-failure analysis"
+          ],
+          "file_patterns": [
+            "**/*"
+          ],
+          "usage_notes": [
+            "Primary owner for diagnosing verification failures before any implementation repair is attempted."
+          ]
+        }
+      ],
       "done_when": [
         "Explain why the original step needs repair",
         "Return retry_reason, retry_notes, and repair_actions"
@@ -738,6 +1035,22 @@
   "final_step_id": "finalize_optimization_cycle",
   "final_prompt": "Summarize the completed optimization cycle, including its hypothesis, evidence, implementation verification, review result, knowledge-base artifacts, and the reason no further iteration is scheduled.",
   "dependencies": [
+    {
+      "id": "systematic-debugging",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
+      "purpose": "Require root-cause investigation before implementation fixes when verification fails."
+    },
+    {
+      "id": "performance-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:performance-nex",
+      "purpose": "Establish the measured performance baseline and diagnose bottlenecks before ideation."
+    },
     {
       "id": "brainstorming-nex",
       "type": "skill",
@@ -789,6 +1102,22 @@
   ],
   "installed": [
     {
+      "id": "systematic-debugging",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "performance-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:performance-nex",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
       "id": "brainstorming-nex",
       "type": "skill",
       "scope": "either",
@@ -839,6 +1168,25 @@
   ],
   "regression_tests": [
     {
+      "name": "performance_diagnosis_feeds_brainstorming",
+      "type": "transition",
+      "current_step_id": "diagnose_performance",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Baseline and bottleneck identified.",
+        "structured_output": {
+          "baseline_metrics": "P99 2.0s; throughput 40 rps",
+          "bottleneck_summary": "Database fan-out dominates P99 latency.",
+          "performance_report_path": ".tmp/performance-nex/diagnosis.md",
+          "ready_for_brainstorm": true
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "brainstorm_optimization",
+      "expected_branch_kind": "continue"
+    },
+    {
       "name": "starts_with_brainstorming",
       "type": "transition",
       "current_step_id": "brainstorm_optimization",
@@ -887,7 +1235,7 @@
       "expected_branch_kind": "retry"
     },
     {
-      "name": "knowledge_base_continues_to_brainstorming",
+      "name": "knowledge_base_continues_to_performance_diagnosis",
       "type": "transition",
       "current_step_id": "update_optimization_knowledge_base",
       "observation": {
@@ -903,8 +1251,83 @@
       },
       "verifier_result": null,
       "state": null,
-      "expected_next_node": "brainstorm_optimization",
+      "expected_next_node": "diagnose_performance",
       "expected_branch_kind": "continue"
+    },
+    {
+      "name": "blocked_main_stage_records_knowledge_without_requesting_user_input",
+      "type": "transition",
+      "current_step_id": "implement_optimization",
+      "observation": {
+        "status": "blocked",
+        "summary": "Required benchmark environment is unavailable.",
+        "structured_output": {
+          "blocked_reason": "benchmark environment unavailable",
+          "missing_inputs": [
+            "benchmark environment"
+          ]
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "capture_blocked_cycle_knowledge",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "blocked_cycle_knowledge_capture_starts_fresh_diagnosis",
+      "type": "transition",
+      "current_step_id": "capture_blocked_cycle_knowledge",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Recorded blocked benchmark environment as a next-cycle constraint.",
+        "structured_output": {
+          "knowledge_base_update_summary": "Recorded the blocker and a next-cycle lead.",
+          "knowledge_base_artifacts": [
+            "knowledge-base/topics/applied-optimization-log.md"
+          ],
+          "next_cycle_lead": "Use an available local benchmark to re-establish the baseline."
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "diagnose_performance",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "blocked_cycle_knowledge_capture_never_requests_user_input",
+      "type": "transition",
+      "current_step_id": "capture_blocked_cycle_knowledge",
+      "observation": {
+        "status": "blocked",
+        "summary": "Knowledge base is temporarily unavailable.",
+        "structured_output": {
+          "blocked_reason": "knowledge base unavailable",
+          "missing_inputs": [
+            "knowledge base access"
+          ]
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "diagnose_performance",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "performance_diagnosis_rejects_missing_report_path",
+      "type": "verifier",
+      "step_id": "diagnose_performance",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Diagnosis completed.",
+        "structured_output": {
+          "baseline_metrics": "P99 2.0s; throughput 40 rps",
+          "bottleneck_summary": "Database fan-out dominates P99 latency.",
+          "performance_report_path": ".tmp/performance-nex/missing.md",
+          "ready_for_brainstorm": true
+        }
+      },
+      "expected_passed": false,
+      "state": null
     },
     {
       "name": "implementation_rejects_changed_tests_path",

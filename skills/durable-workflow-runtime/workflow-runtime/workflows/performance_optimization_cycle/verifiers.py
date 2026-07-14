@@ -5,6 +5,47 @@ from pathlib import Path
 from workflows.common.contracts import VerifierResult, make_verifier_result
 from workflows.common.policies import condition_matches
 
+def verify_diagnose_performance(
+    *,
+    repo_root: str,
+    run_id: str,
+    step_id: str,
+    observation: dict,
+    state: dict | None = None,
+) -> VerifierResult:
+    result = _verify_structured_output_schema(
+        run_id=run_id,
+        step_id=step_id,
+        required_schema={'baseline_metrics': 'string',
+ 'bottleneck_summary': 'string',
+ 'performance_report_path': 'string',
+ 'ready_for_brainstorm': 'boolean'},
+        optional_schema={},
+        verifier_rules=[{'output_key': 'baseline_metrics',
+  'operator': 'truthy',
+  'value': None,
+  'message': 'performance diagnosis must record baseline metrics'},
+ {'output_key': 'bottleneck_summary',
+  'operator': 'truthy',
+  'value': None,
+  'message': 'performance diagnosis must identify a bottleneck'},
+ {'output_key': 'performance_report_path',
+  'operator': 'path_exists',
+  'value': None,
+  'message': 'performance diagnosis must return an existing report path'},
+ {'output_key': 'ready_for_brainstorm',
+  'operator': 'is_true',
+  'value': None,
+  'message': 'performance diagnosis must declare brainstorming readiness'}],
+        verifier_templates=[],
+        observation=observation,
+        repo_root=repo_root,
+        state=state,
+    )
+    if not result["passed"]:
+        return result
+    return result
+
 def verify_brainstorm_optimization(
     *,
     repo_root: str,
@@ -229,6 +270,42 @@ def verify_update_optimization_knowledge_base(
   'operator': 'non_empty',
   'value': None,
   'message': 'knowledge-base maintenance must record durable artifacts'}],
+        verifier_templates=[],
+        observation=observation,
+        repo_root=repo_root,
+        state=state,
+    )
+    if not result["passed"]:
+        return result
+    return result
+
+def verify_capture_blocked_cycle_knowledge(
+    *,
+    repo_root: str,
+    run_id: str,
+    step_id: str,
+    observation: dict,
+    state: dict | None = None,
+) -> VerifierResult:
+    result = _verify_structured_output_schema(
+        run_id=run_id,
+        step_id=step_id,
+        required_schema={'knowledge_base_update_summary': 'string',
+ 'knowledge_base_artifacts': 'string[]',
+ 'next_cycle_lead': 'string'},
+        optional_schema={},
+        verifier_rules=[{'output_key': 'knowledge_base_update_summary',
+  'operator': 'truthy',
+  'value': None,
+  'message': 'blocked-cycle capture must summarize the knowledge-base record'},
+ {'output_key': 'knowledge_base_artifacts',
+  'operator': 'non_empty',
+  'value': None,
+  'message': 'blocked-cycle capture must record at least one knowledge-base artifact'},
+ {'output_key': 'next_cycle_lead',
+  'operator': 'truthy',
+  'value': None,
+  'message': 'blocked-cycle capture must identify a next-cycle lead'}],
         verifier_templates=[],
         observation=observation,
         repo_root=repo_root,

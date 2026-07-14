@@ -3,6 +3,22 @@
   "workflow_id": "performance_optimization_cycle",
   "installed": [
     {
+      "id": "systematic-debugging",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "performance-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:performance-nex",
+      "recorded_at": "2026-07-14T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
       "id": "brainstorming-nex",
       "type": "skill",
       "scope": "either",

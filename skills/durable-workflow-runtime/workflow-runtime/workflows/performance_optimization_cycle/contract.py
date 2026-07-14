@@ -9,6 +9,33 @@ WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     constraints_schema={},
 )
 
+DIAGNOSE_PERFORMANCE_ROUTE_1 = SkillRoute(
+    skill='performance-nex',
+    use_when=SkillUseWhen(
+        operations=['performance baseline measurement', 'bottleneck diagnosis', 'capacity and latency analysis'],
+        file_patterns=['.tmp/performance-nex/**'],
+    ),
+    usage_notes=['Primary owner for measured performance diagnosis before optimization ideation.'],
+)
+
+DIAGNOSE_PERFORMANCE = StepContract(
+    done_when=['Baseline metrics and their measurement context are recorded.',
+ 'A dominant bottleneck and a diagnostic report path are recorded.',
+ 'The diagnosis is ready to constrain hypothesis generation.'],
+    output_schema={'baseline_metrics': 'string',
+ 'bottleneck_summary': 'string',
+ 'performance_report_path': 'string',
+ 'ready_for_brainstorm': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[DIAGNOSE_PERFORMANCE_ROUTE_1],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.performance_optimization_cycle.verifiers:verify_diagnose_performance",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
 BRAINSTORM_OPTIMIZATION_ROUTE_1 = SkillRoute(
     skill='brainstorming-nex',
     use_when=SkillUseWhen(
@@ -164,6 +191,42 @@ UPDATE_OPTIMIZATION_KNOWLEDGE_BASE = StepContract(
     ),
 )
 
+CAPTURE_BLOCKED_CYCLE_KNOWLEDGE_ROUTE_1 = SkillRoute(
+    skill='code-kb-workflow',
+    use_when=SkillUseWhen(
+        operations=['blocked-work documentation', 'optimization learning capture'],
+        file_patterns=['knowledge-base/**/*.md', 'knowledge-base/llms.txt'],
+    ),
+    usage_notes=['Primary owner for recording blockers as reusable optimization knowledge before a new cycle.'],
+)
+
+CAPTURE_BLOCKED_CYCLE_KNOWLEDGE = StepContract(
+    done_when=['A concise record of the blocked stage, blocker, evidence, and next-cycle lead is written to the '
+ 'knowledge base.',
+ 'The workflow is ready to begin a fresh performance diagnosis without waiting for user input.'],
+    output_schema={'knowledge_base_update_summary': 'string',
+ 'knowledge_base_artifacts': 'string[]',
+ 'next_cycle_lead': 'string'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[CAPTURE_BLOCKED_CYCLE_KNOWLEDGE_ROUTE_1],
+    verifier=StepVerifier(
+        kind="python_callable",
+        ref="workflows.performance_optimization_cycle.verifiers:verify_capture_blocked_cycle_knowledge",
+        timeout_seconds=15,
+        run_on_status=["succeeded"],
+    ),
+)
+
+REPAIR_AND_RESUME_ROUTE_1 = SkillRoute(
+    skill='systematic-debugging',
+    use_when=SkillUseWhen(
+        operations=['root-cause investigation', 'verification-failure analysis'],
+        file_patterns=['**/*'],
+    ),
+    usage_notes=['Primary owner for diagnosing verification failures before any implementation repair is '
+ 'attempted.'],
+)
+
 REQUEST_UNBLOCKING_INPUT = StepContract(
     done_when=['Identify the blocking reason',
  'Ask the user for the input, approval, or resource required to continue'],
@@ -176,15 +239,18 @@ REPAIR_AND_RESUME = StepContract(
  'Return retry_reason, retry_notes, and repair_actions'],
     output_schema={'retry_reason': 'string', 'retry_notes': 'string', 'repair_actions': 'string[]'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
+    skill_routing=[REPAIR_AND_RESUME_ROUTE_1],
 )
 
 STEP_CONTRACTS = {
+    "diagnose_performance": DIAGNOSE_PERFORMANCE,
     "brainstorm_optimization": BRAINSTORM_OPTIMIZATION,
     "research_optimization": RESEARCH_OPTIMIZATION,
     "plan_optimization": PLAN_OPTIMIZATION,
     "implement_optimization": IMPLEMENT_OPTIMIZATION,
     "review_optimization": REVIEW_OPTIMIZATION,
     "update_optimization_knowledge_base": UPDATE_OPTIMIZATION_KNOWLEDGE_BASE,
+    "capture_blocked_cycle_knowledge": CAPTURE_BLOCKED_CYCLE_KNOWLEDGE,
     "request_unblocking_input": REQUEST_UNBLOCKING_INPUT,
     "repair_and_resume": REPAIR_AND_RESUME,
 }

@@ -7,12 +7,14 @@ the right workflow.
 
 ## Generated Stage Path
 
+- `diagnose_performance`
 - `brainstorm_optimization`
 - `research_optimization`
 - `plan_optimization`
 - `implement_optimization`
 - `review_optimization`
 - `update_optimization_knowledge_base`
+- `capture_blocked_cycle_knowledge`
 
 ## Declared Custom Verifier Requirements
 

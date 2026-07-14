@@ -1,9 +1,10 @@
-/brainstorming-nex {{goal}} in {{repo_root}}; generate, score, and shortlist testable, implementation-independent optimization hypotheses before research begins.
+/brainstorming-nex {{goal}} in {{repo_root}} using {{baseline_metrics}} and {{bottleneck_summary}}; generate, score, and shortlist testable, implementation-independent optimization hypotheses before research begins.
 
 Stage Context:
 
 - Repository root: {{repo_root}}
 - Current goal: {{goal}}
+- Performance diagnosis: {{performance_report_path}}
 - Prior cycle summary: {{knowledge_base_update_summary}}
 
 Stage Boundaries:

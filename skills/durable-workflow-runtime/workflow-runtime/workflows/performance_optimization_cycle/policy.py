@@ -10,7 +10,33 @@ def choose_next_node(
     observation: dict,
     verifier_result: dict | None,
 ) -> TransitionDecision:
+    if current_step_id == "diagnose_performance":
+        if observation["status"] == "blocked":
+            return TransitionDecision(
+                next_node='capture_blocked_cycle_knowledge',
+                branch_kind='continue',
+                reason='A blocked diagnosis must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input.',
+            )
+        status_decision = _route_common_failure(
+            current_step_id=current_step_id,
+            observation=observation,
+            verifier_result=verifier_result,
+        )
+        if status_decision is not None:
+            return status_decision
+        return TransitionDecision(
+            next_node="brainstorm_optimization",
+            branch_kind="continue",
+            reason="diagnose_performance completed; continue to brainstorm_optimization",
+        )
+
     if current_step_id == "brainstorm_optimization":
+        if observation["status"] == "blocked":
+            return TransitionDecision(
+                next_node='capture_blocked_cycle_knowledge',
+                branch_kind='continue',
+                reason='A blocked ideation stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input.',
+            )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,
@@ -25,6 +51,12 @@ def choose_next_node(
         )
 
     if current_step_id == "research_optimization":
+        if observation["status"] == "blocked":
+            return TransitionDecision(
+                next_node='capture_blocked_cycle_knowledge',
+                branch_kind='continue',
+                reason='A blocked research stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input.',
+            )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,
@@ -39,6 +71,12 @@ def choose_next_node(
         )
 
     if current_step_id == "plan_optimization":
+        if observation["status"] == "blocked":
+            return TransitionDecision(
+                next_node='capture_blocked_cycle_knowledge',
+                branch_kind='continue',
+                reason='A blocked planning stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input.',
+            )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,
@@ -53,6 +91,12 @@ def choose_next_node(
         )
 
     if current_step_id == "implement_optimization":
+        if observation["status"] == "blocked":
+            return TransitionDecision(
+                next_node='capture_blocked_cycle_knowledge',
+                branch_kind='continue',
+                reason='A blocked implementation stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input.',
+            )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,
@@ -67,6 +111,12 @@ def choose_next_node(
         )
 
     if current_step_id == "review_optimization":
+        if observation["status"] == "blocked":
+            return TransitionDecision(
+                next_node='capture_blocked_cycle_knowledge',
+                branch_kind='continue',
+                reason='A blocked review stage must be recorded in the knowledge base before a fresh optimization cycle begins; do not request user unblocking input.',
+            )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,
@@ -81,6 +131,12 @@ def choose_next_node(
         )
 
     if current_step_id == "update_optimization_knowledge_base":
+        if observation["status"] == "blocked":
+            return TransitionDecision(
+                next_node='capture_blocked_cycle_knowledge',
+                branch_kind='continue',
+                reason='A blocked knowledge-base update must immediately begin a fresh optimization cycle rather than request user unblocking input.',
+            )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,
@@ -92,14 +148,51 @@ def choose_next_node(
         if isinstance(structured_output, dict):
             if condition_matches(structured_output.get('continue_optimization'), 'is_true', None):
                 return TransitionDecision(
-                    next_node='brainstorm_optimization',
+                    next_node='diagnose_performance',
                     branch_kind='continue',
-                    reason='Knowledge-base maintenance requested another optimization iteration.',
+                    reason='Knowledge-base maintenance requested another optimization iteration, so performance must be re-diagnosed.',
                 )
         return TransitionDecision(
             next_node="finalize_optimization_cycle",
             branch_kind="complete",
             reason="update_optimization_knowledge_base completed successfully",
+        )
+
+    if current_step_id == "capture_blocked_cycle_knowledge":
+        if observation["status"] == "blocked":
+            return TransitionDecision(
+                next_node='diagnose_performance',
+                branch_kind='continue',
+                reason='Knowledge-base capture is unavailable; retain the runtime blocker and begin a fresh diagnosis without requesting user input.',
+            )
+        if observation["status"] == "partial":
+            return TransitionDecision(
+                next_node='diagnose_performance',
+                branch_kind='continue',
+                reason='Knowledge-base capture is incomplete; retain its runtime evidence and begin a fresh diagnosis without requesting user input.',
+            )
+        if observation["status"] == "failed":
+            return TransitionDecision(
+                next_node='diagnose_performance',
+                branch_kind='continue',
+                reason='Knowledge-base capture failed; retain its runtime evidence and begin a fresh diagnosis without requesting user input.',
+            )
+        if observation["status"] == "succeeded" and verifier_result is not None and not verifier_result["passed"]:
+            return TransitionDecision(
+                next_node='diagnose_performance',
+                branch_kind='continue',
+                reason='Knowledge-base capture could not be verified; retain its runtime evidence and begin a fresh diagnosis without requesting user input.',
+            )
+        if observation["status"] == "succeeded":
+            return TransitionDecision(
+                next_node="diagnose_performance",
+                branch_kind="continue",
+                reason="capture_blocked_cycle_knowledge completed recovery work; return to diagnose_performance",
+            )
+        return TransitionDecision(
+            next_node="capture_blocked_cycle_knowledge",
+            branch_kind="retry",
+            reason="capture_blocked_cycle_knowledge recovery stage returned an unresolved status",
         )
 
     if current_step_id == "request_unblocking_input":
@@ -127,17 +220,10 @@ def choose_next_node(
 
     if current_step_id == "repair_and_resume":
         if observation["status"] == "blocked":
-            repair_attempts = int((state.get("attempt_counts") or {}).get("repair_and_resume") or 0)
-            if repair_attempts < 3:
-                return TransitionDecision(
-                    next_node="repair_and_resume",
-                    branch_kind="retry",
-                    reason="repair must attempt self-repair at least 3 times before requesting external help",
-                )
             return TransitionDecision(
-                next_node="request_unblocking_input",
-                branch_kind="repair",
-                reason="repair exhausted 3 self-repair attempts and now requires external help before retry",
+                next_node="capture_blocked_cycle_knowledge",
+                branch_kind="continue",
+                reason="repair is blocked; record the blocker and begin a fresh optimization cycle without requesting user input",
             )
         if observation["status"] == "succeeded":
             return_stage_id = state.get("return_stage_id")

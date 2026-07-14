@@ -14,6 +14,22 @@
   },
   "dependencies": [
     {
+      "id": "systematic-debugging",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
+      "purpose": "Require root-cause investigation before implementation fixes when verification fails."
+    },
+    {
+      "id": "performance-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:performance-nex",
+      "purpose": "Establish the measured performance baseline and diagnose bottlenecks before ideation."
+    },
+    {
       "id": "brainstorming-nex",
       "type": "skill",
       "required": true,

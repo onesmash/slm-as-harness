@@ -6,16 +6,19 @@ from workflows.common.policies import condition_matches
 from workflows.common.repair_payloads import build_default_agent_repair_payload, make_agent_repair_payload
 
 
-MAIN_STAGE_IDS = ('brainstorm_optimization',
+MAIN_STAGE_IDS = ('diagnose_performance',
+ 'brainstorm_optimization',
  'research_optimization',
  'plan_optimization',
  'implement_optimization',
  'review_optimization',
  'update_optimization_knowledge_base')
 REPAIR_STAGE_IDS = (
+    'capture_blocked_cycle_knowledge',
     "request_unblocking_input",
     "repair_and_resume",
 )
+DECLARED_RECOVERY_STAGE_IDS = ('capture_blocked_cycle_knowledge',)
 
 
 @dataclass
@@ -28,6 +31,9 @@ class PerformanceOptimizationCycleWorkflowState:
     current_stage_id: str = MAIN_STAGE_IDS[0]
     completed_stages: list[str] = field(default_factory=list)
     return_stage_id: str | None = None
+    baseline_metrics: str | None = None
+    bottleneck_summary: str | None = None
+    performance_report_path: str | None = None
     optimization_hypotheses: list = field(default_factory=list)
     success_criteria: str | None = None
     brainstorm_artifact_path: str | None = None
@@ -45,6 +51,7 @@ class PerformanceOptimizationCycleWorkflowState:
     review_findings: list = field(default_factory=list)
     knowledge_base_update_summary: str | None = None
     knowledge_base_artifacts: list = field(default_factory=list)
+    blocked_cycle_next_lead: str | None = None
     artifacts_by_stage: dict[str, list[dict]] = field(default_factory=dict)
     repair_context: dict[str, object] = field(default_factory=dict)
 
@@ -82,6 +89,9 @@ def deserialize_state(payload: dict | None) -> PerformanceOptimizationCycleWorkf
         current_stage_id=payload.get("current_stage_id") or MAIN_STAGE_IDS[0],
         completed_stages=list(payload.get("completed_stages") or []),
         return_stage_id=payload.get("return_stage_id"),
+        baseline_metrics=payload.get('baseline_metrics'),
+        bottleneck_summary=payload.get('bottleneck_summary'),
+        performance_report_path=payload.get('performance_report_path'),
         optimization_hypotheses=list(payload.get('optimization_hypotheses') or []),
         success_criteria=payload.get('success_criteria'),
         brainstorm_artifact_path=payload.get('brainstorm_artifact_path'),
@@ -99,6 +109,7 @@ def deserialize_state(payload: dict | None) -> PerformanceOptimizationCycleWorkf
         review_findings=list(payload.get('review_findings') or []),
         knowledge_base_update_summary=payload.get('knowledge_base_update_summary'),
         knowledge_base_artifacts=list(payload.get('knowledge_base_artifacts') or []),
+        blocked_cycle_next_lead=payload.get('blocked_cycle_next_lead'),
         artifacts_by_stage=dict(payload.get("artifacts_by_stage") or {}),
         repair_context=dict(payload.get("repair_context") or {}),
     )
@@ -116,7 +127,11 @@ def record_observation(
     if isinstance(structured_output, dict):
         state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
         if observation.get("status") == "succeeded":
-            if current_step_id == 'brainstorm_optimization':
+            if current_step_id == 'diagnose_performance':
+                state.baseline_metrics = structured_output.get('baseline_metrics')
+                state.bottleneck_summary = structured_output.get('bottleneck_summary')
+                state.performance_report_path = structured_output.get('performance_report_path')
+            elif current_step_id == 'brainstorm_optimization':
                 state.optimization_hypotheses = _list_value(structured_output.get('optimization_hypotheses'))
                 state.success_criteria = structured_output.get('success_criteria')
                 state.brainstorm_artifact_path = structured_output.get('brainstorm_artifact_path')
@@ -139,6 +154,10 @@ def record_observation(
             elif current_step_id == 'update_optimization_knowledge_base':
                 state.knowledge_base_update_summary = structured_output.get('knowledge_base_update_summary')
                 state.knowledge_base_artifacts = _list_value(structured_output.get('knowledge_base_artifacts'))
+            elif current_step_id == 'capture_blocked_cycle_knowledge':
+                state.knowledge_base_update_summary = structured_output.get('knowledge_base_update_summary')
+                state.knowledge_base_artifacts = _list_value(structured_output.get('knowledge_base_artifacts'))
+                state.blocked_cycle_next_lead = structured_output.get('next_cycle_lead')
             else:
                 pass
 
@@ -204,6 +223,9 @@ def apply_transition(state: PerformanceOptimizationCycleWorkflowState, *, curren
             state.completed_stages.append(current_step_id)
 
     if current_step_id in REPAIR_STAGE_IDS and next_step_id == state.return_stage_id:
+        state.return_stage_id = None
+        state.repair_context = {}
+    elif current_step_id in DECLARED_RECOVERY_STAGE_IDS and next_step_id != current_step_id:
         state.return_stage_id = None
         state.repair_context = {}
 
