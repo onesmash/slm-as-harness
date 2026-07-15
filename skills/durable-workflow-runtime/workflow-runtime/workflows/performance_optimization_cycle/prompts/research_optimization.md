@@ -1,4 +1,4 @@
-/research-nex investigate {{optimization_hypotheses}} for {{goal}} in {{repo_root}}
+/research-nex {{optimization_hypotheses}} for {{goal}}
 
 Stage Context:
 

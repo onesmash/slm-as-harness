@@ -5,66 +5,66 @@
     {
       "id": "systematic-debugging",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
-      "recorded_at": "2026-07-14T00:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_by": "bridge.py preflight"
     },
     {
       "id": "performance-nex",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "skill-catalog:performance-nex",
-      "recorded_at": "2026-07-14T00:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_by": "bridge.py preflight"
     },
     {
       "id": "brainstorming-nex",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "skill-catalog:brainstorming-nex",
-      "recorded_at": "2026-07-14T00:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_by": "bridge.py preflight"
     },
     {
       "id": "research-nex",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "skill-catalog:research-nex",
-      "recorded_at": "2026-07-14T00:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_by": "bridge.py preflight"
     },
     {
       "id": "search-nex",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "skill-catalog:search-nex",
-      "recorded_at": "2026-07-14T00:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_by": "bridge.py preflight"
     },
     {
       "id": "subagent-driven-development",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "skill-catalog:subagent-driven-development",
-      "recorded_at": "2026-07-14T00:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_by": "bridge.py preflight"
     },
     {
       "id": "requesting-code-review",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "skill-catalog:requesting-code-review",
-      "recorded_at": "2026-07-14T00:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_by": "bridge.py preflight"
     },
     {
       "id": "code-kb-workflow",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "skill-catalog:code-kb-workflow",
-      "recorded_at": "2026-07-14T00:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_by": "bridge.py preflight"
     }
   ]
 }

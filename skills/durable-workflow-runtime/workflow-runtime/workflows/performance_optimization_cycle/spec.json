@@ -248,7 +248,7 @@
       "recovery_return_node": null,
       "intent": "gather_optimization_evidence",
       "expected_artifact": "research brief, implementation-ready change summary, verification plan, and evidence map",
-      "prompt": "/research-nex investigate {{optimization_hypotheses}} for {{goal}} in {{repo_root}}",
+      "prompt": "/research-nex {{optimization_hypotheses}} for {{goal}}",
       "prompt_sections": {
         "stage_goal": "Turn the selected hypothesis into traceable technical evidence, a bounded change summary, and a verification plan for implementation.",
         "context": [
@@ -380,7 +380,7 @@
       "recovery_return_node": null,
       "intent": "implement_and_verify_optimization",
       "expected_artifact": "implemented candidate with submission-test evidence",
-      "prompt": "/subagent-driven-development implement {{planned_change_summary}} from {{research_brief_path}} in {{repo_root}} using {{verification_plan}}; use isolated task implementers and reviewers, run python tests/submission_tests.py, and return changed paths and verification evidence.",
+      "prompt": "/subagent-driven-development implement {{planned_change_summary}} from {{research_brief_path}} in {{repo_root}} using {{verification_plan}}; use isolated task implementers and reviewers, run python tests/submission_tests.py, and return changed paths and verification evidence. Follow /systematic-debugging before any fix when tests or verification fail.",
       "prompt_sections": {
         "stage_goal": "Implement the planned optimization and prove correctness with the repository submission tests.",
         "context": [
