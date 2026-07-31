@@ -7,7 +7,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
-      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_at": "2026-07-17T02:25:07Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -15,7 +15,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:performance-nex",
-      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_at": "2026-07-17T02:25:07Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -23,7 +23,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:brainstorming-nex",
-      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_at": "2026-07-17T02:25:07Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -31,7 +31,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:research-nex",
-      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_at": "2026-07-17T02:25:07Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -39,7 +39,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:search-nex",
-      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_at": "2026-07-17T02:25:07Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -47,7 +47,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:subagent-driven-development",
-      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_at": "2026-07-17T02:25:07Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -55,7 +55,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:requesting-code-review",
-      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_at": "2026-07-17T02:25:07Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -63,7 +63,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:code-kb-workflow",
-      "recorded_at": "2026-07-14T14:54:21Z",
+      "recorded_at": "2026-07-17T02:25:07Z",
       "recorded_by": "bridge.py preflight"
     }
   ]

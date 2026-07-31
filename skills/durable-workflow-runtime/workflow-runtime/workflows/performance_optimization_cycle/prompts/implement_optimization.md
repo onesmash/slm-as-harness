@@ -1,4 +1,4 @@
-/subagent-driven-development implement {{planned_change_summary}} from {{research_brief_path}} in {{repo_root}} using {{verification_plan}}; use isolated task implementers and reviewers, run python tests/submission_tests.py, and return changed paths and verification evidence.
+/subagent-driven-development implement {{planned_change_summary}} from {{research_brief_path}} in {{repo_root}} using {{verification_plan}}; use isolated task implementers and reviewers, run python tests/submission_tests.py, and return changed paths and verification evidence. Follow /systematic-debugging before any fix when tests or verification fail.
 
 Stage Context:
 
