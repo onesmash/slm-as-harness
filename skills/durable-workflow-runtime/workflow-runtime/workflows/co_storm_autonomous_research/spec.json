@@ -1,0 +1,2393 @@
+{
+  "workflow_id": "co_storm_autonomous_research",
+  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, launch one independent subagent per expert in parallel for each round, join grounded results under a Moderator, maintain a reorganized knowledge map, and synthesize a cited report without user intervention; hard blocks terminate with a partial handoff.",
+  "start_input_schema": {
+    "task_input": {
+      "goal": "string",
+      "deliverable_type": "string?",
+      "research_scope": "string?",
+      "source_policy": "string?"
+    },
+    "context": {
+      "repo_root": "string",
+      "source_materials_path": "string?",
+      "output_dir": "string?"
+    },
+    "constraints": {
+      "max_steps": "integer?",
+      "max_rounds": "integer?",
+      "min_evidence_items": "integer?",
+      "coverage_threshold": "integer?",
+      "max_reorganizations": "integer?"
+    }
+  },
+  "runtime_defaults": {
+    "max_steps": 24,
+    "max_rounds": 8,
+    "min_evidence_items": 3,
+    "coverage_threshold": 2,
+    "max_reorganizations": 3
+  },
+  "stages": [
+    {
+      "step_id": "warm_start_shared_space",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "seed_a_shared_conceptual_space",
+      "expected_artifact": "initial expert roster with stable expert identifiers, perspective-guided research transcript, evidence registry, and seeded knowledge map",
+      "prompt": "/research-nex {{workflow_goal}} using {{task_input_json}} and {{context_json}}; run an autonomous Co-STORM warm start that identifies complementary expert perspectives with stable identifiers, conducts grounded background conversations, and seeds the shared knowledge map and evidence registry before independent expert subagent fan-out begins.",
+      "prompt_sections": {
+        "stage_goal": "Create the initial shared conceptual space for autonomous research: diverse expert roles, grounded background evidence, an initial topic map, and a coverage baseline.",
+        "context": [
+          "Task input: {{task_input_json}}",
+          "Execution context: {{context_json}}",
+          "Run constraints: {{constraints_json}}"
+        ],
+        "boundaries": [
+          "Do not wait for or request user input, approval, or checkpoints.",
+          "Do not write the final report in this stage; produce research material and a knowledge-map seed.",
+          "Every evidence entry must use the form [n] source-locator — supported claim or question, preserving a stable citation number, source locator, and claim.",
+          "Keep expert perspectives complementary rather than duplicating the same general-background role.",
+          "Return expert_roster as records with exactly id, role, and brief string fields; ids must be stable and unique and later bindings must reference only id.",
+          "Give every expert a stable, unique identifier that can be passed to an independent subagent in later rounds."
+        ],
+        "blocked_conditions": [
+          "Block when the research goal or retrieval scope is missing.",
+          "Block when grounded retrieval is unavailable and no source materials are supplied.",
+          "Block when fewer than two distinct expert perspectives or a traceable evidence registry can be produced."
+        ]
+      },
+      "done_when": [
+        "At least two complementary expert perspectives are recorded.",
+        "The warm-start transcript contains grounded research turns.",
+        "The knowledge-map summary and coverage baseline are non-empty.",
+        "The evidence registry contains stable citation identifiers and source locators.",
+        "The shared space is ready for autonomous roundtable rotation."
+      ],
+      "output_schema": {
+        "expert_roster": "object[]",
+        "conversation_transcript": "string[]",
+        "knowledge_map_summary": "string",
+        "evidence_registry": "string[]",
+        "coverage_map": "string[]",
+        "round_index": "integer",
+        "warm_start_ready": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "research-nex",
+          "operations": [
+            "autonomous perspective generation",
+            "grounded background research",
+            "evidence registry construction"
+          ],
+          "file_patterns": [],
+          "usage_notes": [
+            "Primary owner for the Co-STORM warm-start research package."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "expert_roster",
+          "output_key": "expert_roster",
+          "kind": "list"
+        },
+        {
+          "state_key": "conversation_transcript",
+          "output_key": "conversation_transcript",
+          "kind": "list"
+        },
+        {
+          "state_key": "knowledge_map_summary",
+          "output_key": "knowledge_map_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "evidence_registry",
+          "output_key": "evidence_registry",
+          "kind": "list"
+        },
+        {
+          "state_key": "coverage_map",
+          "output_key": "coverage_map",
+          "kind": "list"
+        },
+        {
+          "state_key": "round_index",
+          "output_key": "round_index",
+          "kind": "scalar"
+        }
+      ],
+      "template_context_keys": [
+        "expert_roster",
+        "conversation_transcript",
+        "knowledge_map_summary",
+        "evidence_registry",
+        "coverage_map",
+        "round_index"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "knowledge_map_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "Warm start must produce a non-empty shared knowledge-map summary."
+        },
+        {
+          "output_key": "warm_start_ready",
+          "operator": "is_true",
+          "value": null,
+          "message": "Warm start must explicitly declare the shared space ready for roundtable rotation."
+        },
+        {
+          "output_key": "round_index",
+          "operator": "equals",
+          "value": 0,
+          "message": "Warm start must initialize round_index to zero."
+        }
+      ],
+      "verifier_templates": [
+        {
+          "id": "warm_start_requires_multiple_experts",
+          "template": "min_count",
+          "output_key": "expert_roster",
+          "message": "Warm start must create at least two expert perspectives.",
+          "min_count": 2
+        },
+        {
+          "id": "warm_start_requires_transcript",
+          "template": "min_count",
+          "output_key": "conversation_transcript",
+          "message": "Warm start must contain at least two grounded research turns.",
+          "min_count": 2
+        },
+        {
+          "id": "warm_start_requires_evidence",
+          "template": "min_count",
+          "output_key": "evidence_registry",
+          "message": "Warm start must seed at least three traceable evidence entries.",
+          "min_count": 3
+        },
+        {
+          "id": "warm_start_requires_coverage_baseline",
+          "template": "min_count",
+          "output_key": "coverage_map",
+          "message": "Warm start must record at least two coverage topics.",
+          "min_count": 2
+        }
+      ],
+      "custom_verifier_requirements": [
+        {
+          "id": "expert_roster_has_stable_identity",
+          "description": "The warm-start expert roster must be a structured list of stable expert records; later fan-out bindings reference only each record's id.",
+          "signals": [
+            "expert_roster"
+          ],
+          "implementation_surface": [
+            "verifiers.py",
+            "state.py",
+            "workflow-specific regression tests"
+          ],
+          "hint_pseudocode": [
+            "Require expert_roster to be a list of objects with exactly id, role, and brief string fields.",
+            "Require every expert id, role, and brief to be non-empty and every id to be unique.",
+            "Reject legacy string-only roster entries instead of guessing whether a description is a stable identifier."
+          ],
+          "test_intent": [
+            "Accept two structured expert records with distinct ids.",
+            "Reject a legacy string-only roster entry.",
+            "Reject duplicate or incomplete expert records."
+          ],
+          "implementation_version": 1
+        }
+      ]
+    },
+    {
+      "step_id": "launch_expert_subagents",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "launch_independent_expert_subagents",
+      "expected_artifact": "parallel independent expert-subagent run manifest, one grounded result per expert, and repository-relative result artifacts",
+      "prompt": "/research-nex {{workflow_goal}} using {{expert_roster}}, {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{round_index}}; use the host's independent subagent API/tool to launch one isolated subagent per expert in parallel for the next Co-STORM round, give each only its role-specific research brief plus the immutable shared-space snapshot, wait for every subagent, and return the complete fan-out manifest with grounded result artifacts for Moderator synthesis.",
+      "prompt_sections": {
+        "stage_goal": "Fan out the next Co-STORM round to independent expert subagents and join their completed, grounded results before the Moderator makes a routing decision.",
+        "context": [
+          "Workflow goal: {{workflow_goal}}",
+          "Expert roster with stable identifiers: {{expert_roster}}",
+          "Current shared knowledge-map summary: {{knowledge_map_summary}}",
+          "Current evidence registry: {{evidence_registry}}",
+          "Current coverage map: {{coverage_map}}",
+          "Completed Moderator transcript: {{conversation_transcript}}",
+          "Last completed round index: {{round_index}}",
+          "Canonical subagent run history (runtime-owned; failed attempts are not included): {{subagent_run_history}}",
+          "Run constraints: {{constraints_json}}"
+        ],
+        "boundaries": [
+          "Use the host's independent subagent API/tool to launch exactly one new isolated subagent for every expert in expert_roster; do not substitute one model response for multiple experts.",
+          "Launch the expert subagents in parallel and wait for all of them before returning the fan-out observation.",
+          "Give each subagent an isolated role-specific prompt and the same immutable shared-space snapshot; subagents must not read or coordinate through sibling outputs.",
+          "Each subagent must return a grounded perspective and write a distinct repository-relative result artifact under repo_root.",
+          "Return one structured subagent_binding_records object per expert, linking expert_id, subagent_run_id, summary, artifact_path, spawn_receipt, and completion_receipt; a real batch join may use the same completion_receipt for every covered expert.",
+          "Return tool-trace evidence for every spawn and wait/join operation in the host's canonical metadata shape; the host adapter may normalize flat trace fields, and one join entry may carry expert_ids[] and subagent_run_ids[] for a real batch receipt.",
+          "Do not hand-copy persisted history or append failed attempts to it; runtime derives and promotes canonical history only after this contract passes.",
+          "Do not let an expert subagent choose workflow routing; the later Moderator stage owns continue, reorganize, or report.",
+          "Do not request user participation, approval, or checkpoints."
+        ],
+        "blocked_conditions": [
+          "Block when any expert cannot be assigned a distinct subagent run.",
+          "Block when the host cannot prove that all expert subagents completed independently.",
+          "Block when a subagent result or repository-relative artifact is missing, empty, duplicated, or ungrounded.",
+          "Block when the fan-out would exceed the configured autonomous round budget."
+        ]
+      },
+      "done_when": [
+        "The fan-out manifest contains one unique expert identifier and one unique subagent run identifier for every expert.",
+        "All expert subagents completed independently in the same round and returned non-empty grounded summaries.",
+        "Every expert subagent has a distinct repository-relative result artifact.",
+        "The fan-out round index is exactly one greater than the last completed Moderator round.",
+        "The complete subagent result set is ready for Moderator synthesis."
+      ],
+      "output_schema": {
+        "execution_mode": "string",
+        "fanout_round_index": "integer",
+        "subagent_expert_ids": "string[]",
+        "subagent_run_ids": "string[]",
+        "subagent_result_summaries": "string[]",
+        "subagent_artifact_paths": "string[]",
+        "subagent_binding_records": "object[]",
+        "fanout_complete": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_expert_ids": "string[]?",
+        "failed_subagent_run_ids": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "research-nex",
+          "operations": [
+            "independent expert subagent fan-out",
+            "parallel grounded perspective collection",
+            "subagent result artifact handoff"
+          ],
+          "file_patterns": [],
+          "usage_notes": [
+            "Primary owner for launching and joining one isolated research subagent per expert; the host must use its independent subagent mechanism rather than role-play all experts in one response."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "fanout_round_index",
+          "output_key": "fanout_round_index",
+          "kind": "scalar"
+        },
+        {
+          "state_key": "subagent_expert_ids",
+          "output_key": "subagent_expert_ids",
+          "kind": "list"
+        },
+        {
+          "state_key": "subagent_run_ids",
+          "output_key": "subagent_run_ids",
+          "kind": "list"
+        },
+        {
+          "state_key": "subagent_result_summaries",
+          "output_key": "subagent_result_summaries",
+          "kind": "list"
+        },
+        {
+          "state_key": "subagent_artifact_paths",
+          "output_key": "subagent_artifact_paths",
+          "kind": "list"
+        },
+        {
+          "state_key": "subagent_binding_records",
+          "output_key": "subagent_binding_records",
+          "kind": "list"
+        },
+        {
+          "state_key": "subagent_run_history",
+          "output_key": "subagent_run_history",
+          "kind": "list",
+          "runtime_owned": true
+        },
+        {
+          "state_key": "subagent_attempt_history",
+          "output_key": "subagent_attempt_history",
+          "kind": "list",
+          "runtime_owned": true
+        },
+        {
+          "state_key": "current_fanout_attempt",
+          "output_key": "current_fanout_attempt",
+          "kind": "dict",
+          "runtime_owned": true
+        },
+        {
+          "state_key": "fanout_complete",
+          "output_key": "fanout_complete",
+          "kind": "boolean"
+        }
+      ],
+      "template_context_keys": [
+        "fanout_round_index",
+        "subagent_expert_ids",
+        "subagent_run_ids",
+        "subagent_result_summaries",
+        "subagent_artifact_paths",
+        "subagent_binding_records",
+        "subagent_run_history",
+        "subagent_attempt_history",
+        "current_fanout_attempt",
+        "fanout_complete"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "execution_mode",
+          "operator": "equals",
+          "value": "parallel_fanout",
+          "message": "Expert subagents must be launched through the parallel fan-out execution mode."
+        },
+        {
+          "output_key": "fanout_complete",
+          "operator": "is_true",
+          "value": null,
+          "message": "The fan-out stage must confirm that every expert subagent completed."
+        }
+      ],
+      "verifier_templates": [
+        {
+          "id": "fanout_requires_experts",
+          "template": "min_count",
+          "output_key": "subagent_expert_ids",
+          "message": "Fan-out must return at least two independent expert identifiers.",
+          "min_count": 2
+        },
+        {
+          "id": "fanout_requires_run_ids",
+          "template": "min_count",
+          "output_key": "subagent_run_ids",
+          "message": "Fan-out must return independent subagent run identifiers.",
+          "min_count": 2
+        },
+        {
+          "id": "fanout_requires_summaries",
+          "template": "min_count",
+          "output_key": "subagent_result_summaries",
+          "message": "Every expert subagent must return a grounded result summary.",
+          "min_count": 2
+        },
+        {
+          "id": "fanout_requires_artifacts",
+          "template": "min_count",
+          "output_key": "subagent_artifact_paths",
+          "message": "Every expert subagent must hand in a result artifact path.",
+          "min_count": 2
+        }
+      ],
+      "custom_verifier_requirements": [
+        {
+          "id": "independent_subagents_complete",
+          "description": "The fan-out stage must launch exactly one independent subagent per stable expert identifier, collect all results for one autonomous round, preserve prior run history, and prove that each result is grounded and stored as a safe repository-relative artifact.",
+          "signals": [
+            "expert_roster",
+            "fanout_round_index",
+            "subagent_expert_ids",
+            "subagent_run_ids",
+            "subagent_result_summaries",
+            "subagent_artifact_paths",
+            "subagent_binding_records",
+            "subagent_run_history",
+            "execution_mode",
+            "tool_trace"
+          ],
+          "implementation_surface": [
+            "verifiers.py",
+            "state.py",
+            "policy.py",
+            "workflow-specific regression tests"
+          ],
+          "hint_pseudocode": [
+            "Require execution_mode to be parallel_fanout and fanout_complete to be true.",
+            "Require persisted state.round_index to be non-negative, require fanout_round_index to be at least one and equal persisted state.round_index + 1, and reject values above constraints.max_rounds.",
+            "Require subagent_expert_ids to equal the persisted expert_roster exactly, with no duplicates or omissions.",
+            "Require subagent_run_ids, summaries, and artifact paths to have the same length as expert_roster; all run IDs, summaries, and paths must be unique and non-empty.",
+            "Require subagent_binding_records to be structured objects whose expert_id, subagent_run_id, summary, and artifact_path fields match the corresponding arrays in order; spawn_receipt must be unique per expert and completion_receipt may be shared only when one real batch join trace covers the same experts and runs.",
+            "Treat persisted subagent_run_history as canonical structured records, reject any reused run ID, and let runtime derive the exact current history tail instead of requiring model-echoed history.",
+            "Resolve every artifact path under repo_root, require a regular readable file with non-empty UTF-8 content, and reject paths outside repo_root.",
+            "Normalize flat and nested trace entries before checking them. Require one successful spawn per expert and exactly one successful join coverage per expert; a batch join may cover several experts with one real receipt and must not be split into synthetic receipts.",
+            "Do not accept a single summary or one reused subagent run ID as evidence for multiple expert perspectives."
+          ],
+          "test_intent": [
+            "Accept a parallel fan-out with two stable expert IDs, two distinct subagent run IDs, two result summaries, and two readable artifacts.",
+            "Reject a fan-out that reuses one subagent run ID for two experts.",
+            "Reject a fan-out that omits an expert or adds an unknown expert.",
+            "Reject a fan-out with a skipped round, rewritten canonical history, prior run reuse, an artifact alias, or an artifact outside repo_root.",
+            "Reject a fan-out with missing spawn/wait tool traces or binding records that mismatch the parallel arrays."
+          ],
+          "implementation_version": 2
+        }
+      ]
+    },
+    {
+      "step_id": "autonomous_roundtable",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "advance_one_moderated_expert_round",
+      "expected_artifact": "one Moderator synthesis turn over independent expert-subagent results, updated evidence and coverage, and an exclusive routing decision",
+      "prompt": "/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{conversation_transcript}}, {{subagent_result_summaries}}, {{subagent_run_ids}}, and {{subagent_binding_records}}; act as the Co-STORM Moderator over the completed independent expert subagent fan-out, synthesize one grounded roundtable turn, update the shared conceptual space, and return exactly one of continue, reorganize, or report.",
+      "prompt_sections": {
+        "stage_goal": "Advance the autonomous roundtable by exactly one moderated turn, preserving the shared transcript and evidence while deciding whether to continue, reorganize the knowledge map, or synthesize the report.",
+        "context": [
+          "Current expert roster: {{expert_roster}}",
+          "Shared knowledge-map summary: {{knowledge_map_summary}}",
+          "Evidence registry: {{evidence_registry}}",
+          "Coverage map: {{coverage_map}}",
+          "Conversation transcript: {{conversation_transcript}}",
+          "Completed independent subagent run IDs: {{subagent_run_ids}}",
+          "Independent expert-subagent result summaries: {{subagent_result_summaries}}",
+          "Independent result artifacts: {{subagent_artifact_paths}}",
+          "Expert-to-subagent binding records: {{subagent_binding_records}}",
+          "Current round index: {{round_index}}",
+          "Run constraints: {{constraints_json}}"
+        ],
+        "boundaries": [
+          "Do not request user participation or invent a user utterance; the Moderator owns autonomous question selection.",
+          "Carry forward the persisted expert_roster records exactly as {id, role, brief}; do not collapse them back to strings or rewrite their briefs.",
+          "Produce exactly one new research or moderation turn and preserve prior turns in the returned transcript.",
+          "Do not choose a workflow node in prose; return the structured decision flags and let runtime policy route the next node.",
+          "Do not mark report readiness before the coverage signal or the configured round limit justifies stopping.",
+          "When coverage_threshold is supplied, coverage_map must contain at least that many distinct topics before declaring coverage_sufficient.",
+          "Every new factual claim must be linked to an existing or newly added evidence entry."
+        ],
+        "blocked_conditions": [
+          "Block when the current knowledge map, expert roster, or evidence registry cannot be carried forward.",
+          "Block when a grounded answer cannot be produced for the selected research action.",
+          "Block when the round decision is ambiguous or more than one of continue, reorganize, and report is selected."
+        ]
+      },
+      "done_when": [
+        "Exactly one new grounded turn is added to the transcript.",
+        "The evidence registry and coverage map are carried forward or expanded.",
+        "round_index increases by one and remains within the configured autonomous budget.",
+        "round_decision and its boolean routing flags are mutually consistent.",
+        "The turn is ready for a continue, reorganize, or report transition."
+      ],
+      "output_schema": {
+        "last_turn_summary": "string",
+        "conversation_transcript": "string[]",
+        "evidence_registry": "string[]",
+        "coverage_map": "string[]",
+        "knowledge_map_summary": "string",
+        "expert_roster": "object[]",
+        "round_index": "integer",
+        "round_decision": "string",
+        "continue_roundtable": "boolean",
+        "should_reorganize": "boolean",
+        "coverage_sufficient": "boolean",
+        "ready_for_report": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "research-nex",
+          "operations": [
+            "moderated perspective rotation",
+            "grounded expert turn",
+            "coverage-driven follow-up research"
+          ],
+          "file_patterns": [],
+          "usage_notes": [
+            "Primary owner for one autonomous roundtable turn; runtime policy, not the skill, owns node routing."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "last_turn_summary",
+          "output_key": "last_turn_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "conversation_transcript",
+          "output_key": "conversation_transcript",
+          "kind": "list"
+        },
+        {
+          "state_key": "evidence_registry",
+          "output_key": "evidence_registry",
+          "kind": "list"
+        },
+        {
+          "state_key": "coverage_map",
+          "output_key": "coverage_map",
+          "kind": "list"
+        },
+        {
+          "state_key": "knowledge_map_summary",
+          "output_key": "knowledge_map_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "expert_roster",
+          "output_key": "expert_roster",
+          "kind": "list"
+        },
+        {
+          "state_key": "round_index",
+          "output_key": "round_index",
+          "kind": "scalar"
+        },
+        {
+          "state_key": "round_decision",
+          "output_key": "round_decision",
+          "kind": "string"
+        },
+        {
+          "state_key": "coverage_sufficient",
+          "output_key": "coverage_sufficient",
+          "kind": "boolean"
+        },
+        {
+          "state_key": "ready_for_report",
+          "output_key": "ready_for_report",
+          "kind": "boolean"
+        }
+      ],
+      "template_context_keys": [
+        "last_turn_summary",
+        "conversation_transcript",
+        "evidence_registry",
+        "coverage_map",
+        "knowledge_map_summary",
+        "expert_roster",
+        "subagent_run_ids",
+        "subagent_result_summaries",
+        "subagent_artifact_paths",
+        "subagent_binding_records",
+        "round_index",
+        "round_decision",
+        "coverage_sufficient",
+        "ready_for_report"
+      ],
+      "repair_conditions": [],
+      "transitions": [
+        {
+          "output_key": "should_reorganize",
+          "operator": "is_true",
+          "value": null,
+          "next_node": "reorganize_knowledge_space",
+          "branch_kind": "reorganize",
+          "reason": "Moderator selected knowledge-space reorganization before another roundtable turn."
+        },
+        {
+          "output_key": "ready_for_report",
+          "operator": "is_true",
+          "value": null,
+          "next_node": "synthesize_report",
+          "branch_kind": "complete_research",
+          "reason": "Moderator determined that coverage or the autonomous research budget justifies report synthesis."
+        },
+        {
+          "output_key": "continue_roundtable",
+          "operator": "is_true",
+          "value": null,
+          "next_node": "launch_expert_subagents",
+          "branch_kind": "continue",
+          "reason": "Moderator selected another autonomous roundtable turn; launch a fresh independent subagent fan-out first."
+        }
+      ],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "last_turn_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "Each autonomous round must return a non-empty turn summary."
+        },
+        {
+          "output_key": "round_decision",
+          "operator": "one_of",
+          "value": [
+            "continue",
+            "reorganize",
+            "report"
+          ],
+          "message": "round_decision must be continue, reorganize, or report."
+        }
+      ],
+      "verifier_templates": [
+        {
+          "id": "roundtable_requires_evidence",
+          "template": "min_count",
+          "output_key": "evidence_registry",
+          "message": "The roundtable must preserve at least three traceable evidence entries.",
+          "min_count": 3
+        },
+        {
+          "id": "roundtable_requires_coverage",
+          "template": "min_count",
+          "output_key": "coverage_map",
+          "message": "The roundtable must preserve at least two coverage topics.",
+          "min_count": 2
+        }
+      ],
+      "custom_verifier_requirements": [
+        {
+          "id": "roundtable_flags_match_decision",
+          "description": "The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, and keep the boolean flags and configured budgets consistent with round_decision.",
+          "signals": [
+            "round_decision",
+            "continue_roundtable",
+            "should_reorganize",
+            "ready_for_report",
+            "subagent_run_ids",
+            "fanout_complete"
+          ],
+          "implementation_surface": [
+            "verifiers.py",
+            "policy.py",
+            "workflow-specific regression tests"
+          ],
+          "hint_pseudocode": [
+            "Count the three decision flags and require exactly one true value.",
+            "Map continue to continue_roundtable, reorganize to should_reorganize, and report to ready_for_report.",
+            "Require output.round_index to equal persisted state.round_index + 1 and require the returned transcript to preserve the persisted transcript as an exact prefix plus one new turn.",
+            "Require persisted fanout_complete to be true and persisted subagent_run_ids to be non-empty before the Moderator can accept a round.",
+            "Require the Moderator to carry forward the persisted structured expert roster exactly; fan-out bindings reference expert ids, while role and brief remain runtime-owned roster data.",
+            "Reject round_index values below one, reject values above constraints.max_rounds, and reject continue or reorganize once max_rounds has been reached.",
+            "When coverage_threshold is supplied, require coverage_map to contain at least that many distinct non-empty topics."
+          ],
+          "test_intent": [
+            "Accept a continue decision with only continue_roundtable true, a strictly incremented round, and one appended transcript turn.",
+            "Reject ambiguous decisions with two true flags.",
+            "Reject a report decision before coverage_sufficient is true unless max_rounds has been reached.",
+            "Reject a skipped round or a rewritten transcript prefix.",
+            "Reject a Moderator turn that has no completed independent expert-subagent fan-out."
+          ],
+          "implementation_version": 3
+        }
+      ]
+    },
+    {
+      "step_id": "reorganize_knowledge_space",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "reorganize_the_shared_knowledge_map",
+      "expected_artifact": "expanded, deduplicated, and coverage-aware knowledge-map summary",
+      "prompt": "/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{conversation_transcript}}; reorganize the shared Co-STORM knowledge space by expanding overloaded topics, merging redundant branches, removing unsupported leaves, and returning the map to the autonomous roundtable.",
+      "prompt_sections": {
+        "stage_goal": "Reorganize the shared knowledge map after a moderator-selected threshold so later expert turns can target gaps without losing evidence provenance.",
+        "context": [
+          "Current knowledge-map summary: {{knowledge_map_summary}}",
+          "Evidence registry: {{evidence_registry}}",
+          "Coverage map: {{coverage_map}}",
+          "Conversation transcript: {{conversation_transcript}}",
+          "Prior reorganization count: {{reorganization_count}}",
+          "Run constraints: {{constraints_json}}"
+        ],
+        "boundaries": [
+          "Do not discard an evidence entry unless it is explicitly marked duplicate or unsupported and its provenance is preserved in the result.",
+          "Do not generate the final report in this stage.",
+          "Do not choose the next workflow node; return reorganized evidence to runtime policy.",
+          "Keep the knowledge map aligned with actual evidence and observed coverage gaps."
+        ],
+        "blocked_conditions": [
+          "Block when the knowledge map cannot be reconstructed from the carried-forward evidence and transcript.",
+          "Block when reorganization would leave the map without supported topics."
+        ]
+      },
+      "done_when": [
+        "The knowledge-map summary is materially updated or explicitly confirmed coherent.",
+        "Evidence provenance is preserved while redundant or unsupported branches are cleaned.",
+        "Coverage gaps remain visible for the next roundtable turn.",
+        "reorganization_count increases by one."
+      ],
+      "output_schema": {
+        "knowledge_map_summary": "string",
+        "coverage_map": "string[]",
+        "evidence_registry": "string[]",
+        "reorganization_summary": "string",
+        "reorganization_count": "integer",
+        "reorganized": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "research-nex",
+          "operations": [
+            "knowledge-map expansion",
+            "topic deduplication",
+            "coverage-gap extraction"
+          ],
+          "file_patterns": [],
+          "usage_notes": [
+            "Primary owner for shared knowledge-space maintenance between autonomous rounds."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "knowledge_map_summary",
+          "output_key": "knowledge_map_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "coverage_map",
+          "output_key": "coverage_map",
+          "kind": "list"
+        },
+        {
+          "state_key": "evidence_registry",
+          "output_key": "evidence_registry",
+          "kind": "list"
+        },
+        {
+          "state_key": "reorganization_summary",
+          "output_key": "reorganization_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "reorganization_count",
+          "output_key": "reorganization_count",
+          "kind": "scalar"
+        }
+      ],
+      "template_context_keys": [
+        "knowledge_map_summary",
+        "coverage_map",
+        "evidence_registry",
+        "reorganization_summary",
+        "reorganization_count"
+      ],
+      "repair_conditions": [],
+      "transitions": [
+        {
+          "output_key": "reorganized",
+          "operator": "is_true",
+          "value": null,
+          "next_node": "launch_expert_subagents",
+          "branch_kind": "continue",
+          "reason": "Knowledge-space maintenance completed; launch a fresh independent expert-subagent fan-out before the next Moderator turn."
+        }
+      ],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "knowledge_map_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "Knowledge reorganization must return a non-empty map summary."
+        },
+        {
+          "output_key": "reorganization_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "Knowledge reorganization must explain the structural changes or coherence check."
+        },
+        {
+          "output_key": "reorganized",
+          "operator": "is_true",
+          "value": null,
+          "message": "The reorganization stage must explicitly confirm completion."
+        }
+      ],
+      "verifier_templates": [
+        {
+          "id": "reorganization_requires_coverage",
+          "template": "min_count",
+          "output_key": "coverage_map",
+          "message": "Reorganization must preserve at least two visible coverage topics.",
+          "min_count": 2
+        },
+        {
+          "id": "reorganization_requires_evidence",
+          "template": "min_count",
+          "output_key": "evidence_registry",
+          "message": "Reorganization must preserve at least three evidence entries.",
+          "min_count": 3
+        }
+      ],
+      "custom_verifier_requirements": [
+        {
+          "id": "reorganization_budget_is_respected",
+          "description": "Knowledge-space reorganization must advance the counter exactly once, preserve grounded evidence entries, and respect the autonomous reorganization budget.",
+          "signals": [
+            "reorganization_count",
+            "reorganized"
+          ],
+          "implementation_surface": [
+            "verifiers.py",
+            "workflow-specific regression tests"
+          ],
+          "hint_pseudocode": [
+            "Require reorganization_count to be an integer greater than zero and exactly one greater than persisted state.reorganization_count.",
+            "Read constraints.max_reorganizations from persisted state and reject counts above that value or a reorganization after the budget is exhausted.",
+            "Reject empty evidence entries and preserve the citation identifiers carried by the prior state."
+          ],
+          "test_intent": [
+            "Accept the first reorganization when the configured budget is two.",
+            "Reject a reorganization count above the configured budget.",
+            "Reject a reorganization that skips a counter value."
+          ],
+          "implementation_version": 2
+        }
+      ]
+    },
+    {
+      "step_id": "synthesize_report",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "synthesize_the_cited_report",
+      "expected_artifact": "structured report file with sections, inline citations, and a report summary",
+      "prompt": "/content-research-writer {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{conversation_transcript}}; synthesize the autonomous Co-STORM knowledge space into a structured, cited report at {{output_dir}} or an appropriate repository-relative output path, preserving evidence links for every substantive section.",
+      "prompt_sections": {
+        "stage_goal": "Turn the reorganized shared knowledge space into a coherent report whose outline follows the map and whose claims remain traceable to the evidence registry.",
+        "context": [
+          "Knowledge-map summary: {{knowledge_map_summary}}",
+          "Evidence registry: {{evidence_registry}}",
+          "Coverage map: {{coverage_map}}",
+          "Conversation transcript: {{conversation_transcript}}",
+          "Requested deliverable: {{deliverable_type}}",
+          "Output directory: {{output_dir}}",
+          "Previous report repair summary: {{report_repair_summary}}",
+          "Concrete report repair actions to apply: {{repair_actions}}"
+        ],
+        "boundaries": [
+          "Do not introduce unsupported facts, uncited substantive claims, or sections absent from the knowledge map without marking them as limitations.",
+          "Use stable numeric inline citations that refer to the evidence registry; do not fabricate URLs or citation entries.",
+          "Write the report artifact before returning and keep the path repository-relative when possible.",
+          "Do not declare final quality approval in this stage; the next verification stage owns that gate."
+        ],
+        "blocked_conditions": [
+          "Block when the knowledge map or evidence registry is empty or internally inconsistent.",
+          "Block when the report cannot be written to a repository-accessible path.",
+          "Block when the requested deliverable type cannot be expressed as a cited structured report."
+        ]
+      },
+      "done_when": [
+        "A repository-accessible report file exists.",
+        "The report has a clear outline with at least two substantive sections.",
+        "Inline numeric citations refer to the carried-forward evidence registry.",
+        "The report is ready for an independent quality and citation gate."
+      ],
+      "output_schema": {
+        "outline": "string",
+        "report_path": "string",
+        "report_summary": "string",
+        "report_sections": "string[]",
+        "report_ready_for_verification": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "content-research-writer",
+          "operations": [
+            "evidence-grounded report synthesis",
+            "section organization",
+            "inline citation placement"
+          ],
+          "file_patterns": [],
+          "usage_notes": [
+            "Primary owner for turning the shared knowledge map into the report artifact."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "outline",
+          "output_key": "outline",
+          "kind": "string"
+        },
+        {
+          "state_key": "report_path",
+          "output_key": "report_path",
+          "kind": "string"
+        },
+        {
+          "state_key": "report_summary",
+          "output_key": "report_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "report_sections",
+          "output_key": "report_sections",
+          "kind": "list"
+        }
+      ],
+      "template_context_keys": [
+        "outline",
+        "report_path",
+        "report_summary",
+        "report_sections",
+        "knowledge_map_summary",
+        "evidence_registry",
+        "coverage_map",
+        "conversation_transcript",
+        "report_repair_summary",
+        "repair_actions"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "outline",
+          "operator": "truthy",
+          "value": null,
+          "message": "Report synthesis must return a non-empty outline."
+        },
+        {
+          "output_key": "report_path",
+          "operator": "path_exists",
+          "value": null,
+          "message": "Report synthesis must create the report file before continuing."
+        },
+        {
+          "output_key": "report_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "Report synthesis must return a non-empty report summary."
+        },
+        {
+          "output_key": "report_ready_for_verification",
+          "operator": "is_true",
+          "value": null,
+          "message": "Report synthesis must explicitly hand the artifact to verification."
+        }
+      ],
+      "verifier_templates": [
+        {
+          "id": "report_requires_multiple_sections",
+          "template": "min_count",
+          "output_key": "report_sections",
+          "message": "The report must contain at least two substantive sections.",
+          "min_count": 2
+        },
+        {
+          "id": "report_file_contains_headings",
+          "template": "artifact_file_contains_sections",
+          "output_key": "report_path",
+          "message": "The report file must contain a title and section headings.",
+          "sections": [
+            "#",
+            "##"
+          ]
+        }
+      ],
+      "custom_verifier_requirements": []
+    },
+    {
+      "step_id": "verify_report",
+      "stage_kind": "main",
+      "recovery_return_node": null,
+      "intent": "verify_report_quality_and_citation_integrity",
+      "expected_artifact": "independent report quality verdict, citation coverage summary, and repair findings if needed",
+      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, and {{coverage_map}}; independently verify section coverage, citation referential integrity, unsupported claims, duplication, and coherence, then return a structured pass or repair verdict without changing workflow routing.",
+      "prompt_sections": {
+        "stage_goal": "Apply the final deterministic quality gate to the generated report and prove that its citations and sections are grounded in the shared evidence registry.",
+        "context": [
+          "Report path: {{report_path}}",
+          "Report summary: {{report_summary}}",
+          "Report sections: {{report_sections}}",
+          "Evidence registry: {{evidence_registry}}",
+          "Coverage map: {{coverage_map}}",
+          "Knowledge-map summary: {{knowledge_map_summary}}"
+        ],
+        "boundaries": [
+          "Do not silently rewrite the report while performing verification; return concrete findings for the repair stage.",
+          "Treat unknown citation identifiers, missing section coverage, and unsupported substantive claims as failures.",
+          "A pass requires a report artifact, traceable citations, and no unresolved critical quality findings.",
+          "Do not choose the repair or final node; runtime policy owns the transition."
+        ],
+        "blocked_conditions": [
+          "Block when the report path, evidence registry, or report sections are unavailable.",
+          "Block when the report cannot be read for citation and section verification."
+        ]
+      },
+      "done_when": [
+        "The report is read and checked against the evidence registry and coverage map.",
+        "quality_verdict is pass only when citation and section gates are satisfied.",
+        "Quality findings and the citation coverage summary are recorded.",
+        "The report is explicitly marked ready for finalization or repair."
+      ],
+      "output_schema": {
+        "quality_verdict": "string",
+        "quality_findings": "string[]",
+        "citation_coverage_summary": "string",
+        "report_ready": "boolean",
+        "verified_report_path": "string"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "content-research-writer",
+          "operations": [
+            "report quality audit",
+            "citation coverage audit",
+            "unsupported-claim and duplication detection"
+          ],
+          "file_patterns": [],
+          "usage_notes": [
+            "Primary owner for the report-quality evidence review; deterministic verifier code remains authoritative for routing."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "quality_verdict",
+          "output_key": "quality_verdict",
+          "kind": "string"
+        },
+        {
+          "state_key": "quality_findings",
+          "output_key": "quality_findings",
+          "kind": "list"
+        },
+        {
+          "state_key": "citation_coverage_summary",
+          "output_key": "citation_coverage_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "report_ready",
+          "output_key": "report_ready",
+          "kind": "boolean"
+        },
+        {
+          "state_key": "verified_report_path",
+          "output_key": "verified_report_path",
+          "kind": "string"
+        }
+      ],
+      "template_context_keys": [
+        "quality_verdict",
+        "quality_findings",
+        "citation_coverage_summary",
+        "report_ready",
+        "report_path",
+        "verified_report_path",
+        "report_summary",
+        "report_sections",
+        "evidence_registry",
+        "coverage_map",
+        "knowledge_map_summary"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [
+        {
+          "outcome": "verifier_failed",
+          "next_node": "repair_report",
+          "branch_kind": "repair",
+          "reason": "The report quality or citation verifier found a repairable defect; route to report-specific repair before re-synthesis."
+        }
+      ],
+      "verifier_rules": [
+        {
+          "output_key": "quality_verdict",
+          "operator": "one_of",
+          "value": [
+            "pass",
+            "repair"
+          ],
+          "message": "quality_verdict must be pass or repair."
+        },
+        {
+          "output_key": "citation_coverage_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "The report audit must return a citation coverage summary."
+        },
+        {
+          "output_key": "verified_report_path",
+          "operator": "path_exists",
+          "value": null,
+          "message": "The report audit must return an existing report path."
+        }
+      ],
+      "verifier_templates": [
+        {
+          "id": "verified_report_contains_headings",
+          "template": "artifact_file_contains_sections",
+          "output_key": "verified_report_path",
+          "message": "The verified report must retain a title and section headings.",
+          "sections": [
+            "#",
+            "##"
+          ]
+        },
+        {
+          "id": "pass_report_requires_ready_flag",
+          "template": "conditional_equals",
+          "output_key": "report_ready",
+          "message": "A pass quality verdict must set report_ready to true.",
+          "when": {
+            "output_key": "quality_verdict",
+            "operator": "equals",
+            "value": "pass"
+          },
+          "expected_value": true
+        }
+      ],
+      "custom_verifier_requirements": [
+        {
+          "id": "report_citation_integrity",
+          "description": "Every numeric inline citation in the report must resolve to a non-empty grounded evidence entry carried in state; repair verdicts must explicitly fail the gate and pass verdicts must satisfy the final quality conditions.",
+          "signals": [
+            "report_path",
+            "verified_report_path",
+            "evidence_registry",
+            "report_ready",
+            "quality_verdict",
+            "quality_findings",
+            "coverage_map"
+          ],
+          "implementation_surface": [
+            "verifiers.py",
+            "workflow-specific regression tests"
+          ],
+          "hint_pseudocode": [
+            "Read the repository-relative report path safely under repo_root.",
+            "Extract numeric markers such as [1] from the report and parse numeric identifiers from evidence_registry entries.",
+            "Reject unknown markers, missing or empty evidence entries, or a pass verdict with no citation markers.",
+            "Require verified_report_path to resolve to the same repository-relative regular file as report_path.",
+            "Reject unresolved critical or blocker findings when quality_verdict is pass, and make a repair verdict fail this verifier so policy enters repair_report."
+          ],
+          "test_intent": [
+            "Accept a report whose [1] and [2] markers exist in the evidence registry.",
+            "Reject a report containing an unknown [99] marker.",
+            "Reject a pass verdict for an uncited report.",
+            "Reject a pass verdict with an unresolved critical finding.",
+            "Reject a repair verdict as a verifier failure so the repair route is taken."
+          ],
+          "implementation_version": 2
+        }
+      ]
+    },
+    {
+      "step_id": "repair_report",
+      "stage_kind": "recovery",
+      "recovery_return_node": "synthesize_report",
+      "intent": "repair_report_quality_or_grounding",
+      "expected_artifact": "concrete report repair actions and a repaired-report handoff",
+      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{quality_findings}}, {{citation_coverage_summary}}, and {{evidence_registry}}; repair the cited report's groundedness, section coverage, or duplication defects and return a handoff for re-synthesis.",
+      "prompt_sections": {
+        "stage_goal": "Translate report-audit findings into concrete repair actions so the report can be regenerated and rechecked without changing the research scope.",
+        "context": [
+          "Report path: {{report_path}}",
+          "Quality findings: {{quality_findings}}",
+          "Citation coverage summary: {{citation_coverage_summary}}",
+          "Evidence registry: {{evidence_registry}}",
+          "Knowledge-map summary: {{knowledge_map_summary}}"
+        ],
+        "boundaries": [
+          "Keep repairs limited to the report artifact and its evidence grounding; do not invent new research outside the shared evidence registry.",
+          "Do not choose the next workflow node; recovery policy returns to report synthesis.",
+          "Name every repair action that the next synthesis pass must apply."
+        ],
+        "blocked_conditions": [
+          "Block when a concrete repair action cannot be derived from the persisted quality findings.",
+          "Block when the report or evidence registry is unavailable."
+        ]
+      },
+      "done_when": [
+        "The persisted audit findings are translated into concrete repair actions.",
+        "The repair handoff is ready for the report synthesis stage.",
+        "No unsupported new facts are introduced during repair."
+      ],
+      "output_schema": {
+        "report_repair_summary": "string",
+        "repair_actions": "string[]",
+        "repair_ready": "boolean"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
+      "skill_routing": [
+        {
+          "skill": "content-research-writer",
+          "operations": [
+            "citation repair planning",
+            "section coverage repair",
+            "grounded report revision"
+          ],
+          "file_patterns": [],
+          "usage_notes": [
+            "Primary owner for report-specific recovery; it returns control to synthesize_report."
+          ]
+        }
+      ],
+      "state_updates": [
+        {
+          "state_key": "report_repair_summary",
+          "output_key": "report_repair_summary",
+          "kind": "string"
+        },
+        {
+          "state_key": "repair_actions",
+          "output_key": "repair_actions",
+          "kind": "list"
+        }
+      ],
+      "template_context_keys": [
+        "report_repair_summary",
+        "repair_actions",
+        "report_path",
+        "quality_findings",
+        "citation_coverage_summary",
+        "evidence_registry",
+        "knowledge_map_summary"
+      ],
+      "repair_conditions": [],
+      "transitions": [],
+      "outcome_routes": [],
+      "verifier_rules": [
+        {
+          "output_key": "report_repair_summary",
+          "operator": "truthy",
+          "value": null,
+          "message": "Report repair must return a non-empty repair summary."
+        },
+        {
+          "output_key": "repair_ready",
+          "operator": "is_true",
+          "value": null,
+          "message": "Report repair must explicitly hand the repair back to synthesis."
+        }
+      ],
+      "verifier_templates": [
+        {
+          "id": "report_repair_requires_actions",
+          "template": "min_count",
+          "output_key": "repair_actions",
+          "message": "Report repair must return at least one concrete repair action.",
+          "min_count": 1
+        }
+      ],
+      "custom_verifier_requirements": []
+    }
+  ],
+  "shared_repair_helpers": {
+    "request_unblocking_input": {
+      "intent": "request_unblocking_input",
+      "expected_artifact": "host-visible external-block diagnostic (compatibility fallback only)",
+      "prompt": "Record the exact external dependency that blocked the autonomous workflow; this compatibility fallback is not selected by the normal autonomous path.",
+      "prompt_sections": {
+        "stage_goal": "Identify the exact external input, approval, credential, file, or decision required to unblock the workflow if a host explicitly resumes this compatibility fallback.",
+        "context": [
+          "Current step: {{current_step_id}}",
+          "Return stage: {{return_stage_id}}",
+          "Source stage: {{source_stage_id}}",
+          "Repair category: {{repair_category}}",
+          "Repair summary: {{repair_summary}}",
+          "Required external inputs or approvals:",
+          "{{repair_requirements}}",
+          "Relevant evidence:",
+          "{{repair_evidence}}"
+        ],
+        "boundaries": [
+          "Do not claim that autonomous research completed while the external dependency is missing.",
+          "Do not invent files, credentials, or user decisions that are not already available.",
+          "Use this helper only after repair has already attempted self-repair 3 times and still requires external help."
+        ],
+        "blocked_conditions": [
+          "Stay blocked if the missing external input still cannot be named concretely."
+        ]
+      },
+      "skill_routing": [],
+      "done_when": [
+        "Identify the blocking reason",
+        "Record a host-visible diagnostic for the missing dependency without requesting a user response"
+      ],
+      "output_schema": {
+        "blocking_reason": "string",
+        "host_action_needed": "string",
+        "suggested_host_action": "string?"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      }
+    },
+    "repair_and_resume": {
+      "intent": "repair_and_resume",
+      "expected_artifact": "repair actions needed before returning to the original stage",
+      "prompt": "Repair the previous workflow step autonomously using the persisted failure details; retry only when the repair is grounded, otherwise return a blocked diagnostic for the partial final handoff.",
+      "prompt_sections": {
+        "stage_goal": "Use the persisted repair context to explain what failed and propose concrete repair actions; the normal workflow never asks the user for approval or missing input.",
+        "context": [
+          "Current step: {{current_step_id}}",
+          "Return stage: {{return_stage_id}}",
+          "Source stage: {{source_stage_id}}",
+          "Repair category: {{repair_category}}",
+          "Repair summary: {{repair_summary}}",
+          "Repair requirements:",
+          "{{repair_requirements}}",
+          "Relevant evidence:",
+          "{{repair_evidence}}"
+        ],
+        "boundaries": [
+          "Keep the retry scoped to the original return stage instead of changing workflow routing.",
+          "Base the repair plan on the persisted repair requirements rather than generic retries.",
+          "Attempt self-repair up to 3 times; after that the runtime must finalize a partial handoff instead of requesting user input."
+        ],
+        "blocked_conditions": [
+          "Return blocked when repair still cannot proceed; runtime policy will finalize a partial handoff after the autonomous repair budget is exhausted."
+        ]
+      },
+      "skill_routing": [],
+      "done_when": [
+        "Explain why the original step needs repair",
+        "Return retry_reason, retry_notes, and repair_actions"
+      ],
+      "output_schema": {
+        "retry_reason": "string",
+        "retry_notes": "string",
+        "repair_actions": "string[]"
+      },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      }
+    }
+  },
+  "final_step_id": "finalize_collaborative_report",
+  "final_prompt": "Finalize the autonomous Co-STORM research handoff. If {{report_path}} exists and {{quality_verdict}} is pass, return the validated report and include its summary ({{report_summary}}) and citation coverage ({{citation_coverage_summary}}). If the run stopped on an autonomous budget or external block, state that it is a partial handoff, do not claim validation, and include the available findings ({{quality_findings}}) and repair context.",
+  "dependencies": [
+    {
+      "id": "research-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "purpose": "Own autonomous perspective-guided research, grounded expert turns, and knowledge-space maintenance."
+    },
+    {
+      "id": "search-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:search-nex",
+      "purpose": "Provide source discovery and web-search evidence support required by research-nex."
+    },
+    {
+      "id": "content-research-writer",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:content-research-writer",
+      "purpose": "Own evidence-grounded report synthesis, report quality review, and citation repair."
+    }
+  ],
+  "installed": [
+    {
+      "id": "research-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "recorded_at": "2026-08-06T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "search-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:search-nex",
+      "recorded_at": "2026-08-06T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "content-research-writer",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:content-research-writer",
+      "recorded_at": "2026-08-06T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    }
+  ],
+  "regression_tests": [
+    {
+      "name": "warm_start_success_enters_expert_fanout",
+      "type": "transition",
+      "current_step_id": "warm_start_shared_space",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Warm start completed.",
+        "structured_output": {
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "conversation_transcript": [
+            "background turn",
+            "perspective turn"
+          ],
+          "knowledge_map_summary": "root with two supported topics",
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "round_index": 0,
+          "warm_start_ready": true
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "launch_expert_subagents",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "expert_fanout_success_enters_roundtable",
+      "type": "transition",
+      "current_step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "All independent expert subagents completed.",
+        "structured_output": {
+          "execution_mode": "parallel_fanout",
+          "fanout_round_index": 1,
+          "subagent_expert_ids": [
+            "historian",
+            "systems_analyst"
+          ],
+          "subagent_run_ids": [
+            "run-historian-1",
+            "run-systems-analyst-1"
+          ],
+          "subagent_result_summaries": [
+            "Historian perspective completed.",
+            "Systems analyst perspective completed."
+          ],
+          "subagent_artifact_paths": [
+            "reports/subagents/1/historian.md",
+            "reports/subagents/1/systems_analyst.md"
+          ],
+          "subagent_binding_records": [
+            {
+              "artifact_path": "reports/subagents/1/historian.md",
+              "completion_receipt": "join-round-1",
+              "expert_id": "historian",
+              "spawn_receipt": "spawn-run-historian-1",
+              "subagent_run_id": "run-historian-1",
+              "summary": "Historian perspective completed."
+            },
+            {
+              "artifact_path": "reports/subagents/1/systems_analyst.md",
+              "completion_receipt": "join-round-1",
+              "expert_id": "systems_analyst",
+              "spawn_receipt": "spawn-run-systems-analyst-1",
+              "subagent_run_id": "run-systems-analyst-1",
+              "summary": "Systems analyst perspective completed."
+            }
+          ],
+          "fanout_complete": true
+        },
+        "tool_trace": [
+          {
+            "tool_name": "host.subagent.spawn",
+            "status": "succeeded",
+            "metadata": {
+              "phase": "spawn",
+              "expert_id": "historian",
+              "subagent_run_id": "run-historian-1",
+              "fanout_round_index": 1,
+              "receipt_id": "spawn-run-historian-1"
+            }
+          },
+          {
+            "tool_name": "host.subagent.wait",
+            "status": "completed",
+            "metadata": {
+              "phase": "wait",
+              "expert_id": "historian",
+              "subagent_run_id": "run-historian-1",
+              "fanout_round_index": 1,
+              "receipt_id": "wait-run-historian-1"
+            }
+          },
+          {
+            "tool_name": "host.subagent.spawn",
+            "status": "succeeded",
+            "metadata": {
+              "phase": "spawn",
+              "expert_id": "systems_analyst",
+              "subagent_run_id": "run-systems-analyst-1",
+              "fanout_round_index": 1,
+              "receipt_id": "spawn-run-systems-analyst-1"
+            }
+          },
+          {
+            "tool_name": "host.subagent.wait",
+            "status": "completed",
+            "metadata": {
+              "phase": "wait",
+              "expert_id": "systems_analyst",
+              "subagent_run_id": "run-systems-analyst-1",
+              "fanout_round_index": 1,
+              "receipt_id": "wait-run-systems-analyst-1"
+            }
+          },
+          {
+            "tool_name": "host.subagent.join",
+            "status": "completed",
+            "metadata": {
+              "phase": "join",
+              "expert_ids": [
+                "historian",
+                "systems_analyst"
+              ],
+              "subagent_run_ids": [
+                "run-historian-1",
+                "run-systems-analyst-1"
+              ],
+              "fanout_round_index": 1,
+              "receipt_id": "join-round-1"
+            }
+          }
+        ]
+      },
+      "verifier_result": {
+        "passed": true,
+        "message": "fan-out contract passed",
+        "details": {}
+      },
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "constraints": {
+          "max_rounds": 8
+        }
+      },
+      "expected_next_node": "autonomous_roundtable",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "roundtable_continue_starts_next_expert_fanout",
+      "type": "transition",
+      "current_step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Moderator selected another expert.",
+        "structured_output": {
+          "last_turn_summary": "The analyst added a grounded comparison.",
+          "conversation_transcript": [
+            "prior turn",
+            "new analyst turn"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c",
+            "[4] source-d"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism",
+            "comparison"
+          ],
+          "knowledge_map_summary": "root with three supported topics",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 1,
+          "round_decision": "continue",
+          "continue_roundtable": true,
+          "should_reorganize": false,
+          "coverage_sufficient": false,
+          "ready_for_report": false
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "launch_expert_subagents",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "roundtable_reorganize_branch",
+      "type": "transition",
+      "current_step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Moderator requested a mind-map reorganization.",
+        "structured_output": {
+          "last_turn_summary": "The moderator found overlapping branches.",
+          "conversation_transcript": [
+            "prior turn",
+            "overlap finding"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "knowledge_map_summary": "overlapping branches detected",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 2,
+          "round_decision": "reorganize",
+          "continue_roundtable": false,
+          "should_reorganize": true,
+          "coverage_sufficient": false,
+          "ready_for_report": false
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "reorganize_knowledge_space",
+      "expected_branch_kind": "reorganize"
+    },
+    {
+      "name": "roundtable_report_branch",
+      "type": "transition",
+      "current_step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Coverage reached the stopping threshold.",
+        "structured_output": {
+          "last_turn_summary": "The moderator confirmed coverage saturation.",
+          "conversation_transcript": [
+            "prior turn",
+            "final coverage turn"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism",
+            "comparison"
+          ],
+          "knowledge_map_summary": "complete supported map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 3,
+          "round_decision": "report",
+          "continue_roundtable": false,
+          "should_reorganize": false,
+          "coverage_sufficient": true,
+          "ready_for_report": true
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "synthesize_report",
+      "expected_branch_kind": "complete_research"
+    },
+    {
+      "name": "reorganization_returns_to_roundtable",
+      "type": "transition",
+      "current_step_id": "reorganize_knowledge_space",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Knowledge map reorganized.",
+        "structured_output": {
+          "knowledge_map_summary": "deduplicated supported map",
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "reorganization_summary": "Merged duplicate mechanism nodes.",
+          "reorganization_count": 1,
+          "reorganized": true
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "launch_expert_subagents",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "failed_report_verification_enters_repair",
+      "type": "transition",
+      "current_step_id": "verify_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Unknown citation marker found.",
+        "structured_output": {
+          "quality_verdict": "repair",
+          "quality_findings": [
+            "Unknown citation [99]"
+          ],
+          "citation_coverage_summary": "One citation is unresolved.",
+          "report_ready": false,
+          "verified_report_path": "reports/draft.md"
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "message": "citation integrity failed",
+        "details": {}
+      },
+      "state": null,
+      "expected_next_node": "repair_report",
+      "expected_branch_kind": "repair"
+    },
+    {
+      "name": "report_repair_returns_to_synthesis",
+      "type": "transition",
+      "current_step_id": "repair_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Report repair actions prepared.",
+        "structured_output": {
+          "report_repair_summary": "Replace the unresolved citation with evidence [2].",
+          "repair_actions": [
+            "replace unknown citation"
+          ],
+          "repair_ready": true
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "synthesize_report",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "warm_start_rejects_insufficient_experts",
+      "type": "verifier",
+      "step_id": "warm_start_shared_space",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Warm start returned one perspective.",
+        "structured_output": {
+          "expert_roster": [
+            {
+              "id": "generalist",
+              "role": "generalist",
+              "brief": "Provide a broad but single perspective."
+            }
+          ],
+          "conversation_transcript": [
+            "one turn",
+            "another turn"
+          ],
+          "knowledge_map_summary": "partial map",
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "round_index": 0,
+          "warm_start_ready": true
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "roundtable_rejects_ambiguous_decision",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Two routing flags were selected.",
+        "structured_output": {
+          "last_turn_summary": "The moderator produced a turn.",
+          "conversation_transcript": [
+            "prior turn",
+            "new turn"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "knowledge_map_summary": "supported map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 1,
+          "round_decision": "continue",
+          "continue_roundtable": true,
+          "should_reorganize": true,
+          "coverage_sufficient": false,
+          "ready_for_report": false
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "conversation_transcript": [
+          "prior turn"
+        ],
+        "constraints": {
+          "max_rounds": 3
+        },
+        "fanout_complete": true,
+        "subagent_run_ids": [
+          "run-historian-1",
+          "run-systems-analyst-1"
+        ]
+      }
+    },
+    {
+      "name": "roundtable_rejects_premature_report",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Report was selected before coverage was sufficient.",
+        "structured_output": {
+          "last_turn_summary": "The moderator produced a turn.",
+          "conversation_transcript": [
+            "prior turn",
+            "new turn"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "knowledge_map_summary": "partial map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 1,
+          "round_decision": "report",
+          "continue_roundtable": false,
+          "should_reorganize": false,
+          "coverage_sufficient": false,
+          "ready_for_report": true
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "conversation_transcript": [
+          "prior turn"
+        ],
+        "constraints": {
+          "max_rounds": 3
+        },
+        "fanout_complete": true,
+        "subagent_run_ids": [
+          "run-historian-1",
+          "run-systems-analyst-1"
+        ]
+      }
+    },
+    {
+      "name": "reorganization_rejects_budget_overrun",
+      "type": "verifier",
+      "step_id": "reorganize_knowledge_space",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Reorganization exceeded the autonomous budget.",
+        "structured_output": {
+          "knowledge_map_summary": "deduplicated map",
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "reorganization_summary": "Merged duplicate branches.",
+          "reorganization_count": 3,
+          "reorganized": true
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "constraints": {
+          "max_reorganizations": 2
+        },
+        "reorganization_count": 2
+      }
+    },
+    {
+      "name": "warm_start_accepts_valid_package",
+      "type": "verifier",
+      "step_id": "warm_start_shared_space",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Warm start produced a grounded shared space.",
+        "structured_output": {
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "conversation_transcript": [
+            "background turn",
+            "perspective turn"
+          ],
+          "knowledge_map_summary": "root with two supported topics",
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "round_index": 0,
+          "warm_start_ready": true
+        }
+      },
+      "expected_passed": true,
+      "state": {}
+    },
+    {
+      "name": "roundtable_accepts_one_appended_turn",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The moderator selected another expert.",
+        "structured_output": {
+          "last_turn_summary": "The analyst added a grounded comparison.",
+          "conversation_transcript": [
+            "prior turn",
+            "new analyst turn"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "knowledge_map_summary": "supported map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 1,
+          "round_decision": "continue",
+          "continue_roundtable": true,
+          "should_reorganize": false,
+          "coverage_sufficient": false,
+          "ready_for_report": false
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "conversation_transcript": [
+          "prior turn"
+        ],
+        "constraints": {
+          "max_rounds": 3
+        },
+        "fanout_complete": true,
+        "subagent_run_ids": [
+          "run-historian-1",
+          "run-systems-analyst-1"
+        ]
+      }
+    },
+    {
+      "name": "roundtable_rejects_skipped_round",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The moderator skipped a round index.",
+        "structured_output": {
+          "last_turn_summary": "The analyst added a grounded comparison.",
+          "conversation_transcript": [
+            "prior turn",
+            "new analyst turn"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "knowledge_map_summary": "supported map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 2,
+          "round_decision": "continue",
+          "continue_roundtable": true,
+          "should_reorganize": false,
+          "coverage_sufficient": false,
+          "ready_for_report": false
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "conversation_transcript": [
+          "prior turn"
+        ],
+        "constraints": {
+          "max_rounds": 3
+        },
+        "fanout_complete": true,
+        "subagent_run_ids": [
+          "run-historian-1",
+          "run-systems-analyst-1"
+        ]
+      }
+    },
+    {
+      "name": "reorganization_accepts_first_budgeted_pass",
+      "type": "verifier",
+      "step_id": "reorganize_knowledge_space",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The knowledge map was reorganized.",
+        "structured_output": {
+          "knowledge_map_summary": "deduplicated supported map",
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "reorganization_summary": "Merged duplicate mechanism nodes.",
+          "reorganization_count": 1,
+          "reorganized": true
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "constraints": {
+          "max_reorganizations": 2
+        }
+      }
+    },
+    {
+      "name": "fanout_rejects_runtime_owned_history_echo",
+      "type": "verifier",
+      "step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The model incorrectly echoed runtime-owned history.",
+        "structured_output": {
+          "execution_mode": "parallel_fanout",
+          "fanout_round_index": 1,
+          "subagent_expert_ids": [
+            "historian",
+            "systems_analyst"
+          ],
+          "subagent_run_ids": [
+            "run-historian-1",
+            "run-systems-analyst-1"
+          ],
+          "subagent_result_summaries": [
+            "Historian perspective completed.",
+            "Systems analyst perspective completed."
+          ],
+          "subagent_artifact_paths": [
+            "missing/historian.md",
+            "missing/systems_analyst.md"
+          ],
+          "subagent_binding_records": [
+            {
+              "artifact_path": "missing/historian.md",
+              "completion_receipt": "join-round-1",
+              "expert_id": "historian",
+              "spawn_receipt": "spawn-run-historian-1",
+              "subagent_run_id": "run-historian-1",
+              "summary": "Historian perspective completed."
+            },
+            {
+              "artifact_path": "missing/systems_analyst.md",
+              "completion_receipt": "join-round-1",
+              "expert_id": "systems_analyst",
+              "spawn_receipt": "spawn-run-systems-analyst-1",
+              "subagent_run_id": "run-systems-analyst-1",
+              "summary": "Systems analyst perspective completed."
+            }
+          ],
+          "subagent_run_history": [],
+          "fanout_complete": true
+        },
+        "tool_trace": []
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "constraints": {
+          "max_rounds": 8
+        },
+        "subagent_run_history": []
+      }
+    },
+    {
+      "name": "fanout_rejects_string_binding_records",
+      "type": "verifier",
+      "step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The model returned serialized binding records.",
+        "structured_output": {
+          "execution_mode": "parallel_fanout",
+          "fanout_round_index": 1,
+          "subagent_expert_ids": [
+            "historian",
+            "systems_analyst"
+          ],
+          "subagent_run_ids": [
+            "run-historian-1",
+            "run-systems-analyst-1"
+          ],
+          "subagent_result_summaries": [
+            "Historian perspective completed.",
+            "Systems analyst perspective completed."
+          ],
+          "subagent_artifact_paths": [
+            "missing/historian.md",
+            "missing/systems_analyst.md"
+          ],
+          "subagent_binding_records": [
+            "{\"expert_id\": \"historian\"}",
+            "{\"expert_id\": \"systems_analyst\"}"
+          ],
+          "fanout_complete": true
+        },
+        "tool_trace": []
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "constraints": {
+          "max_rounds": 8
+        },
+        "subagent_run_history": []
+      }
+    }
+  ]
+}

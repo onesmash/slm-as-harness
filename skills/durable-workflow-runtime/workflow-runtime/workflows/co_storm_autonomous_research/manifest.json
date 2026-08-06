@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "workflow_id": "co_storm_autonomous_research",
+  "description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, launch one independent subagent per expert in parallel for each round, join grounded results under a Moderator, maintain a reorganized knowledge map, and synthesize a cited report without user intervention; hard blocks terminate with a partial handoff.",
+  "start_input_schema": {
+    "task_input": {
+      "goal": "string",
+      "deliverable_type": "string?",
+      "research_scope": "string?",
+      "source_policy": "string?"
+    },
+    "context": {
+      "repo_root": "string",
+      "source_materials_path": "string?",
+      "output_dir": "string?"
+    },
+    "constraints": {
+      "max_steps": "integer?",
+      "max_rounds": "integer?",
+      "min_evidence_items": "integer?",
+      "coverage_threshold": "integer?",
+      "max_reorganizations": "integer?"
+    }
+  },
+  "dependencies": [
+    {
+      "id": "research-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:research-nex",
+      "purpose": "Own autonomous perspective-guided research, grounded expert turns, and knowledge-space maintenance."
+    },
+    {
+      "id": "search-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:search-nex",
+      "purpose": "Provide source discovery and web-search evidence support required by research-nex."
+    },
+    {
+      "id": "content-research-writer",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:content-research-writer",
+      "purpose": "Own evidence-grounded report synthesis, report quality review, and citation repair."
+    }
+  ]
+}

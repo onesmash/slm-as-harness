@@ -1388,7 +1388,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                     flow_description=None,
                 )
 
-    def test_workflow_creator_rejects_object_return_schema_types(self) -> None:
+    def test_workflow_creator_accepts_structured_return_schema_types(self) -> None:
         create_workflow = self._load_create_workflow_module()
         with tempfile.TemporaryDirectory() as tmpdir:
             spec_path = Path(tmpdir) / "object_return_schema_spec.json"
@@ -1396,7 +1396,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 json.dumps(
                     {
                         "workflow_id": "object_return_schema_workflow",
-                        "flow_description": "Reject open-ended structured return schemas.",
+                        "flow_description": "Accept structured records when a verifier owns their invariants.",
                         "stages": [
                             {
                                 "step_id": "collect_context",
@@ -1412,15 +1412,62 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 encoding="utf-8",
             )
 
-            with self.assertRaisesRegex(
-                create_workflow.WorkflowCreatorError,
-                "cannot use object/object\\[\\]",
-            ):
-                create_workflow._load_workflow_spec(
-                    spec_file=spec_path,
-                    workflow_id=None,
-                    flow_description=None,
-                )
+            loaded = create_workflow._load_workflow_spec(
+                spec_file=spec_path,
+                workflow_id=None,
+                flow_description=None,
+            )
+            self.assertEqual(loaded["stages"][0]["output_schema"], {"items": "object[]"})
+
+    def test_workflow_creator_keeps_runtime_owned_state_out_of_model_promotion(self) -> None:
+        create_workflow = self._load_create_workflow_module()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            spec_path = Path(tmpdir) / "runtime_owned_state_spec.json"
+            spec_path.write_text(
+                json.dumps(
+                    {
+                        "workflow_id": "runtime_owned_state_workflow",
+                        "flow_description": "Keep runtime-owned state out of model promotion.",
+                        "stages": [
+                            {
+                                "step_id": "collect_context",
+                                "prompt": "Collect context.",
+                                "done_when": ["Context is collected"],
+                                "output_schema": {"visible": "string", "history": "object"},
+                                "failure_schema": {"blocked_reason": "string?"},
+                                "state_updates": [
+                                    {
+                                        "state_key": "visible",
+                                        "output_key": "visible",
+                                        "kind": "string",
+                                    },
+                                    {
+                                        "state_key": "history",
+                                        "output_key": "history",
+                                        "kind": "object",
+                                        "runtime_owned": True,
+                                    },
+                                ],
+                            }
+                        ],
+                    },
+                    indent=2,
+                ),
+                encoding="utf-8",
+            )
+
+            loaded = create_workflow._load_workflow_spec(
+                spec_file=spec_path,
+                workflow_id=None,
+                flow_description=None,
+            )
+            self.assertTrue(loaded["stages"][0]["state_updates"][1]["runtime_owned"])
+            state_source = create_workflow._render_state_py(loaded)
+            self.assertIn("history: dict = field(default_factory=dict)", state_source)
+            self.assertNotIn(
+                "state.history = _dict_value(structured_output.get('history'))",
+                state_source,
+            )
 
     def test_workflow_creator_rejects_nested_return_schema(self) -> None:
         create_workflow = self._load_create_workflow_module()

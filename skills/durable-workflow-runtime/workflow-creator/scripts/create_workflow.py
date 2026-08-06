@@ -434,6 +434,7 @@ def _load_workflow_spec(
     start_input_schema = _validate_start_input_schema(
         raw_spec.get("start_input_schema") or _DEFAULT_START_INPUT_SCHEMA
     )
+    runtime_defaults = _validate_runtime_defaults(raw_spec.get("runtime_defaults") or {})
     final_step_id = _validate_step_id(str(raw_spec.get("final_step_id") or "finalize_summary"))
     stages = _validate_stages(raw_spec.get("stages") or [])
     _validate_stage_transition_targets(stages, final_step_id)
@@ -456,6 +457,7 @@ def _load_workflow_spec(
         "workflow_id": resolved_workflow_id,
         "flow_description": description,
         "start_input_schema": start_input_schema,
+        "runtime_defaults": runtime_defaults,
         "stages": stages,
         "shared_repair_helpers": shared_repair_helpers,
         "final_step_id": final_step_id,
@@ -602,6 +604,23 @@ def _validate_start_input_schema(value: Any) -> dict[str, Any]:
                 "start_input_schema must contain object fields: task_input, context, constraints"
             )
     return value
+
+
+def _validate_runtime_defaults(value: Any) -> dict[str, int]:
+    if value in (None, {}):
+        return {}
+    if not isinstance(value, dict):
+        raise WorkflowCreatorError("runtime_defaults must be a JSON object")
+    defaults: dict[str, int] = {}
+    for key, raw_value in value.items():
+        if not isinstance(key, str) or not key.strip():
+            raise WorkflowCreatorError("runtime_defaults keys must be non-empty strings")
+        if not isinstance(raw_value, int) or isinstance(raw_value, bool) or raw_value <= 0:
+            raise WorkflowCreatorError(
+                f"runtime_defaults.{key} must be a positive integer"
+            )
+        defaults[key] = raw_value
+    return defaults
 
 
 def _validate_stages(value: Any) -> list[dict[str, Any]]:
@@ -812,6 +831,8 @@ _FLAT_SCHEMA_TYPES = {
     "boolean[]",
     "integer[]",
     "number[]",
+    "object",
+    "object[]",
 }
 
 
@@ -832,7 +853,7 @@ def _validate_schema_object(
         if normalized not in _FLAT_SCHEMA_TYPES:
             raise WorkflowCreatorError(
                 f"{label}.{key} uses unsupported return schema type {schema_type!r}; "
-                "workflow stage output and failure schemas must stay flat and cannot use object/object[]"
+                "workflow stage output and failure schemas must use supported scalar, list, or structured-record types"
             )
     return value
 
@@ -987,12 +1008,12 @@ def _validate_skill_routing(value: Any, label: str) -> list[dict[str, Any]]:
     return routes
 
 
-def _validate_state_updates(value: Any, label: str) -> list[dict[str, str]]:
+def _validate_state_updates(value: Any, label: str) -> list[dict[str, Any]]:
     if value in (None, []):
         return []
     if not isinstance(value, list):
         raise WorkflowCreatorError(f"{label} must be a list")
-    updates: list[dict[str, str]] = []
+    updates: list[dict[str, Any]] = []
     seen: set[str] = set()
     for index, item in enumerate(value):
         item_label = f"{label}[{index}]"
@@ -1003,16 +1024,20 @@ def _validate_state_updates(value: Any, label: str) -> list[dict[str, str]]:
         value_kind = str(item.get("kind") or "scalar").strip()
         if value_kind not in {"scalar", "string", "boolean", "list", "dict", "object"}:
             raise WorkflowCreatorError(f"{item_label}.kind is unsupported: {value_kind}")
+        runtime_owned = item.get("runtime_owned", False)
+        if not isinstance(runtime_owned, bool):
+            raise WorkflowCreatorError(f"{item_label}.runtime_owned must be boolean")
         if state_key in seen:
             raise WorkflowCreatorError(f"duplicate state update key in {label}: {state_key}")
         seen.add(state_key)
-        updates.append(
-            {
-                "state_key": state_key,
-                "output_key": output_key,
-                "kind": value_kind,
-            }
-        )
+        update = {
+            "state_key": state_key,
+            "output_key": output_key,
+            "kind": value_kind,
+        }
+        if runtime_owned:
+            update["runtime_owned"] = True
+        updates.append(update)
     return updates
 
 
@@ -1801,8 +1826,8 @@ def _render_contract_py(workflow_spec: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def _collect_state_updates(workflow_spec: dict[str, Any]) -> list[dict[str, str]]:
-    updates: list[dict[str, str]] = []
+def _collect_state_updates(workflow_spec: dict[str, Any]) -> list[dict[str, Any]]:
+    updates: list[dict[str, Any]] = []
     seen: set[str] = set()
     for stage in workflow_spec["stages"]:
         for update in stage["state_updates"]:
@@ -1841,11 +1866,14 @@ def _state_deserialize_line(update: dict[str, str]) -> str:
 def _state_record_update_lines(workflow_spec: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     for stage in workflow_spec["stages"]:
-        if not stage["state_updates"]:
+        stage_updates = [
+            update for update in stage["state_updates"] if not update.get("runtime_owned", False)
+        ]
+        if not stage_updates:
             continue
         branch = "if" if not lines else "elif"
         lines.append(f"            {branch} current_step_id == {stage['step_id']!r}:")
-        for update in stage["state_updates"]:
+        for update in stage_updates:
             state_key = update["state_key"]
             output_key = update["output_key"]
             kind = update["kind"]
@@ -1897,6 +1925,8 @@ def _render_state_py(workflow_spec: dict[str, Any]) -> str:
     deserialize_lines = [_state_deserialize_line(update) for update in state_updates]
     record_update_lines = _state_record_update_lines(workflow_spec)
     repair_condition_lines = _state_repair_condition_lines(workflow_spec)
+    runtime_defaults = dict(workflow_spec.get("runtime_defaults") or {})
+    final_step_id = workflow_spec["final_step_id"]
     return f'''from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
@@ -1912,6 +1942,8 @@ REPAIR_STAGE_IDS = (
     "repair_and_resume",
 )
 DECLARED_RECOVERY_STAGE_IDS = {_python_literal(recovery_stage_ids)}
+FINAL_STAGE_ID = {final_step_id!r}
+RUNTIME_DEFAULTS = {_python_literal(runtime_defaults)}
 
 
 @dataclass
@@ -1931,11 +1963,12 @@ class {class_name}:
 
 def make_initial_state(request: dict) -> {class_name}:
     task_input = dict(request.get("task_input") or {{}})
+    constraints = _normalize_constraints(request.get("constraints") or {{}})
     return {class_name}(
         workflow_goal=_select_workflow_goal(task_input),
         task_input=task_input,
         context=dict(request.get("context") or {{}}),
-        constraints=dict(request.get("constraints") or {{}}),
+        constraints=constraints,
     )
 
 
@@ -1951,17 +1984,71 @@ def serialize_state(state: {class_name}) -> dict:
     return asdict(state)
 
 
+def _normalize_constraints(value: dict) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError("constraints must be an object")
+    normalized = dict(value)
+    for key, default in RUNTIME_DEFAULTS.items():
+        candidate = normalized.get(key, default)
+        if not isinstance(candidate, int) or isinstance(candidate, bool) or candidate <= 0:
+            raise ValueError(f"constraints.{{key}} must be a positive integer")
+        normalized[key] = candidate
+    return normalized
+
+
+def _validate_stage_id(value, *, allow_none: bool = False) -> str | None:
+    if value is None and allow_none:
+        return None
+    allowed = set(MAIN_STAGE_IDS) | set(REPAIR_STAGE_IDS) | {{FINAL_STAGE_ID}}
+    if not isinstance(value, str) or value not in allowed:
+        raise ValueError(f"invalid persisted current_stage_id: {{value!r}}")
+    return value
+
+
+def _validate_return_stage_id(value) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in MAIN_STAGE_IDS:
+        raise ValueError(f"invalid persisted return_stage_id: {{value!r}}")
+    return value
+
+
 def deserialize_state(payload: dict | None) -> {class_name}:
-    payload = payload or {{}}
+    if payload is None:
+        payload = {{}}
+    if not isinstance(payload, dict):
+        raise ValueError("persisted workflow state must be an object")
+    attempt_counts = dict(payload.get("attempt_counts") or {{}})
+    if any(
+        not isinstance(key, str)
+        or not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 0
+        for key, value in attempt_counts.items()
+    ):
+        raise ValueError("persisted attempt_counts must contain non-negative integer values")
+    workflow_goal = payload.get("workflow_goal")
+    if workflow_goal is not None and not isinstance(workflow_goal, str):
+        raise ValueError("persisted workflow_goal must be a string or null")
+    task_input = payload.get("task_input") or {{}}
+    context = payload.get("context") or {{}}
+    if not isinstance(task_input, dict) or not isinstance(context, dict):
+        raise ValueError("persisted task_input and context must be objects")
+    current_stage_id = _validate_stage_id(payload.get("current_stage_id") or MAIN_STAGE_IDS[0])
+    return_stage_id = _validate_return_stage_id(payload.get("return_stage_id"))
+    completed_stages = list(payload.get("completed_stages") or [])
+    allowed_completed = set(MAIN_STAGE_IDS) | {{FINAL_STAGE_ID}}
+    if any(item not in allowed_completed for item in completed_stages):
+        raise ValueError("persisted completed_stages contains an unknown stage")
     return {class_name}(
-        attempt_counts=dict(payload.get("attempt_counts") or {{}}),
-        workflow_goal=payload.get("workflow_goal"),
-        task_input=dict(payload.get("task_input") or {{}}),
-        context=dict(payload.get("context") or {{}}),
-        constraints=dict(payload.get("constraints") or {{}}),
-        current_stage_id=payload.get("current_stage_id") or MAIN_STAGE_IDS[0],
-        completed_stages=list(payload.get("completed_stages") or []),
-        return_stage_id=payload.get("return_stage_id"),
+        attempt_counts=attempt_counts,
+        workflow_goal=workflow_goal,
+        task_input=task_input,
+        context=context,
+        constraints=_normalize_constraints(payload.get("constraints") or {{}}),
+        current_stage_id=current_stage_id,
+        completed_stages=completed_stages,
+        return_stage_id=return_stage_id,
 {chr(10).join(deserialize_lines)}
         artifacts_by_stage=dict(payload.get("artifacts_by_stage") or {{}}),
         repair_context=dict(payload.get("repair_context") or {{}}),
@@ -1978,8 +2065,9 @@ def record_observation(
     state.attempt_counts[current_step_id] = state.attempt_counts.get(current_step_id, 0) + 1
     structured_output = observation.get("structured_output") or {{}}
     if isinstance(structured_output, dict):
-        state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
-        if observation.get("status") == "succeeded":
+        verifier_passed = verifier_result is None or verifier_result.get("passed") is True
+        if observation.get("status") == "succeeded" and verifier_passed:
+            state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
 {chr(10).join(record_update_lines) if record_update_lines else "            pass"}
 
     transition_reason = determine_transition_reason(
@@ -2233,6 +2321,13 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                 if branch_kind == "complete"
                 else f"{stage['step_id']} completed; continue to {next_node}"
             )
+            default_next_node = stage["step_id"] if stage["transitions"] else next_node
+            default_branch_kind = "retry" if stage["transitions"] else branch_kind
+            default_reason = (
+                f"{stage['step_id']} did not match a declared business transition; retry the stage"
+                if stage["transitions"]
+                else reason
+            )
             lines.extend(
                 [
                     f'    if current_step_id == "{stage["step_id"]}":',
@@ -2247,9 +2342,9 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                     *(_policy_repair_condition_lines(stage) if stage["repair_conditions"] else []),
                     *(_policy_transition_lines(stage) if stage["transitions"] else []),
                     "        return TransitionDecision(",
-                    f'            next_node="{next_node}",',
-                    f'            branch_kind="{branch_kind}",',
-                    f'            reason="{reason}",',
+                    f'            next_node="{default_next_node}",',
+                    f'            branch_kind="{default_branch_kind}",',
+                    f'            reason="{default_reason}",',
                     "        )",
                     "",
                 ]
@@ -2943,9 +3038,15 @@ def _render_verifiers_py(
             "        if not isinstance(actual, str) or not actual.strip():",
             "            return message",
             "        candidate = Path(actual)",
+            "        repo = Path(repo_root).resolve()",
             "        if not candidate.is_absolute():",
-            "            candidate = Path(repo_root) / candidate",
-            "        return None if candidate.exists() else message",
+            "            candidate = repo / candidate",
+            "        try:",
+            "            candidate = candidate.resolve()",
+            "            candidate.relative_to(repo)",
+            "        except (OSError, ValueError):",
+            "            return message",
+            "        return None if candidate.is_file() else message",
             "    return None if condition_matches(actual, operator, expected) else message",
             "",
             "",
@@ -3043,12 +3144,17 @@ def _render_verifiers_py(
             "def _artifact_file_contains_sections_error(actual, template: dict, repo_root: str, message: str) -> str | None:",
             "    if not isinstance(actual, str) or not actual.strip():",
             "        return message",
+            "    repo = Path(repo_root).resolve()",
             "    candidate = Path(actual)",
             "    if not candidate.is_absolute():",
-            "        candidate = Path(repo_root) / candidate",
+            "        candidate = repo / candidate",
             "    try:",
+            "        candidate = candidate.resolve()",
+            "        candidate.relative_to(repo)",
+            "        if not candidate.is_file():",
+            "            return message",
             "        text = candidate.read_text(encoding=\"utf-8\")",
-            "    except OSError:",
+            "    except (OSError, ValueError, UnicodeError):",
             "        return message",
             "    sections = [str(section) for section in template.get(\"sections\") or []]",
             "    missing = [section for section in sections if section not in text]",
@@ -3894,11 +4000,12 @@ the right workflow.
 
 ## Common Generated Skeleton Gaps
 
-- Baseline verifiers check required keys and flat schema types such as
-  `boolean`, `string`, and `string[]`; stage return schemas must not use
-  `object` or `object[]` because agents would have to infer hidden structure.
-  Declared `verifier_rules` add simple deterministic checks such as enum
-  membership, path existence, and non-empty fields.
+- Baseline verifiers check required keys and schema types such as `boolean`,
+  `string`, `string[]`, and explicitly declared `object[]` records. Structured
+  records require a custom verifier or a suitable verifier template to define
+  their required fields and cross-record invariants. Declared `verifier_rules`
+  add simple deterministic checks such as enum membership, path existence, and
+  non-empty fields.
 - Output fields with stricter cross-field consistency or domain meaning should
   first be added to `spec.json` when expressible. Use `verifier_templates` for
   whitelistable flat checks such as conditional required fields, uniqueness,

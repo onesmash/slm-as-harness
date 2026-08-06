@@ -178,6 +178,22 @@ class ToolTraceEntry:
         error_message = data.get("error_message")
         started_at = data.get("started_at")
         ended_at = data.get("ended_at")
+        metadata_payload = data.get("metadata", {})
+        if not isinstance(metadata_payload, dict):
+            raise ValueError("ToolTraceEntry metadata must be an object")
+        metadata = dict(metadata_payload)
+        # Host adapters may attach workflow- or vendor-specific trace
+        # extensions at the entry's top level. Preserve those extensions
+        # generically; the runtime model must not enumerate domain fields.
+        core_fields = set(cls.__dataclass_fields__)
+        for key, value in data.items():
+            if key in core_fields:
+                continue
+            if key in metadata and metadata[key] != value:
+                raise ValueError(
+                    f"ToolTraceEntry flat and nested metadata conflict for {key}"
+                )
+            metadata.setdefault(key, value)
         return cls(
             tool_name=_require_non_empty_string(data["tool_name"], "tool_name"),
             status=_require_non_empty_string(data["status"], "status"),
@@ -187,7 +203,7 @@ class ToolTraceEntry:
             error_message=str(error_message) if error_message is not None else None,
             started_at=str(started_at) if started_at is not None else None,
             ended_at=str(ended_at) if ended_at is not None else None,
-            metadata=_require_object(data.get("metadata", {}), "metadata"),
+            metadata=_require_object(metadata, "metadata"),
         )
 
     def to_dict(self) -> dict:

@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "workflow_id": "co_storm_autonomous_research",
+  "installed": [
+    {
+      "id": "research-nex",
+      "type": "skill",
+      "scope": "project",
+      "source": "skill-catalog:research-nex",
+      "recorded_at": "2026-08-06T09:50:50Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "search-nex",
+      "type": "skill",
+      "scope": "project",
+      "source": "skill-catalog:search-nex",
+      "recorded_at": "2026-08-06T09:50:50Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "content-research-writer",
+      "type": "skill",
+      "scope": "project",
+      "source": "skill-catalog:content-research-writer",
+      "recorded_at": "2026-08-06T09:50:50Z",
+      "recorded_by": "bridge.py preflight"
+    }
+  ]
+}
