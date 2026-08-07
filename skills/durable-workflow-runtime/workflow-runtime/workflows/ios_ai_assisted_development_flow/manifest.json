@@ -13,8 +13,7 @@
       "source_skill_url": "string?"
     },
     "constraints": {
-      "max_steps": "integer?",
-      "require_user_approval": "boolean?"
+      "max_steps": "integer?"
     }
   },
   "dependencies": [

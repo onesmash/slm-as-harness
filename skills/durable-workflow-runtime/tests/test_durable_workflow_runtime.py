@@ -585,6 +585,51 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(response["status"], "invalid_manifest")
         self.assertIn("start_input_schema", response["message"])
 
+    def test_preflight_cache_avoids_rewriting_unchanged_lockfile(self) -> None:
+        skill_host = self._load_skill_host()
+        lockfile_path = self._workflow_lockfile_path("demo_prompt_loop")
+        cache_path = (
+            REPO_ROOT
+            / ".durable-workflow-runtime"
+            / "cache"
+            / "preflight"
+            / "demo_prompt_loop.json"
+        )
+        first = skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+        first_mtime = lockfile_path.stat().st_mtime_ns
+        second = skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+
+        self.assertEqual(first["status"], "ready")
+        self.assertFalse(first["cache_hit"])
+        self.assertTrue(second["cache_hit"])
+        self.assertEqual(first["status"], second["status"])
+        self.assertTrue(cache_path.is_file())
+        self.assertEqual(lockfile_path.stat().st_mtime_ns, first_mtime)
+
+    def test_preflight_cache_invalidates_when_manifest_source_changes(self) -> None:
+        skill_host = self._load_skill_host()
+        manifest_path = self._workflow_manifest_path("demo_prompt_loop")
+        cache_path = (
+            REPO_ROOT
+            / ".durable-workflow-runtime"
+            / "cache"
+            / "preflight"
+            / "demo_prompt_loop.json"
+        )
+        skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+        first_fingerprint = json.loads(cache_path.read_text(encoding="utf-8"))["fingerprint"]
+
+        manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest_payload["description"] += " source changed"
+        manifest_path.write_text(
+            json.dumps(manifest_payload, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+
+        second_fingerprint = json.loads(cache_path.read_text(encoding="utf-8"))["fingerprint"]
+        self.assertNotEqual(second_fingerprint, first_fingerprint)
+
     def test_published_manifest_start_input_schemas_match_contracts(self) -> None:
         for manifest_path in sorted((RUNTIME_ROOT / "workflows").glob("*/manifest.json")):
             workflow_id = manifest_path.parent.name
@@ -999,6 +1044,36 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn('reason="cannot resume because the next recovery target is missing"', policy_text)
         self.assertNotIn('next_node=state.get("return_stage_id") or', policy_text)
 
+    def test_workflow_creator_generates_fail_closed_verifier_and_recovery_guards(self) -> None:
+        create_workflow = self._load_create_workflow_module()
+        workflow_dir = RUNTIME_ROOT / "workflows" / "ios_ai_assisted_development_flow"
+        workflow_spec = create_workflow._load_workflow_spec(
+            spec_file=workflow_dir / "spec.json",
+            workflow_id="ios_ai_assisted_development_flow",
+            flow_description=None,
+        )
+
+        policy_text = create_workflow._render_policy_py(workflow_spec)
+        self.assertIn("def _verifier_result_is_valid", policy_text)
+        self.assertIn("not _verifier_result_is_valid(verifier_result)", policy_text)
+        self.assertIn("def recovery_output_validation_error", policy_text)
+        self.assertIn("returned unexpected fields", policy_text)
+
+        state_text = create_workflow._render_state_py(workflow_spec)
+        self.assertIn("def recovery_output_validation_error", state_text)
+        self.assertIn("recovery_output_error is None", state_text)
+        self.assertIn("def _repair_context_source_stage_id", state_text)
+
+        verifier_text, _ = create_workflow._render_verifiers_py(workflow_spec)
+        self.assertIn("unexpected structured_output keys", verifier_text)
+        self.assertIn("has unsupported schema type", verifier_text)
+
+        flowchart_text = create_workflow._render_flowchart_md(workflow_spec)
+        self.assertIn("verifier missing", flowchart_text)
+        self.assertIn("default success", flowchart_text)
+        self.assertIn("Recovery output note", flowchart_text)
+        self.assertIn("terminal_reason=max_steps_exceeded", flowchart_text)
+
     def test_workflow_creator_generated_regression_tests_include_structural_defaults(self) -> None:
         create_workflow = self._load_create_workflow_module()
         generated = create_workflow._render_regression_tests_py(
@@ -1143,7 +1218,9 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                                         "signals": [
                                             "design_doc_path",
                                             "design_ready",
+                                            "tool_trace",
                                         ],
+                                        "python_imports": ["ast"],
                                         "implementation_surface": ["verifier", "tests"],
                                         "implementation_notes": "Check file contents and stage semantics in generated verifiers.py code before review.",
                                         "hint_pseudocode": [
@@ -1177,18 +1254,28 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(
             stage["custom_verifier_requirements"][0]["signals"],
-            ["design_doc_path", "design_ready"],
+            ["design_doc_path", "design_ready", "tool_trace"],
         )
         self.assertEqual(
             stage["custom_verifier_requirements"][0]["implementation_surface"],
             ["verifier", "tests"],
         )
+        self.assertEqual(
+            stage["custom_verifier_requirements"][0]["python_imports"],
+            ["ast"],
+        )
         rendered_verifiers, warnings = create_workflow._render_verifiers_py(workflow_spec)
         self.assertEqual(warnings, [])
+        self.assertIn("import ast", rendered_verifiers)
         self.assertIn(
             "def _run_custom_verifier_requirements_review_design_doc(",
             rendered_verifiers,
         )
+        self.assertIn(
+            'tool_trace=observation.get("tool_trace")',
+            rendered_verifiers,
+        )
+        self.assertIn("tool_trace: object | None = None", rendered_verifiers)
         self.assertIn(
             "def _custom_verifier_requirement_review_design_doc_design_doc_matches_brainstorming_contract(",
             rendered_verifiers,
@@ -2954,6 +3041,33 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertIn("<workflow_id>data-analysis</workflow_id>", agents_text)
             self.assertFalse((repo_root / "CLAUDE.md").exists())
 
+    def test_workflow_creator_rolls_back_binding_when_shortcut_write_fails(self) -> None:
+        from unittest.mock import patch
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            binding_path = runtime_root / "workflow-binding.json"
+            original_binding = binding_path.read_text(encoding="utf-8")
+            creator = self._load_create_workflow_module()
+
+            with patch.object(
+                creator,
+                "ensure_workflow_shortcut_skill",
+                side_effect=RuntimeError("shortcut write failed"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "shortcut write failed"):
+                    creator.create_workflow_scaffold(
+                        runtime_skill_root=runtime_root,
+                        workflow_id="rollback_flow",
+                        flow_description="Exercise creator transaction rollback.",
+                    )
+
+            self.assertEqual(binding_path.read_text(encoding="utf-8"), original_binding)
+            self.assertFalse(
+                (runtime_root / "workflow-runtime" / "workflows" / "rollback_flow").exists()
+            )
+
     def test_workflow_creator_cli_creates_scaffold_and_binding_entry(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
@@ -3192,6 +3306,29 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 flow_description="Review academic paper drafts through structured reviewer stages.",
             )
             self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+            custom_support_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "paper_review_flow"
+                / "custom_support.py"
+            )
+            custom_support_path.write_text(
+                "CUSTOM_SUPPORT_MARKER = 'preserve-me'\n",
+                encoding="utf-8",
+            )
+            custom_state_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "paper_review_flow"
+                / "state.py"
+            )
+            generated_state_text = custom_state_path.read_text(encoding="utf-8")
+            custom_state_path.write_text(
+                "# CUSTOM_STATE_MARKER = 'preserve-custom-state'\n" + generated_state_text,
+                encoding="utf-8",
+            )
 
             spec_payload = {
                 "workflow_id": "paper_review_flow",
@@ -3204,6 +3341,13 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                     "context": {"repo_root": "string"},
                     "constraints": {"max_steps": "integer?"},
                 },
+                "repair_policy": {
+                    "max_self_repair_attempts": 2,
+                    "exhausted_next_node": "finalize_review_report",
+                    "exhausted_branch_kind": "partial",
+                    "exhausted_reason": "repair exhausted the configured attempts",
+                },
+                "state_mode": "custom",
                 "stages": [
                     {
                         "step_id": "collect_review_context",
@@ -3452,6 +3596,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             )
             self.assertEqual(spec_blueprint["workflow_id"], "paper_review_flow")
             self.assertEqual(spec_blueprint["final_step_id"], "finalize_review_report")
+            self.assertEqual(spec_blueprint["state_mode"], "custom")
             self.assertEqual(
                 [stage["step_id"] for stage in spec_blueprint["stages"]],
                 [
@@ -3509,7 +3654,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertIn("def _extract_single_review_perspective(text: str) -> str | None:", verifier_text)
             self.assertIn("def _looks_like_visual_evidence(text: str) -> bool:", verifier_text)
             self.assertIn("def _severity_rank(severity: str) -> int:", verifier_text)
-            self.assertIn("collect_review_context -->|success| run_structured_critique", flowchart_text)
+            self.assertIn("collect_review_context -->|default success| run_structured_critique", flowchart_text)
             self.assertIn("run_structured_critique -->|success| finalize_review_report", flowchart_text)
             self.assertNotIn("run_structured_critique -->|success| repair_structured_critique", flowchart_text)
             self.assertIn("run_structured_critique -->|verifier_failed| repair_structured_critique", flowchart_text)
@@ -3532,18 +3677,30 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertTrue((workflow_dir / "prompts" / "repair_structured_critique.md").exists())
             self.assertTrue((workflow_dir / "prompts" / "finalize_review_report.md").exists())
             self.assertTrue(generated_test_path.exists())
+            self.assertEqual(
+                custom_support_path.read_text(encoding="utf-8"),
+                "CUSTOM_SUPPORT_MARKER = 'preserve-me'\n",
+            )
+            self.assertTrue(
+                (workflow_dir / "state.py")
+                .read_text(encoding="utf-8")
+                .startswith("# CUSTOM_STATE_MARKER = 'preserve-custom-state'\n")
+            )
             self.assertIn("test_context_not_ready_routes_to_context", generated_test_text)
             self.assertIn("test_critique_rejects_unknown_risk", generated_test_text)
             self.assertIn("test_critique_rejects_missing_finding_fields", generated_test_text)
             self.assertIn("test_critique_verifier_failed_routes_to_repair", generated_test_text)
             self.assertIn("test_critique_partial_uses_shared_repair_default", generated_test_text)
             self.assertIn("test_recovery_success_returns_to_critique", generated_test_text)
-            self.assertIn("test_generated_request_unblocking_input_resumes_to_return_stage", generated_test_text)
-            self.assertIn("test_generated_request_unblocking_input_returns_to_repair_owner", generated_test_text)
-            self.assertIn("test_generated_repair_and_resume_without_return_stage_stays_put", generated_test_text)
-            self.assertIn("test_generated_repair_and_resume_blocked_before_threshold_retries_locally", generated_test_text)
-            self.assertIn("test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking", generated_test_text)
-            self.assertIn(
+            self.assertNotIn(
+                "test_generated_request_unblocking_input_resumes_to_return_stage",
+                generated_test_text,
+            )
+            self.assertNotIn(
+                "test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking",
+                generated_test_text,
+            )
+            self.assertNotIn(
                 "test_generated_blocked_repair_context_preserves_host_visible_summary",
                 generated_test_text,
             )
@@ -3685,6 +3842,8 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                             "        'raw_output': '',",
                             "    },",
                             ")",
+                            "if response.get('step_id') != 'run_structured_critique':",
+                            "    raise AssertionError(f\"expected run_structured_critique after context, got {response.get('step_id')!r}\")",
                             "response = engine.resume(",
                             "    run_id,",
                             "    {",

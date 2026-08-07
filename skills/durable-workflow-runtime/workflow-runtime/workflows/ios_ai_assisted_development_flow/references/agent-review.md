@@ -28,7 +28,9 @@ the right workflow.
   same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Require at least three non-empty artifact paths.
-    - Require each artifact path to exist under docs/superpowers/specs/ and end with .md.
+    - Require each artifact path to be a relative, canonical, regular UTF-8 Markdown file under docs/superpowers/specs/; reject absolute paths, parent-directory traversal, and symlink traversal.
+    - Reject empty artifact files and deduplicate by canonical path, not only by the submitted string.
+    - Require each artifact's Markdown content to name the single perspective encoded by its canonical path.
     - Require the combined artifact paths to clearly cover development, design, and testing review outputs.
     - Require three non-empty subagent summaries that map one-to-one to development, design, and testing instead of duplicating one perspective.
     - Reject repeated summaries or repeated artifact paths when they are being used to fake independent review coverage.
@@ -50,7 +52,7 @@ the right workflow.
     - Normalize execution_mode to lowercase.
     - Accept only subagent-driven as the implementation-ready mode.
     - If execution_mode is inline or any other value, reject the output or require ready_for_implementation to remain false.
-    - If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason or plan_summary.
+    - If plan_update_summary, debugging_summary, or open_issues are present in state, require the revised planning output to acknowledge the replanning reason via plan_revision_reason.
   Test intent:
     - Reject planning outputs that pick inline execution while claiming implementation is ready.
     - Accept planning outputs that record subagent-driven execution with a written plan.
@@ -202,6 +204,23 @@ the right workflow.
 - `prompts/*.md`: stage prompt assets.
 - `references/flowchart.md`: linear flowchart and summarized repair loop.
 - `manifest.json` and the `workflow-binding.json` entry.
+
+## Post-fix Runtime Invariants
+
+- Every main stage that has a verifier requires a valid boolean verifier result;
+  a missing or malformed result routes to `repair_and_resume`.
+- `request_unblocking_input` accepts only meaningful `blocking_reason` and
+  `user_action_needed` fields, and `repair_and_resume` accepts only meaningful
+  retry notes and at least one repair action. Unknown recovery fields are
+  rejected.
+- A failed unblocking attempt preserves `repair_and_resume` as the recovery
+  owner when it already owns the retry decision.
+- `return_stage_id` is restricted to declared main stages, and the complete
+  repair episode is cleared when `max_steps_exceeded` reaches the degraded
+  final summary.
+- Optional source and visual inputs render as unavailable/ not applicable when
+  empty; the final prompt treats unreached branch fields as absent evidence and
+  never upgrades them into a completion claim.
 
 ## Agent-Owned Review Checklist
 

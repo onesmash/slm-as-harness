@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 
 from workflows.common.policies import condition_matches
 from workflows.common.repair_payloads import build_default_agent_repair_payload, make_agent_repair_payload
+
+
+MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE = 32
+MAX_ARTIFACT_JOURNAL_BYTES = 64 * 1024
 
 
 MAIN_STAGE_IDS = ('diagnose_performance',
@@ -18,6 +23,8 @@ REPAIR_STAGE_IDS = (
     "repair_and_resume",
 )
 DECLARED_RECOVERY_STAGE_IDS = ('capture_blocked_cycle_knowledge',)
+DEFAULT_MAX_CYCLES = 3
+FINAL_STAGE_ID = "finalize_optimization_cycle"
 
 
 @dataclass
@@ -52,6 +59,8 @@ class PerformanceOptimizationCycleWorkflowState:
     review_findings: list = field(default_factory=list)
     knowledge_base_update_summary: str | None = None
     knowledge_base_artifacts: list = field(default_factory=list)
+    continue_optimization: bool | None = None
+    completed_optimization_cycles: int = 0
     blocked_cycle_next_lead: str | None = None
     artifacts_by_stage: dict[str, list[dict]] = field(default_factory=dict)
     repair_context: dict[str, object] = field(default_factory=dict)
@@ -63,7 +72,7 @@ def make_initial_state(request: dict) -> PerformanceOptimizationCycleWorkflowSta
         workflow_goal=_select_workflow_goal(task_input),
         task_input=task_input,
         context=dict(request.get("context") or {}),
-        constraints=dict(request.get("constraints") or {}),
+        constraints=_normalize_constraints(request.get("constraints") or {}),
     )
 
 
@@ -75,21 +84,69 @@ def _select_workflow_goal(task_input: dict) -> str | None:
     return None
 
 
+def _normalize_constraints(value: dict) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError("constraints must be an object")
+    normalized = dict(value)
+    max_cycles = normalized.get("max_cycles", DEFAULT_MAX_CYCLES)
+    if not isinstance(max_cycles, int) or isinstance(max_cycles, bool) or max_cycles <= 0:
+        raise ValueError("constraints.max_cycles must be a positive integer")
+    normalized["max_cycles"] = max_cycles
+    return normalized
+
+
 def serialize_state(state: PerformanceOptimizationCycleWorkflowState) -> dict:
-    return asdict(state)
+    payload = asdict(state)
+    payload["artifacts_by_stage"] = _normalize_artifact_journal(
+        state.artifacts_by_stage
+    )
+    return payload
 
 
 def deserialize_state(payload: dict | None) -> PerformanceOptimizationCycleWorkflowState:
-    payload = payload or {}
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValueError("persisted workflow state must be an object")
+    raw_attempt_counts = payload.get("attempt_counts")
+    attempt_counts = raw_attempt_counts if raw_attempt_counts is not None else {}
+    if not isinstance(attempt_counts, dict) or any(
+        not isinstance(key, str)
+        or not isinstance(value, int)
+        or isinstance(value, bool)
+        or value < 0
+        for key, value in attempt_counts.items()
+    ):
+        raise ValueError("persisted attempt_counts must contain non-negative integer values")
+    raw_task_input = payload.get("task_input")
+    raw_context = payload.get("context")
+    task_input = raw_task_input if raw_task_input is not None else {}
+    context = raw_context if raw_context is not None else {}
+    if not isinstance(task_input, dict) or not isinstance(context, dict):
+        raise ValueError("persisted task_input and context must be objects")
+    raw_completed_stages = payload.get("completed_stages")
+    completed_stages = raw_completed_stages if raw_completed_stages is not None else []
+    if not isinstance(completed_stages, list):
+        raise ValueError("persisted completed_stages must be a list")
+    allowed_completed = set(MAIN_STAGE_IDS) | {FINAL_STAGE_ID}
+    if any(
+        not isinstance(item, str) or item not in allowed_completed
+        for item in completed_stages
+    ):
+        raise ValueError("persisted completed_stages contains an unknown stage")
+    current_stage_id = _validate_stage_id(
+        payload.get("current_stage_id", MAIN_STAGE_IDS[0])
+    )
+    return_stage_id = _validate_return_stage_id(payload.get("return_stage_id"))
     return PerformanceOptimizationCycleWorkflowState(
-        attempt_counts=dict(payload.get("attempt_counts") or {}),
+        attempt_counts=attempt_counts,
         workflow_goal=payload.get("workflow_goal"),
-        task_input=dict(payload.get("task_input") or {}),
-        context=dict(payload.get("context") or {}),
-        constraints=dict(payload.get("constraints") or {}),
-        current_stage_id=payload.get("current_stage_id") or MAIN_STAGE_IDS[0],
-        completed_stages=list(payload.get("completed_stages") or []),
-        return_stage_id=payload.get("return_stage_id"),
+        task_input=task_input,
+        context=context,
+        constraints=_normalize_constraints(payload.get("constraints") or {}),
+        current_stage_id=current_stage_id,
+        completed_stages=completed_stages,
+        return_stage_id=return_stage_id,
         baseline_metrics=payload.get('baseline_metrics'),
         bottleneck_summary=payload.get('bottleneck_summary'),
         performance_report_path=payload.get('performance_report_path'),
@@ -112,10 +169,30 @@ def deserialize_state(payload: dict | None) -> PerformanceOptimizationCycleWorkf
         review_findings=list(payload.get('review_findings') or []),
         knowledge_base_update_summary=payload.get('knowledge_base_update_summary'),
         knowledge_base_artifacts=list(payload.get('knowledge_base_artifacts') or []),
+        continue_optimization=payload.get('continue_optimization'),
+        completed_optimization_cycles=_non_negative_integer(
+            payload.get("completed_optimization_cycles", 0),
+            "persisted completed_optimization_cycles",
+        ),
         blocked_cycle_next_lead=payload.get('blocked_cycle_next_lead'),
         artifacts_by_stage=dict(payload.get("artifacts_by_stage") or {}),
         repair_context=dict(payload.get("repair_context") or {}),
     )
+
+
+def _validate_stage_id(value: object) -> str:
+    allowed = set(MAIN_STAGE_IDS) | set(REPAIR_STAGE_IDS) | {FINAL_STAGE_ID}
+    if not isinstance(value, str) or value not in allowed:
+        raise ValueError(f"invalid persisted current_stage_id: {value!r}")
+    return value
+
+
+def _validate_return_stage_id(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in MAIN_STAGE_IDS:
+        raise ValueError(f"invalid persisted return_stage_id: {value!r}")
+    return value
 
 
 def record_observation(
@@ -126,46 +203,58 @@ def record_observation(
     verifier_result: dict | None,
 ) -> None:
     state.attempt_counts[current_step_id] = state.attempt_counts.get(current_step_id, 0) + 1
+    if (
+        current_step_id == "update_optimization_knowledge_base"
+        and observation.get("status") == "succeeded"
+        and isinstance(verifier_result, dict)
+        and verifier_result.get("passed") is True
+    ):
+        state.completed_optimization_cycles += 1
     structured_output = observation.get("structured_output") or {}
-    if isinstance(structured_output, dict):
-        state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
-        if observation.get("status") == "succeeded":
-            if current_step_id == 'diagnose_performance':
-                state.baseline_metrics = structured_output.get('baseline_metrics')
-                state.bottleneck_summary = structured_output.get('bottleneck_summary')
-                state.performance_report_path = structured_output.get('performance_report_path')
-            elif current_step_id == 'brainstorm_optimization':
-                state.optimization_hypotheses = _list_value(structured_output.get('optimization_hypotheses'))
-                state.success_criteria = structured_output.get('success_criteria')
-                state.brainstorm_artifact_path = structured_output.get('brainstorm_artifact_path')
-            elif current_step_id == 'research_optimization':
-                state.research_brief_path = structured_output.get('research_brief_path')
-                state.evidence_summary = structured_output.get('evidence_summary')
-                state.open_risks = _list_value(structured_output.get('open_risks'))
-                state.planned_change_summary = structured_output.get('planned_change_summary')
-                state.verification_plan = _list_value(structured_output.get('verification_plan'))
-            elif current_step_id == 'implement_optimization':
-                state.implementation_summary = structured_output.get('implementation_summary')
-                state.planned_change_summary = structured_output.get('planned_change_summary')
-                state.verification_plan = _list_value(structured_output.get('verification_plan'))
-                state.changed_paths = _list_value(structured_output.get('changed_paths'))
-                state.submission_test_output = structured_output.get('submission_test_output')
-                state.submission_test_exit_code = structured_output.get('submission_test_exit_code')
-                state.submission_test_command = structured_output.get('submission_test_command')
-                state.submission_tests_passed = structured_output.get('submission_tests_passed')
-                state.ready_for_review = structured_output.get('ready_for_review')
-            elif current_step_id == 'review_optimization':
-                state.review_summary = structured_output.get('review_summary')
-                state.review_findings = _list_value(structured_output.get('review_findings'))
-            elif current_step_id == 'update_optimization_knowledge_base':
-                state.knowledge_base_update_summary = structured_output.get('knowledge_base_update_summary')
-                state.knowledge_base_artifacts = _list_value(structured_output.get('knowledge_base_artifacts'))
-            elif current_step_id == 'capture_blocked_cycle_knowledge':
-                state.knowledge_base_update_summary = structured_output.get('knowledge_base_update_summary')
-                state.knowledge_base_artifacts = _list_value(structured_output.get('knowledge_base_artifacts'))
-                state.blocked_cycle_next_lead = structured_output.get('next_cycle_lead')
-            else:
-                pass
+    verifier_passed = (
+        isinstance(verifier_result, dict)
+        and verifier_result.get("passed") is True
+    )
+    if isinstance(structured_output, dict) and observation.get("status") == "succeeded" and verifier_passed:
+        state.artifacts_by_stage.setdefault(current_step_id, []).append(
+            _compact_artifact_snapshot(structured_output)
+        )
+        state.artifacts_by_stage = _normalize_artifact_journal(state.artifacts_by_stage)
+        if current_step_id == 'diagnose_performance':
+            state.baseline_metrics = structured_output.get('baseline_metrics')
+            state.bottleneck_summary = structured_output.get('bottleneck_summary')
+            state.performance_report_path = structured_output.get('performance_report_path')
+        elif current_step_id == 'brainstorm_optimization':
+            state.optimization_hypotheses = _list_value(structured_output.get('optimization_hypotheses'))
+            state.success_criteria = structured_output.get('success_criteria')
+            state.brainstorm_artifact_path = structured_output.get('brainstorm_artifact_path')
+        elif current_step_id == 'research_optimization':
+            state.research_brief_path = structured_output.get('research_brief_path')
+            state.evidence_summary = structured_output.get('evidence_summary')
+            state.open_risks = _list_value(structured_output.get('open_risks'))
+            state.planned_change_summary = structured_output.get('planned_change_summary')
+            state.verification_plan = _list_value(structured_output.get('verification_plan'))
+        elif current_step_id == 'implement_optimization':
+            state.implementation_summary = structured_output.get('implementation_summary')
+            state.planned_change_summary = structured_output.get('planned_change_summary')
+            state.verification_plan = _list_value(structured_output.get('verification_plan'))
+            state.changed_paths = _list_value(structured_output.get('changed_paths'))
+            state.submission_test_output = structured_output.get('submission_test_output')
+            state.submission_test_exit_code = structured_output.get('submission_test_exit_code')
+            state.submission_test_command = structured_output.get('submission_test_command')
+            state.submission_tests_passed = structured_output.get('submission_tests_passed')
+            state.ready_for_review = structured_output.get('ready_for_review')
+        elif current_step_id == 'review_optimization':
+            state.review_summary = structured_output.get('review_summary')
+            state.review_findings = _list_value(structured_output.get('review_findings'))
+        elif current_step_id == 'update_optimization_knowledge_base':
+            state.knowledge_base_update_summary = structured_output.get('knowledge_base_update_summary')
+            state.knowledge_base_artifacts = _list_value(structured_output.get('knowledge_base_artifacts'))
+            state.continue_optimization = structured_output.get('continue_optimization')
+        elif current_step_id == 'capture_blocked_cycle_knowledge':
+            state.knowledge_base_update_summary = structured_output.get('knowledge_base_update_summary')
+            state.knowledge_base_artifacts = _list_value(structured_output.get('knowledge_base_artifacts'))
+            state.blocked_cycle_next_lead = structured_output.get('next_cycle_lead')
 
     transition_reason = determine_transition_reason(
         current_step_id=current_step_id,
@@ -202,6 +291,12 @@ def determine_return_stage_id(
     return current_step_id
 
 
+def _non_negative_integer(value: object, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{label} must be a non-negative integer")
+    return value
+
+
 def determine_transition_reason(
     *,
     current_step_id: str,
@@ -215,7 +310,10 @@ def determine_transition_reason(
         return "partial"
     if status == "failed":
         return "failed"
-    if verifier_result is not None and not verifier_result.get("passed", False):
+    if verifier_result is not None and (
+        not isinstance(verifier_result, dict)
+        or verifier_result.get("passed") is not True
+    ):
         return "verifier_failed"
     structured_output = observation.get("structured_output") or {}
     if isinstance(structured_output, dict):
@@ -267,6 +365,66 @@ def _build_repair_context(
 
 def _list_value(value) -> list:
     return list(value) if isinstance(value, list) else []
+
+
+def _compact_artifact_snapshot(value: dict) -> dict:
+    compact = {
+        "output_keys": sorted(key for key in value if isinstance(key, str))[:128],
+    }
+    for key, raw_value in value.items():
+        if not isinstance(key, str):
+            continue
+        if key.endswith("_path") or key.endswith("_paths") or key == "artifact_path":
+            if isinstance(raw_value, str):
+                compact[key] = raw_value[:2048]
+            elif isinstance(raw_value, list):
+                compact[key] = [
+                    item[:2048]
+                    for item in raw_value[:128]
+                    if isinstance(item, str) and item.strip()
+                ]
+        elif (
+            key.endswith("_index")
+            or key.endswith("_count")
+            or key.startswith("ready_")
+            or key.endswith("_ready")
+            or key.endswith("_complete")
+            or key.startswith("continue_")
+            or key.startswith("should_")
+            or key.endswith("_passed")
+        ) and isinstance(raw_value, (bool, int)):
+            compact[key] = raw_value
+    return compact
+
+
+def _normalize_artifact_journal(value: object) -> dict[str, list[dict]]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, list[dict]] = {}
+    for stage_id, entries in value.items():
+        if not isinstance(stage_id, str) or not isinstance(entries, list):
+            continue
+        compact_entries = [
+            _compact_artifact_snapshot(item)
+            for item in entries[-MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE:]
+            if isinstance(item, dict)
+        ]
+        if compact_entries:
+            normalized[stage_id] = compact_entries
+    while _json_size(normalized) > MAX_ARTIFACT_JOURNAL_BYTES:
+        oldest_stage = next(iter(normalized), None)
+        if oldest_stage is None:
+            break
+        entries = normalized[oldest_stage]
+        if len(entries) > 1:
+            entries.pop(0)
+        else:
+            normalized.pop(oldest_stage)
+    return normalized
+
+
+def _json_size(value: object) -> int:
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
 def _dict_value(value) -> dict:

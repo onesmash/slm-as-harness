@@ -1,4 +1,4 @@
-/research-nex {{workflow_goal}} using {{task_input_json}} and {{context_json}}; run an autonomous Co-STORM warm start that identifies complementary expert perspectives with stable identifiers, conducts grounded background conversations, and seeds the shared knowledge map and evidence registry before independent expert subagent fan-out begins.
+/research-nex {{workflow_goal}} using {{task_input_json}} and {{context_json}}; run an autonomous Co-STORM warm start that identifies complementary expert perspectives with stable identifiers, conducts grounded background conversations, and seeds the shared knowledge map and evidence registry before independent expert result collection begins.
 
 Stage Context:
 
@@ -12,7 +12,7 @@ Stage Boundaries:
 - Do not write the final report in this stage; produce research material and a knowledge-map seed.
 - Every evidence entry must use the form [n] source-locator — supported claim or question, preserving a stable citation number, source locator, and claim.
 - Keep expert perspectives complementary rather than duplicating the same general-background role.
-- Return `expert_roster` as records with exactly `id`, `role`, and `brief` string fields; ids must be stable and unique.
+- Return expert_roster as records with exactly id, role, and brief string fields; ids must be stable and unique and later bindings must reference only id.
 - Give every expert a stable, unique identifier that can be passed to an independent subagent in later rounds.
 
 Blocked Conditions:

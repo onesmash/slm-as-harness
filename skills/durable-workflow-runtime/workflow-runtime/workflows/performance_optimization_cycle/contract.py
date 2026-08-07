@@ -6,7 +6,7 @@ WORKFLOW_ID = 'performance_optimization_cycle'
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     task_input_schema={'goal': 'string', 'baseline_cycles': 'integer?'},
     context_schema={'repo_root': 'string'},
-    constraints_schema={},
+    constraints_schema={'max_steps': 'integer?', 'max_cycles': 'integer?'},
 )
 
 DIAGNOSE_PERFORMANCE_ROUTE_1 = SkillRoute(

@@ -9,7 +9,9 @@ Stage Context:
 - Latest spec review findings summary: {{spec_review_findings_summary}}
 - Latest spec review subagent summaries: {{spec_review_subagent_summaries}}
 - Latest spec review artifact paths: {{spec_review_artifact_paths}}
+- Visual specification detail summary: {{visual_spec_detail_summary}}
 - Latest open questions carried forward: {{open_questions}}
+- Optional source inputs: {{source_doc_url}}; {{source_skill_url}}. An empty value means no source was provided and is not by itself a blocker.
 
 Stage Boundaries:
 
@@ -19,13 +21,16 @@ Stage Boundaries:
 - If this stage is revisiting the design after spec review, address the recorded review findings and preserve the link to the existing review artifacts.
 - Write the brainstorming design as a Markdown document under docs/superpowers/specs/.
 - Do not use implementation plan documents as the brainstorming design document.
+- Treat empty optional source inputs as unavailable context; do not invent or require them.
 - If the requested change affects a user-visible UI surface, the spec must include implementation-ready visual detail: view hierarchy, per-element properties, typography, colors, spacing, padding, alignment, sizing, constraints, states, assets, interaction behavior, layout relationships, and measurable expectations detailed enough to support code generation and visual verification without guessing.
 - If the requested change affects a user-visible UI surface, the spec must name the design-comparison source for visual QA, such as a Figma frame, approved mock, or reference screenshot, and describe the expected app screenshot/view scope to capture for runtime visual comparison.
+- If ui_surface_affected is false, leave the visual-detail and comparison fields empty rather than inventing UI evidence.
 - Do not wait for the user to review or approve the spec in this stage.
 - Do not launch subagent review in this stage; the workflow will ask for explicit authorization in the next stage.
 
 Blocked Conditions:
 
+- Block if no clarification question has been asked and answered.
 - Block if the requested change still cannot be scoped to a concrete project objective after reviewing the request and asking the minimum clarification question(s) needed.
 - Block if the requested change cannot be scoped to a concrete project objective.
 - Block if a user-visible UI change lacks implementation-ready visual detail, a design-comparison source, or runtime screenshot/view scope.

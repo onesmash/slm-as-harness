@@ -10,7 +10,10 @@
     "context": {
       "repo_root": "string"
     },
-    "constraints": {}
+    "constraints": {
+      "max_steps": "integer?",
+      "max_cycles": "integer?"
+    }
   },
   "dependencies": [
     {

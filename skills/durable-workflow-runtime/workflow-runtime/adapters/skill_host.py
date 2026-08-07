@@ -2,13 +2,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
+import tempfile
 from pathlib import Path
 
 SKILL_RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BINDING_CONFIG_PATH = SKILL_ROOT / "workflow-binding.json"
 BINDING_CONFIG_ENV_VAR = "DURABLE_WORKFLOW_RUNTIME_BINDING_CONFIG_PATH"
+_WORKFLOW_ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 if str(SKILL_RUNTIME_ROOT) not in sys.path:
     sys.path.insert(0, str(SKILL_RUNTIME_ROOT))
 
@@ -17,8 +20,11 @@ from runtime.errors import (
     ObservationValidationError,
     ProtocolError,
     RequestValidationError,
+    TransportValidationError,
     WorkflowExecutionError,
 )
+from runtime.transport import canonicalize_observation
+from runtime.telemetry import RuntimeTelemetry
 
 
 def _binding_config_path() -> Path:
@@ -63,6 +69,10 @@ def resume(repo_root: str, run_id: str, observation: dict) -> dict:
     repo_path = _resolve_repo_root(repo_root)
     runtime_root = _resolve_runtime_root()
     _validate_observation(run_id, observation)
+    try:
+        observation = canonicalize_observation(observation)
+    except TransportValidationError as exc:
+        raise ObservationValidationError(str(exc)) from exc
     _bootstrap_runtime_imports(runtime_root)
     engine = _load_engine(repo_path)
     return _attach_next_step_recommendations(engine.resume(run_id, observation))
@@ -111,6 +121,7 @@ def _load_default_workflow_id(runtime_root: Path) -> str:
         raise BootstrapError("workflow binding config must define non-empty default_workflow_id")
 
     workflow_id = workflow_id.strip()
+    _validate_workflow_id(workflow_id)
     _validate_workflow_is_available(runtime_root, workflow_id=workflow_id, payload=payload)
     return workflow_id
 
@@ -121,12 +132,14 @@ def _resolve_start_workflow_id(runtime_root: Path, workflow_id: str | None) -> s
     resolved_workflow_id = workflow_id.strip()
     if not resolved_workflow_id:
         raise BootstrapError("workflow_id must be non-empty when provided")
+    _validate_workflow_id(resolved_workflow_id)
     payload = _load_binding_config()
     _validate_workflow_is_available(runtime_root, workflow_id=resolved_workflow_id, payload=payload)
     return resolved_workflow_id
 
 
 def _validate_workflow_is_available(runtime_root: Path, *, workflow_id: str, payload: dict) -> None:
+    _validate_workflow_id(workflow_id)
     catalog = payload.get("workflows", [])
     if not isinstance(catalog, list):
         raise BootstrapError("workflow binding config field 'workflows' must be a list")
@@ -164,6 +177,11 @@ def _validate_workflow_is_available(runtime_root: Path, *, workflow_id: str, pay
         _write_binding_config(payload)
 
 
+def _validate_workflow_id(workflow_id: str) -> None:
+    if not _WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+        raise BootstrapError("workflow_id must be a safe Python module identifier")
+
+
 def _bootstrap_runtime_imports(runtime_root: Path) -> None:
     runtime_root_text = str(runtime_root)
     if runtime_root_text not in sys.path:
@@ -186,12 +204,39 @@ def _sync_binding_start_input_schema(payload: dict, workflow_entry: dict, input_
 
 
 def _write_binding_config(payload: dict) -> None:
-    binding_config_path = _binding_config_path()
+    configured_path = _binding_config_path().expanduser()
+    if configured_path.is_symlink():
+        raise BootstrapError(f"refusing to replace symlink binding config: {configured_path}")
+    binding_config_path = configured_path.resolve(strict=False)
     binding_config_path.parent.mkdir(parents=True, exist_ok=True)
-    binding_config_path.write_text(
-        json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    if binding_config_path.is_file():
+        try:
+            if binding_config_path.read_text(encoding="utf-8") == serialized:
+                return
+        except (OSError, UnicodeError):
+            pass
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{binding_config_path.name}.",
+        suffix=".tmp",
+        dir=binding_config_path.parent,
     )
+    temporary_path = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as temporary_file:
+            temporary_file.write(serialized)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, binding_config_path)
+        directory_descriptor = os.open(binding_config_path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def _attach_next_step_recommendations(response: dict) -> dict:
@@ -240,11 +285,22 @@ def _load_engine(repo_root: Path):
 def _run_dependency_preflight(repo_root: Path, runtime_root: Path, workflow_id: str) -> dict:
     from runtime.dependency_preflight import build_preflight_result
 
-    return build_preflight_result(
+    result = build_preflight_result(
         repo_root=repo_root,
         runtime_root=runtime_root,
         workflow_id=workflow_id,
+        binding_path=_binding_config_path(),
     )
+    RuntimeTelemetry(repo_root).record(
+        "preflight",
+        workflow_id=workflow_id,
+        labels={
+            "status": str(result.get("status") or "unknown"),
+            "cache": "hit" if result.get("cache_hit") else "miss",
+        },
+        metrics={"cache_hit": bool(result.get("cache_hit"))},
+    )
+    return result
 
 
 def _validate_start_request(request: dict) -> None:

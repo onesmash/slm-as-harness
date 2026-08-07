@@ -15,54 +15,42 @@ the right workflow.
 - `verify_report`
 - `repair_report`
 
+## State Ownership
+
+- `state_mode`: `generated`.
+- When `state_mode` is `custom`, review the existing workflow `state.py` as a
+  domain-owned implementation and verify strict persisted-state validation,
+  bounded serialization, and fail-closed verifier promotion before sign-off.
+
 ## Declared Custom Verifier Requirements
-
-### `warm_start_shared_space`
-
-- `expert_roster_has_stable_identity`: The warm-start expert roster must be a structured list of stable expert records; later fan-out bindings reference only each record's id.
-  Signals: `expert_roster`
-  Implementation surfaces: `verifiers.py`, `state.py`, `workflow-specific regression tests`
-  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
-  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
-  same-file helper dependencies as a blocking review issue.
-  Hint pseudocode:
-    - Require expert_roster to be a list of objects with exactly id, role, and brief string fields.
-    - Require every expert id, role, and brief to be non-empty and every id to be unique.
-    - Reject legacy string-only roster entries instead of guessing whether a description is a stable identifier.
-  Test intent:
-    - Accept two structured expert records with distinct ids.
-    - Reject a legacy string-only roster entry.
-    - Reject duplicate or incomplete expert records.
 
 ### `launch_expert_subagents`
 
-- `independent_subagents_complete`: The fan-out stage must launch exactly one independent subagent per stable expert identifier, collect all results for one autonomous round, preserve prior run history, and prove that each result is grounded and stored as a safe repository-relative artifact.
-  Signals: `expert_roster`, `fanout_round_index`, `subagent_expert_ids`, `subagent_run_ids`, `subagent_result_summaries`, `subagent_artifact_paths`, `subagent_binding_records`, `subagent_run_history`, `execution_mode`, `tool_trace`
-  Implementation surfaces: `verifiers.py`, `state.py`, `policy.py`, `workflow-specific regression tests`
+- `expert_results_match_roster`: The expert-result stage must return exactly one evidence-grounded result for every persisted expert and a safe, distinct artifact for each result.
+  Signals: `expert_roster`, `round_index`, `expert_round_index`, `expert_results`, `expert_results_complete`, `evidence_registry`
+  Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
   same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
-    - Require execution_mode to be parallel_fanout and fanout_complete to be true.
-    - Require persisted state.round_index to be non-negative, require fanout_round_index to be at least one and equal persisted state.round_index + 1, and reject values above constraints.max_rounds.
-    - Require subagent_expert_ids to equal the persisted expert_roster exactly, with no duplicates or omissions.
-    - Require subagent_run_ids, summaries, and artifact paths to have the same length as expert_roster; all run IDs, summaries, and paths must be unique and non-empty.
-    - Require subagent_binding_records to be structured objects whose expert_id, subagent_run_id, summary, and artifact_path fields match the corresponding arrays in order; spawn_receipt must be unique per expert and completion_receipt may be shared only when one real batch join trace covers the same experts and runs.
-    - Treat persisted subagent_run_history as canonical structured records, reject any reused run ID, and let runtime derive the exact current history tail instead of requiring model-echoed history.
-    - Resolve every artifact path under repo_root, require a regular readable file with non-empty UTF-8 content, and reject paths outside repo_root.
-    - Normalize flat and nested trace entries before checking them. Require one successful spawn per expert and exactly one successful join coverage per expert; a batch join may cover several experts with one real receipt and must not be split into synthetic receipts.
-    - Do not accept a single summary or one reused subagent run ID as evidence for multiple expert perspectives.
+    - Require expert_results_complete to be true.
+    - Require persisted expert_roster to contain unique records with exactly non-empty id, role, and brief string fields, and use those ids as the exact expected result order.
+    - Require expert_round_index to be a positive integer equal to persisted state.round_index + 1 and no greater than constraints.max_rounds.
+    - Require expert_results to have exactly one object per roster id; each object must contain exactly expert_id, summary, and artifact_path, with non-empty strings and unique expert ids and paths.
+    - Require expert_results expert_id values to equal the persisted roster ids in order.
+    - Parse numeric citation identifiers from persisted evidence_registry, require every evidence detail to be non-empty, and reject any citation identifier in a summary or artifact that is not registered.
+    - Resolve each artifact_path beneath repo_root and reject absolute paths, traversal, symlinks, missing or non-regular files, empty files, and invalid UTF-8.
+    - Read each artifact through a bounded UTF-8 check so an oversized artifact cannot exhaust verifier memory.
+    - Keep the result contract limited to the expert identity, grounded summary, and artifact path.
   Test intent:
-    - Accept a parallel fan-out with two stable expert IDs, two distinct subagent run IDs, two result summaries, and two readable artifacts.
-    - Reject a fan-out that reuses one subagent run ID for two experts.
-    - Reject a fan-out that omits an expert or adds an unknown expert.
-    - Reject a fan-out with a skipped round, rewritten canonical history, prior run reuse, an artifact alias, or an artifact outside repo_root.
-    - Reject a fan-out with missing spawn/wait tool traces or binding records that mismatch the parallel arrays.
+    - Accept two roster-matching results with distinct readable artifacts that cite registered evidence.
+    - Reject an unknown, missing, duplicate, or out-of-order expert id.
+    - Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, or an unsafe or missing artifact.
 
 ### `autonomous_roundtable`
 
-- `roundtable_flags_match_decision`: The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, and keep the boolean flags and configured budgets consistent with round_decision.
-  Signals: `round_decision`, `continue_roundtable`, `should_reorganize`, `ready_for_report`, `subagent_run_ids`, `fanout_complete`
+- `roundtable_flags_match_decision`: The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, and require a completed expert-result package.
+  Signals: `round_decision`, `continue_roundtable`, `should_reorganize`, `ready_for_report`, `expert_results`, `expert_results_complete`
   Implementation surfaces: `verifiers.py`, `policy.py`, `workflow-specific regression tests`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
@@ -71,8 +59,8 @@ the right workflow.
     - Count the three decision flags and require exactly one true value.
     - Map continue to continue_roundtable, reorganize to should_reorganize, and report to ready_for_report.
     - Require output.round_index to equal persisted state.round_index + 1 and require the returned transcript to preserve the persisted transcript as an exact prefix plus one new turn.
-    - Require persisted fanout_complete to be true and persisted subagent_run_ids to be non-empty before the Moderator can accept a round.
-    - Require the Moderator to carry forward the persisted structured expert roster exactly; fan-out bindings reference expert ids, while role and brief remain runtime-owned roster data.
+    - Require persisted expert_results_complete to be true and persisted expert_results to be non-empty before the Moderator can accept a round.
+    - Require the Moderator to carry forward the persisted structured expert roster exactly.
     - Reject round_index values below one, reject values above constraints.max_rounds, and reject continue or reorganize once max_rounds has been reached.
     - When coverage_threshold is supplied, require coverage_map to contain at least that many distinct non-empty topics.
   Test intent:
@@ -80,7 +68,7 @@ the right workflow.
     - Reject ambiguous decisions with two true flags.
     - Reject a report decision before coverage_sufficient is true unless max_rounds has been reached.
     - Reject a skipped round or a rewritten transcript prefix.
-    - Reject a Moderator turn that has no completed independent expert-subagent fan-out.
+    - Reject a Moderator turn that has no completed expert-result package.
 
 ### `reorganize_knowledge_space`
 

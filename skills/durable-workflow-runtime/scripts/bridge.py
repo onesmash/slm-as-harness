@@ -20,6 +20,8 @@ ERROR_EXIT_CODES = {
 }
 SKILL_ROOT = Path(__file__).resolve().parents[1]
 SKILL_HOST_PATH = SKILL_ROOT / "workflow-runtime" / "adapters" / "skill_host.py"
+MAX_REQUEST_FILE_BYTES = 512 * 1024
+MAX_OBSERVATION_FILE_BYTES = 1024 * 1024
 
 
 class UnsafeHostIoPathError(ValueError):
@@ -39,7 +41,11 @@ def main(argv: list[str] | None = None) -> int:
         _validate_command_host_io_paths(repo_root, args, response_file)
         skill_host = _load_skill_host()
         if args.command == "start":
-            request = _load_json_object(Path(args.request_file), required_fields={"task_input", "context", "constraints"})
+            request = _load_json_object(
+                Path(args.request_file),
+                required_fields={"task_input", "context", "constraints"},
+                max_bytes=MAX_REQUEST_FILE_BYTES,
+            )
             response = skill_host.start(str(repo_root), request, workflow_id=args.workflow_id)
             _validate_start_response(response)
             _write_json_atomic(response_file, response)
@@ -55,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
             observation = _load_json_object(
                 Path(args.observation_file),
                 required_fields={"run_id", "step_id", "status", "summary", "structured_output"},
+                max_bytes=MAX_OBSERVATION_FILE_BYTES,
             )
             if observation.get("run_id") != args.run_id:
                 raise skill_host.ObservationValidationError(
@@ -116,12 +123,23 @@ def _load_skill_host():
     return module
 
 
-def _load_json_object(path: Path, *, required_fields: set[str]) -> dict:
+def _load_json_object(
+    path: Path,
+    *,
+    required_fields: set[str],
+    max_bytes: int,
+) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"input file does not exist: {path}")
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes <= 0:
+        raise ValueError("max_bytes must be a positive integer")
     try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError as exc:
+        with path.open("rb") as input_file:
+            raw_payload = input_file.read(max_bytes + 1)
+        if len(raw_payload) > max_bytes:
+            raise ValueError(f"input file exceeds {max_bytes} bytes: {path}")
+        payload = json.loads(raw_payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"invalid JSON in {path}: {exc}") from exc
     if not isinstance(payload, dict):
         raise ValueError(f"input payload must be an object: {path}")
@@ -208,10 +226,7 @@ def _print_success_status(response: dict, response_file: Path) -> None:
 
 
 def _write_json_atomic(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp_path.replace(path)
+    host_io._write_json_atomic(path, payload)
 
 
 def _handle_error(exc: Exception, response_file: Path) -> int:
@@ -225,6 +240,9 @@ def _handle_error(exc: Exception, response_file: Path) -> int:
     elif module_name == "ObservationValidationError":
         error_type = "validation_error"
         exit_code = ERROR_EXIT_CODES["observation_validation_error"]
+    elif module_name == "SchemaValidationError":
+        error_type = "validation_error"
+        exit_code = ERROR_EXIT_CODES["input_error"]
     elif module_name == "RequestValidationError":
         error_type = "validation_error"
         exit_code = ERROR_EXIT_CODES["input_error"]
@@ -245,8 +263,11 @@ def _handle_error(exc: Exception, response_file: Path) -> int:
         "kind": "error",
         "error_type": error_type,
         "message": str(exc),
-        "details": {},
+        "details": _error_details(exc),
     }
+    error_code = getattr(exc, "code", None)
+    if isinstance(error_code, str) and error_code.strip():
+        error_payload["code"] = error_code
     if isinstance(exc, UnsafeResponseFilePathError):
         print(f"status=error error_type={error_type} response_file=")
         print(str(exc), file=sys.stderr)
@@ -261,6 +282,15 @@ def _handle_error(exc: Exception, response_file: Path) -> int:
     print(f"status=error error_type={error_type} response_file={response_file}")
     print(str(exc), file=sys.stderr)
     return exit_code
+
+
+def _error_details(exc: Exception) -> dict:
+    details: dict[str, object] = {}
+    for field_name in ("path", "expected", "actual", "source", "repairable"):
+        value = getattr(exc, field_name, None)
+        if value is not None:
+            details[field_name] = value
+    return details
 
 
 if __name__ == "__main__":

@@ -19,19 +19,23 @@ the right workflow.
 
 ### `implement_optimization`
 
-- `enforce_submission_constraints`: Verify directly that tests/ is unchanged from origin/main, problem.py assigns N_CORES = 1, and python tests/submission_tests.py succeeds from repo_root.
+- `enforce_submission_constraints`: Verify directly that changed_paths is the exact non-empty implementation-path set changed from origin/main, tests/ is unchanged, repository paths are strict relative paths with bounded reads, problem.py contains exactly one literal N_CORES = 1 assignment, and python tests/submission_tests.py succeeds from repo_root.
   Signals: `changed_paths`, `submission_test_command`, `submission_test_exit_code`, `submission_tests_passed`
   Implementation surfaces: `verifiers.py`, `tests/test_workflow.py`
+  Python imports: `ast`, `subprocess`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
   same-file helper dependencies as a blocking review issue.
+  Implementation notes: All repository paths accepted by this verifier must reject absolute, traversal, separator-ambiguous, and symlink escapes; text reads must be bounded and UTF-8 validated.
   Hint pseudocode:
-    - Reject changed_paths containing tests or tests/.
+    - Reject empty, absolute, traversal-containing, separator-ambiguous, or tests/ changed_paths; require the declared set to equal the origin/main diff set.
     - Run git diff --quiet origin/main -- tests/.
     - Parse problem.py and require literal N_CORES = 1.
     - Run python tests/submission_tests.py in repo_root and require exit code 0.
   Test intent:
     - Reject a changed tests/ path.
+    - Reject a changed implementation path omitted from changed_paths.
+    - Reject an undeclared changed path in the origin/main diff.
     - Reject N_CORES other than 1.
     - Reject a failing submission command.
 

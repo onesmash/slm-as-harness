@@ -75,3 +75,44 @@ Selection happens at `start`:
 - `default_workflow_id` fallback otherwise
 
 After `start`, `resume` follows persisted `RunState.workflow_id`.
+
+## Runtime protocol guardrails
+
+- `constraints.max_steps` is a positive runtime budget. Each newly accepted
+  observation consumes one step; a duplicate `observation_id` replay does not.
+  If the budget would yield another ordinary node, the runtime completes through
+  the workflow's declared final node with `metadata.degraded=true` and
+  `terminal_reason=max_steps_exceeded`.
+- Observation and request envelopes are bounded before contract validation or
+  verifier execution. This includes total bytes, raw/structured output, strings,
+  lists, object depth, trace metadata, and artifacts.
+- A stable `observation_id` (or the compatibility alias `attempt_id`) is
+  idempotent. Reusing it with a different payload is a protocol conflict.
+  Replay responses are retained under bounded count/byte limits; the oldest
+  replay entries are evicted before they can make a long-lived run exceed the
+  persistence budget.
+- Run state is versioned and updated under a per-run lock with revision/CAS;
+  persisted files and preflight metadata use atomic replacement.
+- Runtime history stores compact diagnostic facts only. State snapshots and
+  sensitive values are omitted or redacted; retention can set
+  `history_degraded=true`.
+- Runtime-owned `artifact_refs` and `diagnostic_refs` contain only bounded
+  content-addressed metadata (`size_bytes`, `sha256`, media type and path
+  reference). Raw observation output is externalized when possible; an
+  artifact-store failure keeps the transition usable but marks
+  `artifacts_degraded=true` and exposes `diagnostics_degraded` on terminal
+  metadata.
+- Operational metrics live outside `RunState` in a private, bounded JSONL
+  telemetry sink. Events contain only safe labels and numeric measurements such
+  as latency, payload/state/history bytes, duplicate replay and degraded state.
+- Terminal-run cleanup is explicit through the retention helper. It removes
+  only expired `done`/`failed_terminal` state files and their matching artifact
+  directory; it does not infer ownership from arbitrary paths or delete active
+  runs. Cleanup takes the per-run lock before re-reading/deleting state and
+  leaves the lock inode in place so an active resume cannot lose its lock path.
+- Host adapters may provide `native_receipts`; the adapter converts them into
+  canonical `tool_trace` entries carrying stable receipt/tool/trace/phase,
+  timeout, partial-failure, join and artifact-reference facts. A bounded opaque
+  metadata map may be carried through for a workflow-owned adapter contract;
+  Runtime does not interpret those keys. Business fields and native-operation
+  name mappings remain owned by the workflow contract.

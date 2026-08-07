@@ -15,3 +15,4 @@ Stage Boundaries:
 Blocked Conditions:
 
 - Block if submission-test evidence is missing.
+- Do not approve knowledge-base maintenance while review_findings contains an unresolved critical, blocker, P0, high, or P1 finding.

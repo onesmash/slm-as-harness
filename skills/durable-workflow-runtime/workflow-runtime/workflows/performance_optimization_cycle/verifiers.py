@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import ast
+import os
+import re
 import subprocess
 from pathlib import Path
 
@@ -24,7 +26,7 @@ def verify_diagnose_performance(
  'ready_for_brainstorm': 'boolean'},
         optional_schema={},
         verifier_rules=[{'output_key': 'baseline_metrics',
-  'operator': 'truthy',
+ 'operator': 'truthy',
   'value': None,
   'message': 'performance diagnosis must record baseline metrics'},
  {'output_key': 'bottleneck_summary',
@@ -73,7 +75,7 @@ def verify_brainstorm_optimization(
   'value': None,
   'message': 'brainstorming must state measurable success criteria'},
  {'output_key': 'brainstorm_artifact_path',
-  'operator': 'truthy',
+  'operator': 'path_exists',
   'value': None,
   'message': 'brainstorming must return an ideation artifact path'},
  {'output_key': 'ready_for_research',
@@ -127,7 +129,11 @@ def verify_research_optimization(
   'operator': 'is_true',
   'value': None,
   'message': 'research must declare implementation readiness'}],
-        verifier_templates=[],
+        verifier_templates=[{'id': 'research_brief_contains_markdown_heading',
+  'template': 'artifact_file_contains_sections',
+  'output_key': 'research_brief_path',
+  'message': 'research must return a non-empty Markdown brief artifact',
+  'sections': ['#']}],
         observation=observation,
         repo_root=repo_root,
         state=state,
@@ -223,13 +229,35 @@ def verify_review_optimization(
   'operator': 'is_true',
   'value': None,
   'message': 'review must approve knowledge-base maintenance'}],
-        verifier_templates=[],
+        verifier_templates=[{'id': 'review_findings_are_resolved_before_approval',
+  'template': 'no_unresolved_findings',
+  'output_key': 'review_findings',
+  'message': 'review cannot approve knowledge-base maintenance with unresolved high-severity findings',
+  'when': {'output_key': 'ready_for_knowledge_base',
+   'operator': 'is_true',
+   'value': None},
+  'unresolved_terms': ['critical', 'blocker', 'p0', 'high', 'p1'],
+  'resolved_terms': ['resolved', 'fixed', 'closed']}],
         observation=observation,
         repo_root=repo_root,
         state=state,
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    unresolved = [
+        finding for finding in output.get("review_findings") or []
+        if isinstance(finding, str)
+        and re.search(r"\b(critical|blocker|p0|high|p1)\b", finding, re.IGNORECASE)
+        and not re.search(r"\b(resolved|fixed|closed)\b", finding, re.IGNORECASE)
+    ]
+    if output.get("ready_for_knowledge_base") is True and unresolved:
+        return _fail(
+            "review cannot approve knowledge-base maintenance with unresolved high-severity findings",
+            run_id,
+            step_id,
+            state,
+        )
     return result
 
 def verify_update_optimization_knowledge_base(
@@ -255,13 +283,26 @@ def verify_update_optimization_knowledge_base(
   'operator': 'non_empty',
   'value': None,
   'message': 'knowledge-base maintenance must record durable artifacts'}],
-        verifier_templates=[],
+        verifier_templates=[{'id': 'knowledge_base_artifacts_are_safe_markdown',
+  'template': 'artifact_list_policy',
+  'output_key': 'knowledge_base_artifacts',
+  'message': 'knowledge-base maintenance must record existing non-empty Markdown knowledge-base artifacts',
+  'required_prefix': 'knowledge-base/',
+  'allowed_suffixes': ['.md', '.markdown', '.txt'],
+  'require_non_empty_content': True}],
         observation=observation,
         repo_root=repo_root,
         state=state,
     )
     if not result["passed"]:
         return result
+    artifact_error = _artifact_list_error(
+        output=(observation.get("structured_output") or {}).get("knowledge_base_artifacts"),
+        repo_root=repo_root,
+        message="knowledge-base maintenance must record existing repository-relative regular-file artifacts",
+    )
+    if artifact_error:
+        return _fail(artifact_error, run_id, step_id, state)
     return result
 
 def verify_capture_blocked_cycle_knowledge(
@@ -291,13 +332,26 @@ def verify_capture_blocked_cycle_knowledge(
   'operator': 'truthy',
   'value': None,
   'message': 'blocked-cycle capture must identify a next-cycle lead'}],
-        verifier_templates=[],
+        verifier_templates=[{'id': 'blocked_cycle_artifacts_are_safe_markdown',
+  'template': 'artifact_list_policy',
+  'output_key': 'knowledge_base_artifacts',
+  'message': 'blocked-cycle capture must record existing non-empty Markdown knowledge-base artifacts',
+  'required_prefix': 'knowledge-base/',
+  'allowed_suffixes': ['.md', '.markdown', '.txt'],
+  'require_non_empty_content': True}],
         observation=observation,
         repo_root=repo_root,
         state=state,
     )
     if not result["passed"]:
         return result
+    artifact_error = _artifact_list_error(
+        output=(observation.get("structured_output") or {}).get("knowledge_base_artifacts"),
+        repo_root=repo_root,
+        message="blocked-cycle capture must record existing repository-relative regular-file artifacts",
+    )
+    if artifact_error:
+        return _fail(artifact_error, run_id, step_id, state)
     return result
 
 def _run_custom_verifier_requirements_implement_optimization(
@@ -319,7 +373,7 @@ def _run_custom_verifier_requirements_implement_optimization(
 # custom_verifier_stage_id: implement_optimization
 # custom_verifier_requirement_id: enforce_submission_constraints
 # template_version: 1
-# spec_fingerprint: eebbbd2b6a9326b8c0c06540eff8dc5a867d585b672e764fdddce3f6afd98a4f
+# spec_fingerprint: 6ffa8e04f3564aecd069562427480a79b33d277e317d9daa2cd959b2cd947a60
 # implementation_version: none
 def _custom_verifier_requirement_implement_optimization_enforce_submission_constraints(
     *,
@@ -332,21 +386,43 @@ Self-contained contract: keep this requirement-scoped verifier self-contained wh
 If reuse is needed, import stable helpers from shared modules outside verifiers.py.
 Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
-Requirement: Verify directly that tests/ is unchanged from origin/main, problem.py assigns N_CORES = 1, and python tests/submission_tests.py succeeds from repo_root.
+Requirement: Verify directly that changed_paths contains only non-empty implementation paths, every requested path is changed from origin/main, tests/ is unchanged, problem.py is a safe regular file containing exactly one module-level literal N_CORES = 1 assignment (not bool, float, or nested), and python tests/submission_tests.py succeeds from repo_root.
 Signals: changed_paths, submission_test_command, submission_test_exit_code, submission_tests_passed
 Implementation surfaces: verifiers.py, tests/test_workflow.py
 Hint pseudocode:
-- Reject changed_paths containing tests or tests/.
+- Reject empty, absolute, traversal-containing, or tests/ changed_paths; require every requested path in the origin/main diff.
 - Run git diff --quiet origin/main -- tests/.
-- Parse problem.py and require literal N_CORES = 1.
+- Read problem.py without following a final symlink, parse only module-level assignments, and require one exact integer literal N_CORES = 1.
 - Run python tests/submission_tests.py in repo_root and require exit code 0.
 Test intent:
 - Reject a changed tests/ path.
+- Reject a changed implementation path omitted from changed_paths.
 - Reject N_CORES other than 1.
 - Reject a failing submission command."""
     _ = state
-    changed_paths = output.get("changed_paths") or []
-    if any(str(path).replace("\\", "/").split("/")[0] == "tests" for path in changed_paths):
+    changed_paths = output.get("changed_paths")
+    if not isinstance(changed_paths, list) or not changed_paths:
+        return "changed_paths must contain at least one implementation path"
+    normalized_paths = []
+    for path in changed_paths:
+        if not isinstance(path, str) or not path.strip():
+            return "changed_paths must contain non-empty relative paths"
+        normalized = path
+        path_parts = normalized.split("/")
+        if (
+            normalized != normalized.strip()
+            or "\\" in normalized
+            or normalized.startswith("/")
+            or re.match(r"^[A-Za-z]:/", normalized)
+            or any(part in ("", ".", "..") for part in path_parts)
+        ):
+            return "changed_paths must contain safe repository-relative paths"
+        if any(ord(char) < 32 for char in normalized):
+            return "changed_paths must not contain control characters"
+        normalized_paths.append(normalized)
+    if len(normalized_paths) != len(set(normalized_paths)):
+        return "changed_paths must not contain duplicate paths"
+    if any(path.split("/", 1)[0] == "tests" for path in normalized_paths):
         return "changed_paths must not modify tests/"
 
     repo = Path(repo_root)
@@ -359,24 +435,51 @@ Test intent:
     )
     if diff.returncode != 0:
         return "tests/ differs from origin/main"
+    changed_diff = subprocess.run(
+        ["git", "diff", "--name-only", "origin/main", "--"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if changed_diff.returncode != 0:
+        return "could not determine changed implementation paths from origin/main"
+    actual_diff_paths = {
+        line.replace("\\", "/").strip()
+        for line in changed_diff.stdout.splitlines()
+        if line.strip()
+    }
+    missing_paths = sorted(set(normalized_paths) - actual_diff_paths)
+    if missing_paths:
+        return f"changed_paths must identify every requested path changed from origin/main: {missing_paths}"
+    undeclared_paths = sorted(actual_diff_paths - set(normalized_paths))
+    if undeclared_paths:
+        return f"changed_paths must declare every path changed from origin/main: {undeclared_paths}"
 
-    problem_path = repo / "problem.py"
-    if not problem_path.is_file():
+    problem_path = _safe_repo_file(repo_root, "problem.py")
+    if problem_path is None:
         return "problem.py is required to verify N_CORES = 1"
     try:
-        tree = ast.parse(problem_path.read_text(encoding="utf-8"), filename=str(problem_path))
-    except (OSError, SyntaxError) as exc:
+        problem_text = _read_safe_repo_text(repo_root, "problem.py")
+        if problem_text is None:
+            return "problem.py could not be read as UTF-8"
+        tree = ast.parse(problem_text, filename=str(problem_path))
+    except (SyntaxError, UnicodeError) as exc:
         return f"problem.py could not be parsed: {exc}"
     n_cores_values = []
-    for node in ast.walk(tree):
+    for node in tree.body:
         if isinstance(node, ast.Assign):
             for target in node.targets:
                 if isinstance(target, ast.Name) and target.id == "N_CORES":
                     n_cores_values.append(node.value)
         elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name) and node.target.id == "N_CORES":
             n_cores_values.append(node.value)
-    if not any(isinstance(value, ast.Constant) and value.value == 1 for value in n_cores_values):
-        return "problem.py must assign N_CORES = 1"
+    if len(n_cores_values) != 1 or not (
+        isinstance(n_cores_values[0], ast.Constant)
+        and type(n_cores_values[0].value) is int
+        and n_cores_values[0].value == 1
+    ):
+        return "problem.py must contain exactly one literal assignment N_CORES = 1"
 
     try:
         submission = subprocess.run(
@@ -433,7 +536,7 @@ def _verify_structured_output_schema(
         return _fail("; ".join(rule_errors), run_id, step_id, state)
     template_errors = []
     for template in verifier_templates:
-        message = _verifier_template_error(template, output, repo_root)
+        message = _verifier_template_error(template, output, repo_root, state)
         if message:
             template_errors.append(message)
     if template_errors:
@@ -506,14 +609,16 @@ def _verifier_rule_error(rule: dict, output: dict, repo_root: str) -> str | None
     if operator == "path_exists":
         if not isinstance(actual, str) or not actual.strip():
             return message
-        candidate = Path(actual)
-        if not candidate.is_absolute():
-            candidate = Path(repo_root) / candidate
-        return None if candidate.exists() else message
+        return None if _safe_repo_file(repo_root, actual) is not None else message
     return None if condition_matches(actual, operator, expected) else message
 
 
-def _verifier_template_error(template: dict, output: dict, repo_root: str) -> str | None:
+def _verifier_template_error(
+    template: dict,
+    output: dict,
+    repo_root: str,
+    state: dict | None,
+) -> str | None:
     template_name = str(template.get("template") or "")
     message = str(template.get("message") or f"{template.get('id') or template_name} failed")
     key = str(template.get("output_key") or "")
@@ -524,8 +629,14 @@ def _verifier_template_error(template: dict, output: dict, repo_root: str) -> st
         return _conditional_required_error(output, template, message)
     if template_name == "min_count":
         return _min_count_error(actual, template, message)
+    if template_name == "min_count_from_constraint":
+        return _min_count_from_constraint_error(actual, template, state, message)
     if template_name == "required_set_members":
         return _required_set_members_error(actual, template, message)
+    if template_name == "artifact_list_policy":
+        return _artifact_list_policy_error(actual, template, repo_root, message)
+    if template_name == "no_unresolved_findings":
+        return _no_unresolved_findings_error(output, template, message)
     if template_name == "repo_path_policy":
         return _repo_path_policy_error(actual, template, repo_root, message)
     if template_name == "artifact_file_contains_sections":
@@ -554,13 +665,112 @@ def _conditional_equals_error(actual, output: dict, template: dict, message: str
     return None if actual == template.get("expected_value") else message
 
 
+def _artifact_list_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:
+    if not isinstance(actual, list) or not actual:
+        return message
+    required_prefix = str(template.get("required_prefix") or "")
+    allowed_suffixes = tuple(
+        str(item).lower() for item in template.get("allowed_suffixes") or []
+    )
+    require_non_empty_content = bool(template.get("require_non_empty_content", True))
+    repo = Path(repo_root).expanduser().resolve()
+    for index, item in enumerate(actual):
+        if not isinstance(item, str) or not item.strip():
+            return f"{message}: invalid artifact at index {index}"
+        candidate = _safe_repo_file(repo_root, item)
+        if candidate is None:
+            return f"{message}: invalid artifact at index {index}"
+        relative_posix = candidate.relative_to(repo).as_posix()
+        if required_prefix and not relative_posix.startswith(required_prefix):
+            return f"{message}: artifact at index {index} is outside the required directory"
+        if allowed_suffixes and not relative_posix.lower().endswith(allowed_suffixes):
+            return f"{message}: artifact at index {index} has an unsupported file type"
+        if require_non_empty_content:
+            text = _read_safe_repo_text(repo_root, item)
+            if text is None or not text.strip():
+                return f"{message}: artifact at index {index} is empty or unreadable"
+    return None
+
+
+def _no_unresolved_findings_error(output: dict, template: dict, message: str) -> str | None:
+    when = template.get("when")
+    if when is not None:
+        if not isinstance(when, dict):
+            return message
+        when_key = str(when.get("output_key") or "")
+        if not condition_matches(
+            output.get(when_key),
+            str(when.get("operator") or ""),
+            when.get("value"),
+        ):
+            return None
+    findings = output.get(str(template.get("output_key") or ""))
+    if not isinstance(findings, list):
+        return message
+    unresolved_terms = tuple(
+        str(item).lower() for item in template.get("unresolved_terms") or []
+    )
+    resolved_terms = tuple(
+        str(item).lower() for item in template.get("resolved_terms") or []
+    )
+    for finding in findings:
+        if not isinstance(finding, str) or not finding.strip():
+            return message
+        lowered = finding.lower()
+        unresolved = any(
+            term
+            and re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lowered)
+            for term in unresolved_terms
+        )
+        resolved = any(
+            term
+            and re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lowered)
+            for term in resolved_terms
+        )
+        if unresolved and not resolved:
+            return f"{message}: unresolved findings present"
+    return None
+
+
 def _min_count_error(actual, template: dict, message: str) -> str | None:
     if not isinstance(actual, list):
         return message
     min_count = template.get("min_count")
     if not isinstance(min_count, int) or isinstance(min_count, bool):
         return message
-    return None if len(actual) >= min_count else message
+    if len(actual) < min_count:
+        return message
+    if any(isinstance(item, str) and not item.strip() for item in actual):
+        return message
+    return None
+
+
+def _min_count_from_constraint_error(
+    actual,
+    template: dict,
+    state: dict | None,
+    message: str,
+) -> str | None:
+    if not isinstance(actual, list):
+        return message
+    constraints = state.get("constraints") if isinstance(state, dict) else {}
+    constraint_key = str(template.get("constraint_key") or "")
+    raw_min_count = constraints.get(constraint_key) if isinstance(constraints, dict) else None
+    default_min_count = template.get("default_min_count")
+    min_count = (
+        raw_min_count
+        if isinstance(raw_min_count, int)
+        and not isinstance(raw_min_count, bool)
+        and raw_min_count >= 0
+        else default_min_count
+    )
+    if not isinstance(min_count, int) or isinstance(min_count, bool) or min_count < 0:
+        return message
+    if len(actual) < min_count:
+        return message
+    if any(isinstance(item, str) and not item.strip() for item in actual):
+        return message
+    return None
 
 
 def _required_set_members_error(actual, template: dict, message: str) -> str | None:
@@ -583,14 +793,11 @@ def _required_set_members_error(actual, template: dict, message: str) -> str | N
 def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
-    repo = Path(repo_root).resolve()
-    candidate = Path(actual)
-    if not candidate.is_absolute():
-        candidate = repo / candidate
-    try:
-        relative_path = candidate.resolve().relative_to(repo)
-    except ValueError:
+    candidate = _safe_repo_path(repo_root, actual)
+    if candidate is None:
         return message
+    repo = Path(repo_root).expanduser().resolve()
+    relative_path = candidate.relative_to(repo)
     relative_posix = relative_path.as_posix()
     required_prefix = str(template.get("required_prefix") or "")
     if required_prefix and not relative_posix.startswith(required_prefix):
@@ -607,16 +814,107 @@ def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str
 def _artifact_file_contains_sections_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
-    candidate = Path(actual)
-    if not candidate.is_absolute():
-        candidate = Path(repo_root) / candidate
-    try:
-        text = candidate.read_text(encoding="utf-8")
-    except OSError:
+    candidate = _safe_repo_file(repo_root, actual)
+    if candidate is None:
+        return message
+    text = _read_safe_repo_text(repo_root, actual)
+    if text is None:
         return message
     sections = [str(section) for section in template.get("sections") or []]
-    missing = [section for section in sections if section not in text]
+    missing = []
+    for section in sections:
+        if section.startswith("#") and set(section) == {"#"}:
+            pattern = rf"(?m)^\s*{re.escape(section)}(?!#)\s+\S"
+            if re.search(pattern, text) is None:
+                missing.append(section)
+        elif section not in text:
+            missing.append(section)
     return None if not missing else f"{message}: missing sections {missing}"
+
+
+_MAX_SAFE_REPO_TEXT_BYTES = 512 * 1024
+
+
+def _safe_repo_path(repo_root: str, raw_path: str) -> Path | None:
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    try:
+        repo = Path(repo_root).expanduser().resolve()
+        normalized = raw_path
+        if (
+            normalized != normalized.strip()
+            or "\\" in normalized
+            or any(ord(char) < 32 for char in normalized)
+            or normalized.startswith("/")
+            or re.match(r"^[A-Za-z]:/", normalized)
+        ):
+            return None
+        parts = normalized.split("/")
+        if any(part in ("", ".", "..") for part in parts):
+            return None
+        candidate = repo.joinpath(*parts)
+        resolved = candidate.resolve(strict=False)
+        relative = resolved.relative_to(repo)
+        current = repo
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                return None
+        return resolved
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _safe_repo_file(repo_root: str, raw_path: str) -> Path | None:
+    candidate = _safe_repo_path(repo_root, raw_path)
+    if candidate is None or candidate.is_symlink() or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _read_safe_repo_text(repo_root: str, raw_path: str) -> str | None:
+    candidate = _safe_repo_file(repo_root, raw_path)
+    if candidate is None:
+        return None
+    file_descriptor = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        file_descriptor = os.open(str(candidate), flags)
+        with os.fdopen(file_descriptor, "rb") as handle:
+            file_descriptor = None
+            data = handle.read(_MAX_SAFE_REPO_TEXT_BYTES + 1)
+            if len(data) > _MAX_SAFE_REPO_TEXT_BYTES:
+                return None
+            return data.decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
+    finally:
+        if file_descriptor is not None:
+            try:
+                os.close(file_descriptor)
+            except OSError:
+                pass
+
+
+def _artifact_list_error(*, output, repo_root: str, message: str) -> str | None:
+    if not isinstance(output, list) or not output:
+        return message
+    repo = Path(repo_root).expanduser().resolve()
+    required_prefix = "knowledge-base/"
+    allowed_suffixes = (".md", ".markdown", ".txt")
+    for index, item in enumerate(output):
+        candidate = _safe_repo_file(repo_root, item) if isinstance(item, str) else None
+        if candidate is None:
+            return f"{message}: invalid artifact at index {index}"
+        relative_posix = candidate.relative_to(repo).as_posix()
+        if not relative_posix.startswith(required_prefix):
+            return f"{message}: artifact at index {index} is outside knowledge-base/"
+        if not relative_posix.lower().endswith(allowed_suffixes):
+            return f"{message}: artifact at index {index} is not Markdown/text"
+        text = _read_safe_repo_text(repo_root, item)
+        if text is None or not text.strip():
+            return f"{message}: artifact at index {index} is empty or unreadable"
+    return None
 
 
 def _meaningful_entries(value) -> list[str]:

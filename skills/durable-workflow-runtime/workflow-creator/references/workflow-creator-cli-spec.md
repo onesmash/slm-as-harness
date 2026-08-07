@@ -513,6 +513,14 @@ Supported templates:
 - `conditional_required`: when `when.output_key` satisfies `when.operator` and
   optional `when.value`, `required_key` must be present and truthy.
 - `min_count`: `output_key` must be a list with length at least `min_count`.
+- `min_count_from_constraint`: `output_key` must be a list whose minimum length
+  comes from `state.constraints[constraint_key]`, with a positive integer
+  `default_min_count` fallback.
+- `artifact_list_policy`: every item must be a safe repository-relative file
+  under `required_prefix`, use an allowed suffix, and optionally contain
+  non-empty UTF-8 text.
+- `no_unresolved_findings`: when its optional `when` condition matches, reject
+  blank findings and unresolved severity terms unless a resolved term appears.
 - `artifact_file_contains_sections`: `output_key` must be a file path whose text
   contains every string in `sections`. Relative paths resolve against
   `repo_root`.
@@ -538,6 +546,8 @@ tests before review. Each item includes:
 - `implementation_notes`: optional extra guidance for the authoring agent or
   reviewer, such as edge cases, helper functions to reuse, or why the DSL was
   insufficient.
+- `python_imports`: optional list of dotted Python module names that the
+  generated `verifiers.py` must import for the requirement implementation.
 - `hint_pseudocode`: optional ordered pseudocode steps for the human author who
   will finish the generated scaffolds or companion workflow files. The creator
   preserves this verbatim; it does not execute or compile it.
@@ -623,11 +633,16 @@ the generated suite should make it easy to verify:
 - `stages[].state_updates` promotes structured output keys into named workflow
   state fields; generated template context exposes those names to later prompts
   and prefers promoted state over start input when both expose the same
-  placeholder key
+  placeholder key. Supported kinds include `integer`; a runtime-owned integer
+  update may set `increment_on_verified_success: true` to count only successful
+  observations with an explicit passing verifier.
 - `stages[].stage_kind` is either `main` or `recovery`; recovery stages must
   declare a valid `recovery_return_node`
 - `stages[].outcome_routes` expresses stage-specific routes for `blocked`,
   `partial`, `failed`, and `verifier_failed` before shared repair fallback
+- `stages[].require_passing_verifier` makes a successful stage fail closed when
+  its verifier result is absent or malformed; `missing_verifier_route` can
+  override the default repair route for a declared recovery strategy
 - `stages[].repair_conditions` expresses simple output-based gates that route to
   repair before the linear happy path continues
 - `stages[].transitions` expresses simple output-based success branches before
@@ -636,7 +651,8 @@ the generated suite should make it easy to verify:
   path existence, and non-empty output enforcement after schema checks
 - `stages[].verifier_templates` adds whitelistable static verifier code for
   common complex checks such as list item keys, conditional required fields,
-  uniqueness, minimum counts, and artifact section checks
+  uniqueness, fixed or constraint-driven minimum counts, safe artifact lists,
+  unresolved-finding gates, and artifact section checks
 - `stages[].custom_verifier_requirements` preserves complex verifier intent and
   generates requirement-scoped custom verifier scaffolds in `verifiers.py`; the
   generator validates the declaration shape and wires those helpers into stage
@@ -745,6 +761,18 @@ Once `spec.json` is filled in and the creator is rerun with `--force`,
 generated files are business-specific to the declared stages. The generator
 owns declared transitions, declared verifier rules, declared verifier
 templates, declared custom verifier scaffolds, and declared regression tests.
+Files outside those generated paths, such as workflow-specific support modules
+and extra fixtures, are carried forward during regeneration; symlinked custom
+files are skipped with a warning. Generator-owned files such as `state.py` and
+`tests/test_workflow.py` are replaced from the normalized spec by default. A
+workflow may set `state_mode: "custom"` in `spec.json` when its state module is
+domain-owned; in that mode an existing `state.py` is carried forward during
+`--force` regeneration, while a missing file falls back to the generated
+template with a warning. Custom state must retain strict persisted-state
+validation, bounded serialization, and fail-closed verifier promotion. Custom
+state does not receive the generated state's generic repair regression cases;
+declare domain-specific state, recovery, and prompt-context coverage in
+`regression_tests`.
 It preserves declared `custom_verifier_requirements` for the review pass and
 emits requirement-scoped helpers in `verifiers.py`, but the author still owns
 tightening any branch, verifier, or regression coverage that cannot be

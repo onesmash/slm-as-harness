@@ -16,6 +16,9 @@ from typing import Any
 WORKFLOW_CREATOR_SKILL_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNTIME_SKILL_ROOT = WORKFLOW_CREATOR_SKILL_ROOT.parent
 _WORKFLOW_ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_PYTHON_IMPORT_PATTERN = re.compile(
+    r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
+)
 _DEFAULT_START_INPUT_SCHEMA = {
     "task_input": {
         "goal": "string",
@@ -48,14 +51,18 @@ _SUPPORTED_REPAIR_OPERATORS = {
 }
 _SUPPORTED_VERIFIER_OPERATORS = _SUPPORTED_REPAIR_OPERATORS | {"one_of", "path_exists"}
 _SUPPORTED_VERIFIER_TEMPLATES = {
+    "artifact_list_policy",
     "artifact_file_contains_sections",
     "conditional_equals",
     "conditional_required",
     "min_count",
+    "min_count_from_constraint",
+    "no_unresolved_findings",
     "repo_path_policy",
     "required_set_members",
 }
 _SUPPORTED_STAGE_KINDS = {"main", "recovery"}
+_SUPPORTED_STATE_MODES = {"generated", "custom"}
 _SUPPORTED_OUTCOMES = {"blocked", "partial", "failed", "verifier_failed"}
 _REPAIR_STAGE_IDS = {"request_unblocking_input", "repair_and_resume"}
 _REPAIR_ATTEMPTS_BEFORE_UNBLOCK = 3
@@ -79,6 +86,33 @@ from workflow_shortcut_skill import ensure_workflow_shortcut_skill
 
 class WorkflowCreatorError(ValueError):
     pass
+
+
+def _preserve_extra_workflow_files(
+    existing_workflow_dir: Path,
+    generated_workflow_dir: Path,
+) -> list[str]:
+    """Keep domain support files that the spec-driven generator does not own."""
+    if not existing_workflow_dir.is_dir():
+        return []
+
+    warnings: list[str] = []
+    for existing_path in sorted(existing_workflow_dir.rglob("*")):
+        relative_path = existing_path.relative_to(existing_workflow_dir)
+        if "__pycache__" in relative_path.parts or not existing_path.is_file():
+            continue
+        generated_path = generated_workflow_dir / relative_path
+        if generated_path.exists():
+            continue
+        if existing_path.is_symlink():
+            warnings.append(
+                "Skipped preserving symlinked custom workflow file: "
+                f"{relative_path.as_posix()}"
+            )
+            continue
+        generated_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(existing_path, generated_path)
+    return warnings
 
 
 def _default_shared_repair_helpers() -> dict[str, dict[str, Any]]:
@@ -118,6 +152,28 @@ def _default_shared_repair_helpers() -> dict[str, dict[str, Any]]:
                 "user_action_needed": "string",
                 "suggested_next_input": "string?",
             },
+            "state_updates": [
+                {
+                    "state_key": "unblocking_blocking_reason",
+                    "output_key": "blocking_reason",
+                    "kind": "string",
+                },
+                {
+                    "state_key": "unblocking_user_action_needed",
+                    "output_key": "user_action_needed",
+                    "kind": "string",
+                },
+                {
+                    "state_key": "unblocking_suggested_next_input",
+                    "output_key": "suggested_next_input",
+                    "kind": "string",
+                },
+            ],
+            "template_context_keys": [
+                "unblocking_blocking_reason",
+                "unblocking_user_action_needed",
+                "unblocking_suggested_next_input",
+            ],
             "failure_schema": dict(_DEFAULT_FAILURE_SCHEMA),
         },
         "repair_and_resume": {
@@ -177,6 +233,7 @@ def create_workflow_scaffold(
     backup_workflow_dir = workflows_root / f".{requested_workflow_id}.creator-backup"
 
     binding_payload = _load_json_object(binding_path, "workflow binding config")
+    original_binding_bytes = binding_path.read_bytes()
     existing_binding_index = _find_binding_index(binding_payload, requested_workflow_id)
     target_exists = target_workflow_dir.exists()
     if (target_exists or existing_binding_index is not None) and not force:
@@ -214,6 +271,23 @@ def create_workflow_scaffold(
                 workflow_spec,
                 existing_verifiers_text=existing_verifiers_text,
             )
+        )
+    if target_exists and workflow_spec["state_mode"] == "custom":
+        existing_state_path = target_workflow_dir / "state.py"
+        generated_state_path = temp_workflow_dir / "state.py"
+        if existing_state_path.is_symlink():
+            generation_warnings.append(
+                "Skipped preserving symlinked custom state.py; generated state.py remains in place"
+            )
+        elif existing_state_path.is_file():
+            shutil.copy2(existing_state_path, generated_state_path)
+        else:
+            generation_warnings.append(
+                "Custom state_mode requested but existing state.py was not found; kept generated state.py"
+            )
+    if target_exists:
+        generation_warnings.extend(
+            _preserve_extra_workflow_files(target_workflow_dir, temp_workflow_dir)
         )
     _write_spec_blueprint(temp_workflow_dir, workflow_spec)
     _write_agent_review_file(temp_workflow_dir, workflow_spec)
@@ -263,6 +337,7 @@ def create_workflow_scaffold(
         _remove_path(target_workflow_dir)
         if backup_workflow_dir.exists():
             backup_workflow_dir.replace(target_workflow_dir)
+        _restore_file_bytes(binding_path, original_binding_bytes)
         raise
     finally:
         _remove_path(temp_workflow_dir)
@@ -435,9 +510,19 @@ def _load_workflow_spec(
         raw_spec.get("start_input_schema") or _DEFAULT_START_INPUT_SCHEMA
     )
     runtime_defaults = _validate_runtime_defaults(raw_spec.get("runtime_defaults") or {})
+    repair_policy = _validate_repair_policy(raw_spec.get("repair_policy") or {})
+    state_mode = _validate_state_mode(raw_spec.get("state_mode"))
     final_step_id = _validate_step_id(str(raw_spec.get("final_step_id") or "finalize_summary"))
     stages = _validate_stages(raw_spec.get("stages") or [])
     _validate_stage_transition_targets(stages, final_step_id)
+    valid_repair_targets = {
+        stage["step_id"] for stage in stages
+    } | {final_step_id} | _REPAIR_STAGE_IDS
+    if repair_policy["exhausted_next_node"] not in valid_repair_targets:
+        raise WorkflowCreatorError(
+            "repair_policy.exhausted_next_node is unknown: "
+            f"{repair_policy['exhausted_next_node']}"
+        )
     shared_repair_helpers = _validate_shared_repair_helpers(
         raw_spec.get("shared_repair_helpers")
     )
@@ -458,6 +543,8 @@ def _load_workflow_spec(
         "flow_description": description,
         "start_input_schema": start_input_schema,
         "runtime_defaults": runtime_defaults,
+        "repair_policy": repair_policy,
+        "state_mode": state_mode,
         "stages": stages,
         "shared_repair_helpers": shared_repair_helpers,
         "final_step_id": final_step_id,
@@ -623,6 +710,50 @@ def _validate_runtime_defaults(value: Any) -> dict[str, int]:
     return defaults
 
 
+def _validate_state_mode(value: Any) -> str:
+    if value in (None, ""):
+        return "generated"
+    mode = _validate_text(value, "state_mode")
+    if mode not in _SUPPORTED_STATE_MODES:
+        raise WorkflowCreatorError(
+            f"state_mode must be one of {sorted(_SUPPORTED_STATE_MODES)!r}"
+        )
+    return mode
+
+
+def _validate_repair_policy(value: Any) -> dict[str, Any]:
+    if value in (None, {}):
+        return {
+            "max_self_repair_attempts": _REPAIR_ATTEMPTS_BEFORE_UNBLOCK,
+            "exhausted_next_node": "request_unblocking_input",
+            "exhausted_branch_kind": "repair",
+            "exhausted_reason": (
+                "repair exhausted self-repair attempts and now requires external help before retry"
+            ),
+        }
+    if not isinstance(value, dict):
+        raise WorkflowCreatorError("repair_policy must be a JSON object")
+    attempts = value.get("max_self_repair_attempts", _REPAIR_ATTEMPTS_BEFORE_UNBLOCK)
+    if not isinstance(attempts, int) or isinstance(attempts, bool) or attempts <= 0:
+        raise WorkflowCreatorError("repair_policy.max_self_repair_attempts must be a positive integer")
+    next_node = _validate_step_id(
+        str(value.get("exhausted_next_node") or "request_unblocking_input")
+    )
+    return {
+        "max_self_repair_attempts": attempts,
+        "exhausted_next_node": next_node,
+        "exhausted_branch_kind": _validate_text(
+            value.get("exhausted_branch_kind") or "repair",
+            "repair_policy.exhausted_branch_kind",
+        ),
+        "exhausted_reason": _validate_text(
+            value.get("exhausted_reason")
+            or "repair exhausted self-repair attempts and now requires external help before retry",
+            "repair_policy.exhausted_reason",
+        ),
+    }
+
+
 def _validate_stages(value: Any) -> list[dict[str, Any]]:
     if value in (None, []):
         return []
@@ -637,12 +768,26 @@ def _validate_stages(value: Any) -> list[dict[str, Any]]:
         if step_id in seen_step_ids:
             raise WorkflowCreatorError(f"duplicate stage step_id: {step_id}")
         seen_step_ids.add(step_id)
+        require_passing_verifier = item.get("require_passing_verifier", False)
+        if not isinstance(require_passing_verifier, bool):
+            raise WorkflowCreatorError(
+                f"{step_id}.require_passing_verifier must be boolean"
+            )
         stages.append(
             {
                 "step_id": step_id,
                 "stage_kind": _validate_stage_kind(
                     item.get("stage_kind") or "main",
                     f"{step_id}.stage_kind",
+                ),
+                "require_passing_verifier": require_passing_verifier,
+                "cycle_limit": _validate_cycle_limit(
+                    item.get("cycle_limit"),
+                    f"{step_id}.cycle_limit",
+                ),
+                "unmatched_transition": _validate_unmatched_transition(
+                    item.get("unmatched_transition"),
+                    f"{step_id}.unmatched_transition",
                 ),
                 "recovery_return_node": (
                     _validate_step_id(str(item.get("recovery_return_node") or ""))
@@ -695,6 +840,10 @@ def _validate_stages(value: Any) -> list[dict[str, Any]]:
                     item.get("outcome_routes") or [],
                     f"{step_id}.outcome_routes",
                 ),
+                "missing_verifier_route": _validate_missing_verifier_route(
+                    item.get("missing_verifier_route"),
+                    f"{step_id}.missing_verifier_route",
+                ),
                 "verifier_rules": _validate_verifier_rules(
                     item.get("verifier_rules") or [],
                     f"{step_id}.verifier_rules",
@@ -710,6 +859,60 @@ def _validate_stages(value: Any) -> list[dict[str, Any]]:
             }
         )
     return stages
+
+
+def _validate_cycle_limit(value: Any, label: str) -> dict[str, Any] | None:
+    if value in (None, {}):
+        return None
+    if not isinstance(value, dict):
+        raise WorkflowCreatorError(f"{label} must be a JSON object")
+    counter_state_key = value.get("counter_state_key")
+    if counter_state_key is not None:
+        counter_state_key = _validate_step_id(str(counter_state_key))
+    return {
+        "output_key": _validate_text(value.get("output_key"), f"{label}.output_key"),
+        "constraint_key": _validate_text(
+            value.get("constraint_key"),
+            f"{label}.constraint_key",
+        ),
+        "next_node": _validate_step_id(str(value.get("next_node") or "")),
+        "branch_kind": _validate_text(
+            value.get("branch_kind") or "complete",
+            f"{label}.branch_kind",
+        ),
+        "reason": _validate_text(value.get("reason"), f"{label}.reason"),
+        "counter_state_key": counter_state_key,
+    }
+
+
+def _validate_unmatched_transition(value: Any, label: str) -> dict[str, Any] | None:
+    if value in (None, {}):
+        return None
+    if not isinstance(value, dict):
+        raise WorkflowCreatorError(f"{label} must be a JSON object")
+    return {
+        "next_node": _validate_step_id(str(value.get("next_node") or "")),
+        "branch_kind": _validate_text(
+            value.get("branch_kind") or "retry",
+            f"{label}.branch_kind",
+        ),
+        "reason": _validate_text(value.get("reason"), f"{label}.reason"),
+    }
+
+
+def _validate_missing_verifier_route(value: Any, label: str) -> dict[str, Any] | None:
+    if value in (None, {}):
+        return None
+    if not isinstance(value, dict):
+        raise WorkflowCreatorError(f"{label} must be a JSON object")
+    return {
+        "next_node": _validate_step_id(str(value.get("next_node") or "")),
+        "branch_kind": _validate_text(
+            value.get("branch_kind") or "repair",
+            f"{label}.branch_kind",
+        ),
+        "reason": _validate_text(value.get("reason"), f"{label}.reason"),
+    }
 
 
 def _validate_stage_kind(value: Any, label: str) -> str:
@@ -770,6 +973,14 @@ def _validate_shared_repair_helpers(value: Any) -> dict[str, dict[str, Any]]:
                 item.get("failure_schema") or default["failure_schema"],
                 f"shared_repair_helpers.{helper_id}.failure_schema",
                 allow_object=False,
+            ),
+            "state_updates": _validate_state_updates(
+                item.get("state_updates") or default.get("state_updates") or [],
+                f"shared_repair_helpers.{helper_id}.state_updates",
+            ),
+            "template_context_keys": _validate_template_context_keys(
+                item.get("template_context_keys") or default.get("template_context_keys") or [],
+                f"shared_repair_helpers.{helper_id}.template_context_keys",
             ),
         }
     return helpers
@@ -1022,11 +1233,28 @@ def _validate_state_updates(value: Any, label: str) -> list[dict[str, Any]]:
         state_key = _validate_step_id(str(item.get("state_key") or ""))
         output_key = _validate_text(item.get("output_key"), f"{item_label}.output_key")
         value_kind = str(item.get("kind") or "scalar").strip()
-        if value_kind not in {"scalar", "string", "boolean", "list", "dict", "object"}:
+        if value_kind not in {
+            "scalar",
+            "string",
+            "boolean",
+            "integer",
+            "list",
+            "dict",
+            "object",
+        }:
             raise WorkflowCreatorError(f"{item_label}.kind is unsupported: {value_kind}")
         runtime_owned = item.get("runtime_owned", False)
         if not isinstance(runtime_owned, bool):
             raise WorkflowCreatorError(f"{item_label}.runtime_owned must be boolean")
+        increment_on_verified_success = item.get("increment_on_verified_success", False)
+        if not isinstance(increment_on_verified_success, bool):
+            raise WorkflowCreatorError(
+                f"{item_label}.increment_on_verified_success must be boolean"
+            )
+        if increment_on_verified_success and not runtime_owned:
+            raise WorkflowCreatorError(
+                f"{item_label}.increment_on_verified_success requires runtime_owned"
+            )
         if state_key in seen:
             raise WorkflowCreatorError(f"duplicate state update key in {label}: {state_key}")
         seen.add(state_key)
@@ -1037,6 +1265,8 @@ def _validate_state_updates(value: Any, label: str) -> list[dict[str, Any]]:
         }
         if runtime_owned:
             update["runtime_owned"] = True
+        if increment_on_verified_success:
+            update["increment_on_verified_success"] = True
         updates.append(update)
     return updates
 
@@ -1236,6 +1466,21 @@ def _validate_verifier_templates(value: Any, label: str) -> list[dict[str, Any]]
             if not isinstance(min_count, int) or isinstance(min_count, bool) or min_count < 0:
                 raise WorkflowCreatorError(f"{item_label}.min_count must be a non-negative integer")
             result["min_count"] = min_count
+        elif template_name == "min_count_from_constraint":
+            result["constraint_key"] = _validate_text(
+                item.get("constraint_key"),
+                f"{item_label}.constraint_key",
+            )
+            default_min_count = item.get("default_min_count")
+            if (
+                not isinstance(default_min_count, int)
+                or isinstance(default_min_count, bool)
+                or default_min_count < 0
+            ):
+                raise WorkflowCreatorError(
+                    f"{item_label}.default_min_count must be a non-negative integer"
+                )
+            result["default_min_count"] = default_min_count
         elif template_name == "required_set_members":
             result["required_members"] = _validate_optional_string_list(
                 item.get("required_members") or [],
@@ -1276,6 +1521,49 @@ def _validate_verifier_templates(value: Any, label: str) -> list[dict[str, Any]]
             )
             if not result["sections"]:
                 raise WorkflowCreatorError(f"{item_label}.sections must not be empty")
+        elif template_name == "artifact_list_policy":
+            result["required_prefix"] = _validate_text(
+                item.get("required_prefix"),
+                f"{item_label}.required_prefix",
+            )
+            result["allowed_suffixes"] = _validate_optional_string_list(
+                item.get("allowed_suffixes") or [],
+                f"{item_label}.allowed_suffixes",
+            )
+            require_non_empty_content = item.get("require_non_empty_content", True)
+            if not isinstance(require_non_empty_content, bool):
+                raise WorkflowCreatorError(
+                    f"{item_label}.require_non_empty_content must be boolean"
+                )
+            result["require_non_empty_content"] = require_non_empty_content
+        elif template_name == "no_unresolved_findings":
+            when = item.get("when")
+            if when is not None:
+                if not isinstance(when, dict):
+                    raise WorkflowCreatorError(f"{item_label}.when must be a JSON object")
+                operator = _validate_text(when.get("operator"), f"{item_label}.when.operator")
+                if operator not in _SUPPORTED_VERIFIER_OPERATORS:
+                    raise WorkflowCreatorError(f"{item_label}.when.operator is unsupported: {operator}")
+                result["when"] = {
+                    "output_key": _validate_text(
+                        when.get("output_key"),
+                        f"{item_label}.when.output_key",
+                    ),
+                    "operator": operator,
+                    "value": when.get("value"),
+                }
+            result["unresolved_terms"] = _validate_optional_string_list(
+                item.get("unresolved_terms") or [],
+                f"{item_label}.unresolved_terms",
+            )
+            result["resolved_terms"] = _validate_optional_string_list(
+                item.get("resolved_terms") or [],
+                f"{item_label}.resolved_terms",
+            )
+            if not result["unresolved_terms"] or not result["resolved_terms"]:
+                raise WorkflowCreatorError(
+                    f"{item_label}.unresolved_terms and resolved_terms must not be empty"
+                )
         templates.append(result)
     return templates
 
@@ -1305,6 +1593,22 @@ def _validate_custom_verifier_requirements(value: Any, label: str) -> list[dict[
                 f"{item_label}.signals",
             ),
         }
+        python_imports = _validate_optional_string_list(
+            item.get("python_imports") or [],
+            f"{item_label}.python_imports",
+        )
+        invalid_imports = [
+            module_name
+            for module_name in python_imports
+            if _PYTHON_IMPORT_PATTERN.fullmatch(module_name) is None
+        ]
+        if invalid_imports:
+            raise WorkflowCreatorError(
+                f"{item_label}.python_imports must contain importable module names: "
+                + ", ".join(invalid_imports)
+            )
+        if python_imports:
+            result["python_imports"] = python_imports
         implementation_surface = _validate_optional_string_list(
             item.get("implementation_surface") or [],
             f"{item_label}.implementation_surface",
@@ -1347,6 +1651,11 @@ def _validate_implementation_version(value: Any, label: str) -> int:
 
 def _validate_stage_transition_targets(stages: list[dict[str, Any]], final_step_id: str) -> None:
     valid_node_ids = {stage["step_id"] for stage in stages} | {final_step_id} | _REPAIR_STAGE_IDS
+    declared_state_keys = {
+        update["state_key"]
+        for stage in stages
+        for update in stage["state_updates"]
+    }
     if stages and not any(stage["stage_kind"] == "main" for stage in stages):
         raise WorkflowCreatorError("workflow spec must include at least one main stage")
     for stage in stages:
@@ -1388,6 +1697,34 @@ def _validate_stage_transition_targets(stages: list[dict[str, Any]], final_step_
             if next_node not in valid_node_ids:
                 raise WorkflowCreatorError(
                     f"{stage['step_id']}.outcome_routes next_node is unknown: {next_node}"
+                )
+        unmatched_transition = stage.get("unmatched_transition")
+        if unmatched_transition is not None and unmatched_transition["next_node"] not in valid_node_ids:
+            raise WorkflowCreatorError(
+                f"{stage['step_id']}.unmatched_transition next_node is unknown: "
+                f"{unmatched_transition['next_node']}"
+            )
+        missing_verifier_route = stage.get("missing_verifier_route")
+        if (
+            missing_verifier_route is not None
+            and missing_verifier_route["next_node"] not in valid_node_ids
+        ):
+            raise WorkflowCreatorError(
+                f"{stage['step_id']}.missing_verifier_route next_node is unknown: "
+                f"{missing_verifier_route['next_node']}"
+            )
+        cycle_limit = stage.get("cycle_limit")
+        if cycle_limit is not None:
+            if cycle_limit["next_node"] not in valid_node_ids:
+                raise WorkflowCreatorError(
+                    f"{stage['step_id']}.cycle_limit next_node is unknown: "
+                    f"{cycle_limit['next_node']}"
+                )
+            counter_state_key = cycle_limit.get("counter_state_key")
+            if counter_state_key is not None and counter_state_key not in declared_state_keys:
+                raise WorkflowCreatorError(
+                    f"{stage['step_id']}.cycle_limit counter_state_key is not declared: "
+                    f"{counter_state_key}"
                 )
 
 
@@ -1836,6 +2173,13 @@ def _collect_state_updates(workflow_spec: dict[str, Any]) -> list[dict[str, Any]
                 continue
             seen.add(state_key)
             updates.append(update)
+    for helper in workflow_spec.get("shared_repair_helpers", {}).values():
+        for update in helper.get("state_updates", []):
+            state_key = update["state_key"]
+            if state_key in seen:
+                continue
+            seen.add(state_key)
+            updates.append(update)
     return updates
 
 
@@ -1848,6 +2192,8 @@ def _state_field_line(update: dict[str, str]) -> str:
         return f"    {state_key}: dict = field(default_factory=dict)"
     if kind == "boolean":
         return f"    {state_key}: bool | None = None"
+    if kind == "integer":
+        return f"    {state_key}: int = 0"
     if kind == "string":
         return f"    {state_key}: str | None = None"
     return f"    {state_key}: object | None = None"
@@ -1857,22 +2203,33 @@ def _state_deserialize_line(update: dict[str, str]) -> str:
     state_key = update["state_key"]
     kind = update["kind"]
     if kind == "list":
-        return f"        {state_key}=list(payload.get({state_key!r}) or []),"
+        return f"        {state_key}=_list_value(payload.get({state_key!r})),"
     if kind in {"dict", "object"}:
-        return f"        {state_key}=dict(payload.get({state_key!r}) or {{}}),"
-    return f"        {state_key}=payload.get({state_key!r}),"
+        return f"        {state_key}=_dict_value(payload.get({state_key!r})),"
+    if kind == "integer":
+        return (
+            f"        {state_key}=_non_negative_integer(payload.get({state_key!r}, 0), "
+            f"{('persisted ' + state_key)!r}),"
+        )
+    return f"        {state_key}=_scalar_value(payload.get({state_key!r})),"
 
 
 def _state_record_update_lines(workflow_spec: dict[str, Any]) -> list[str]:
     lines: list[str] = []
-    for stage in workflow_spec["stages"]:
-        stage_updates = [
-            update for update in stage["state_updates"] if not update.get("runtime_owned", False)
-        ]
+    update_groups = [
+        (stage["step_id"], stage["state_updates"])
+        for stage in workflow_spec["stages"]
+    ]
+    update_groups.extend(
+        (helper_id, helper.get("state_updates", []))
+        for helper_id, helper in workflow_spec.get("shared_repair_helpers", {}).items()
+    )
+    for step_id, updates in update_groups:
+        stage_updates = [update for update in updates if not update.get("runtime_owned", False)]
         if not stage_updates:
             continue
         branch = "if" if not lines else "elif"
-        lines.append(f"            {branch} current_step_id == {stage['step_id']!r}:")
+        lines.append(f"            {branch} current_step_id == {step_id!r}:")
         for update in stage_updates:
             state_key = update["state_key"]
             output_key = update["output_key"]
@@ -1882,11 +2239,31 @@ def _state_record_update_lines(workflow_spec: dict[str, Any]) -> list[str]:
             elif kind in {"dict", "object"}:
                 expression = f"_dict_value(structured_output.get({output_key!r}))"
             else:
-                expression = f"structured_output.get({output_key!r})"
+                expression = f"_scalar_value(structured_output.get({output_key!r}))"
             lines.append(f"                state.{state_key} = {expression}")
     if lines:
         lines.append("            else:")
         lines.append("                pass")
+    return lines
+
+
+def _state_verified_counter_lines(workflow_spec: dict[str, Any]) -> list[str]:
+    lines: list[str] = []
+    for stage in workflow_spec["stages"]:
+        for update in stage["state_updates"]:
+            if not update.get("increment_on_verified_success", False):
+                continue
+            state_key = update["state_key"]
+            lines.extend(
+                [
+                    "            if (",
+                    f"                current_step_id == {stage['step_id']!r}",
+                    "                and isinstance(verifier_result, dict)",
+                    '                and verifier_result.get("passed") is True',
+                    "            ):",
+                    f"                state.{state_key} += 1",
+                ]
+            )
     return lines
 
 
@@ -1912,6 +2289,84 @@ def _state_repair_condition_lines(workflow_spec: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _recovery_output_schemas(workflow_spec: dict[str, Any]) -> dict[str, dict[str, str]]:
+    schemas: dict[str, dict[str, str]] = {}
+    for stage in workflow_spec["stages"]:
+        if stage["stage_kind"] == "recovery":
+            schemas[stage["step_id"]] = dict(stage["output_schema"])
+    for helper_id, helper in workflow_spec.get("shared_repair_helpers", {}).items():
+        schemas.setdefault(helper_id, dict(helper["output_schema"]))
+    return schemas
+
+
+def _render_recovery_output_validation_block(workflow_spec: dict[str, Any]) -> str:
+    schema_literal = _python_literal(_recovery_output_schemas(workflow_spec))
+    return f'''_RECOVERY_OUTPUT_SCHEMAS = {schema_literal}
+
+
+def recovery_output_validation_error(*, current_step_id: str, structured_output: object) -> str | None:
+    schema = _RECOVERY_OUTPUT_SCHEMAS.get(current_step_id)
+    if schema is None:
+        return None
+    if not isinstance(structured_output, dict):
+        return "recovery succeeded output must be an object"
+    unexpected = sorted(repr(key) for key in structured_output if key not in schema)
+    if unexpected:
+        return f"{{current_step_id}} returned unexpected fields: {{unexpected}}"
+    missing = [
+        key
+        for key, schema_type in schema.items()
+        if not schema_type.endswith("?") and key not in structured_output
+    ]
+    if missing:
+        return f"{{current_step_id}} is missing required fields: {{missing}}"
+    for key, schema_type in schema.items():
+        if key not in structured_output:
+            continue
+        message = _recovery_schema_type_error(
+            key,
+            structured_output[key],
+            schema_type.rstrip("?"),
+        )
+        if message:
+            return message
+    if current_step_id == "repair_and_resume":
+        actions = structured_output.get("repair_actions")
+        if not isinstance(actions, list) or not actions or any(
+            not isinstance(item, str) or not item.strip() for item in actions
+        ):
+            return "repair_actions must contain at least one meaningful action"
+    return None
+
+
+def _recovery_schema_type_error(key: str, value: object, schema_type: str) -> str | None:
+    if schema_type == "string":
+        if not isinstance(value, str):
+            return f"{{key}} must be a string"
+        if not value.strip():
+            return f"{{key}} must be meaningful text"
+        return None
+    if schema_type == "boolean":
+        return None if isinstance(value, bool) else f"{{key}} must be a boolean"
+    if schema_type == "integer":
+        return None if isinstance(value, int) and not isinstance(value, bool) else f"{{key}} must be an integer"
+    if schema_type == "number":
+        return None if isinstance(value, (int, float)) and not isinstance(value, bool) else f"{{key}} must be a number"
+    if schema_type == "object":
+        return None if isinstance(value, dict) else f"{{key}} must be an object"
+    if schema_type.endswith("[]"):
+        if not isinstance(value, list):
+            return f"{{key}} must be a list"
+        item_type = schema_type[:-2]
+        for index, item in enumerate(value):
+            message = _recovery_schema_type_error(f"{{key}}[{{index}}]", item, item_type)
+            if message:
+                return message
+        return None
+    return f"{{key}} uses unsupported recovery schema type: {{schema_type}}"
+'''
+
+
 def _render_state_py(workflow_spec: dict[str, Any]) -> str:
     class_name = _workflow_class_prefix(workflow_spec["workflow_id"]) + "State"
     main_stage_ids = tuple(
@@ -1924,11 +2379,15 @@ def _render_state_py(workflow_spec: dict[str, Any]) -> str:
     state_field_lines = [_state_field_line(update) for update in state_updates]
     deserialize_lines = [_state_deserialize_line(update) for update in state_updates]
     record_update_lines = _state_record_update_lines(workflow_spec)
+    verified_counter_lines = _state_verified_counter_lines(workflow_spec)
     repair_condition_lines = _state_repair_condition_lines(workflow_spec)
+    recovery_output_validation_block = _render_recovery_output_validation_block(workflow_spec)
     runtime_defaults = dict(workflow_spec.get("runtime_defaults") or {})
     final_step_id = workflow_spec["final_step_id"]
     return f'''from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass, field
 
 from workflows.common.policies import condition_matches
@@ -1944,7 +2403,14 @@ REPAIR_STAGE_IDS = (
 DECLARED_RECOVERY_STAGE_IDS = {_python_literal(recovery_stage_ids)}
 FINAL_STAGE_ID = {final_step_id!r}
 RUNTIME_DEFAULTS = {_python_literal(runtime_defaults)}
+MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE = 32
+MAX_ARTIFACT_JOURNAL_BYTES = 64 * 1024
+MAX_ARTIFACT_PATH_BYTES = 2048
+MAX_WORKFLOW_TEXT_BYTES = 16 * 1024
+MAX_WORKFLOW_LIST_ITEM_BYTES = 8 * 1024
+MAX_WORKFLOW_LIST_BYTES = 64 * 1024
 
+{recovery_output_validation_block}
 
 @dataclass
 class {class_name}:
@@ -1956,6 +2422,10 @@ class {class_name}:
     current_stage_id: str = MAIN_STAGE_IDS[0]
     completed_stages: list[str] = field(default_factory=list)
     return_stage_id: str | None = None
+    repair_requirements: list = field(default_factory=list)
+    repair_evidence: list = field(default_factory=list)
+    repair_transition_reason: str | None = None
+    repair_blocked_attempts: int = 0
 {chr(10).join(state_field_lines)}
     artifacts_by_stage: dict[str, list[dict]] = field(default_factory=dict)
     repair_context: dict[str, object] = field(default_factory=dict)
@@ -1981,7 +2451,13 @@ def _select_workflow_goal(task_input: dict) -> str | None:
 
 
 def serialize_state(state: {class_name}) -> dict:
-    return asdict(state)
+    payload = _compact_value(asdict(state))
+    if not isinstance(payload, dict):
+        payload = {{}}
+    payload["artifacts_by_stage"] = _normalize_artifact_journal(
+        payload.get("artifacts_by_stage")
+    )
+    return payload
 
 
 def _normalize_constraints(value: dict) -> dict:
@@ -2013,13 +2489,20 @@ def _validate_return_stage_id(value) -> str | None:
     return value
 
 
+def _non_negative_integer(value, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{{label}} must be a non-negative integer")
+    return value
+
+
 def deserialize_state(payload: dict | None) -> {class_name}:
     if payload is None:
         payload = {{}}
     if not isinstance(payload, dict):
         raise ValueError("persisted workflow state must be an object")
-    attempt_counts = dict(payload.get("attempt_counts") or {{}})
-    if any(
+    raw_attempt_counts = payload.get("attempt_counts")
+    attempt_counts = raw_attempt_counts if raw_attempt_counts is not None else {{}}
+    if not isinstance(attempt_counts, dict) or any(
         not isinstance(key, str)
         or not isinstance(value, int)
         or isinstance(value, bool)
@@ -2030,15 +2513,29 @@ def deserialize_state(payload: dict | None) -> {class_name}:
     workflow_goal = payload.get("workflow_goal")
     if workflow_goal is not None and not isinstance(workflow_goal, str):
         raise ValueError("persisted workflow_goal must be a string or null")
-    task_input = payload.get("task_input") or {{}}
-    context = payload.get("context") or {{}}
+    raw_task_input = payload.get("task_input")
+    raw_context = payload.get("context")
+    task_input = raw_task_input if raw_task_input is not None else {{}}
+    context = raw_context if raw_context is not None else {{}}
     if not isinstance(task_input, dict) or not isinstance(context, dict):
         raise ValueError("persisted task_input and context must be objects")
-    current_stage_id = _validate_stage_id(payload.get("current_stage_id") or MAIN_STAGE_IDS[0])
+    raw_repair_blocked_attempts = payload.get("repair_blocked_attempts")
+    repair_blocked_attempts = (
+        raw_repair_blocked_attempts
+        if raw_repair_blocked_attempts is not None
+        else attempt_counts.get("repair_and_resume", 0)
+    )
+    current_stage_id = _validate_stage_id(
+        payload.get("current_stage_id", MAIN_STAGE_IDS[0])
+    )
     return_stage_id = _validate_return_stage_id(payload.get("return_stage_id"))
-    completed_stages = list(payload.get("completed_stages") or [])
+    raw_completed_stages = payload.get("completed_stages")
+    completed_stages = raw_completed_stages if raw_completed_stages is not None else []
     allowed_completed = set(MAIN_STAGE_IDS) | {{FINAL_STAGE_ID}}
-    if any(item not in allowed_completed for item in completed_stages):
+    if not isinstance(completed_stages, list) or any(
+        not isinstance(item, str) or item not in allowed_completed
+        for item in completed_stages
+    ):
         raise ValueError("persisted completed_stages contains an unknown stage")
     return {class_name}(
         attempt_counts=attempt_counts,
@@ -2049,8 +2546,15 @@ def deserialize_state(payload: dict | None) -> {class_name}:
         current_stage_id=current_stage_id,
         completed_stages=completed_stages,
         return_stage_id=return_stage_id,
+        repair_requirements=_list_value(payload.get("repair_requirements")),
+        repair_evidence=_list_value(payload.get("repair_evidence")),
+        repair_transition_reason=_scalar_value(payload.get("repair_transition_reason")),
+        repair_blocked_attempts=_non_negative_integer(
+            repair_blocked_attempts,
+            "persisted repair_blocked_attempts",
+        ),
 {chr(10).join(deserialize_lines)}
-        artifacts_by_stage=dict(payload.get("artifacts_by_stage") or {{}}),
+        artifacts_by_stage=_normalize_artifact_journal(payload.get("artifacts_by_stage")),
         repair_context=dict(payload.get("repair_context") or {{}}),
     )
 
@@ -2063,12 +2567,34 @@ def record_observation(
     verifier_result: dict | None,
 ) -> None:
     state.attempt_counts[current_step_id] = state.attempt_counts.get(current_step_id, 0) + 1
+    recovery_output_error = (
+        recovery_output_validation_error(
+            current_step_id=current_step_id,
+            structured_output=observation.get("structured_output"),
+        )
+        if current_step_id in REPAIR_STAGE_IDS and observation.get("status") == "succeeded"
+        else None
+    )
+    if current_step_id == "repair_and_resume":
+        if observation.get("status") == "blocked" or recovery_output_error is not None:
+            state.repair_blocked_attempts += 1
+        elif observation.get("status") == "succeeded" and recovery_output_error is None:
+            state.repair_blocked_attempts = 0
     structured_output = observation.get("structured_output") or {{}}
     if isinstance(structured_output, dict):
-        verifier_passed = verifier_result is None or verifier_result.get("passed") is True
-        if observation.get("status") == "succeeded" and verifier_passed:
-            state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
-{chr(10).join(record_update_lines) if record_update_lines else "            pass"}
+        verifier_passed = (
+            isinstance(verifier_result, dict)
+            and verifier_result.get("passed") is True
+        )
+        if observation.get("status") == "succeeded" and (
+            verifier_passed
+            or (current_step_id in REPAIR_STAGE_IDS and recovery_output_error is None)
+        ):
+            state.artifacts_by_stage.setdefault(current_step_id, []).append(
+                _compact_artifact_snapshot(structured_output)
+            )
+            state.artifacts_by_stage = _normalize_artifact_journal(state.artifacts_by_stage)
+{chr(10).join(verified_counter_lines + record_update_lines) if verified_counter_lines or record_update_lines else "            pass"}
 
     transition_reason = determine_transition_reason(
         current_step_id=current_step_id,
@@ -2088,11 +2614,12 @@ def record_observation(
     )
     state.return_stage_id = return_stage_id
     state.repair_context = _build_repair_context(
-        current_step_id=current_step_id,
+        current_step_id=_repair_context_source_stage_id(state, current_step_id),
         return_stage_id=return_stage_id,
         transition_reason=transition_reason,
         repair_payload=repair_payload or {{}},
     )
+    state.repair_context["repair_blocked_attempts"] = state.repair_blocked_attempts
 
 
 def determine_return_stage_id(
@@ -2118,8 +2645,23 @@ def determine_transition_reason(
         return "partial"
     if status == "failed":
         return "failed"
-    if verifier_result is not None and not verifier_result.get("passed", False):
+    if current_step_id in MAIN_STAGE_IDS and status == "succeeded":
+        if not (
+            isinstance(verifier_result, dict)
+            and verifier_result.get("passed") is True
+        ):
+            return "verifier_failed"
+    if verifier_result is not None and (
+        not isinstance(verifier_result, dict)
+        or verifier_result.get("passed") is not True
+    ):
         return "verifier_failed"
+    if current_step_id in REPAIR_STAGE_IDS and status == "succeeded":
+        if recovery_output_validation_error(
+            current_step_id=current_step_id,
+            structured_output=observation.get("structured_output"),
+        ) is not None:
+            return "verifier_failed"
     structured_output = observation.get("structured_output") or {{}}
     if isinstance(structured_output, dict):
 {chr(10).join(repair_condition_lines) if repair_condition_lines else "        pass"}
@@ -2134,9 +2676,19 @@ def apply_transition(state: {class_name}, *, current_step_id: str, next_step_id:
     if current_step_id in REPAIR_STAGE_IDS and next_step_id == state.return_stage_id:
         state.return_stage_id = None
         state.repair_context = {{}}
+        state.repair_blocked_attempts = 0
     elif current_step_id in DECLARED_RECOVERY_STAGE_IDS and next_step_id != current_step_id:
         state.return_stage_id = None
         state.repair_context = {{}}
+
+    if current_step_id == "request_unblocking_input" and next_step_id == "repair_and_resume":
+        state.repair_blocked_attempts = 0
+        state.repair_context["repair_blocked_attempts"] = 0
+    elif current_step_id == "repair_and_resume":
+        if next_step_id == "request_unblocking_input":
+            state.repair_context["repair_blocked_attempts"] = state.repair_blocked_attempts
+        elif next_step_id not in REPAIR_STAGE_IDS:
+            state.repair_blocked_attempts = 0
 
     state.current_stage_id = next_step_id
 
@@ -2168,12 +2720,138 @@ def _build_repair_context(
     }}
 
 
+def _repair_context_source_stage_id(state: {class_name}, current_step_id: str) -> str:
+    if current_step_id != "request_unblocking_input":
+        return current_step_id
+    existing_context = state.repair_context if isinstance(state.repair_context, dict) else {{}}
+    existing_source = existing_context.get("source_stage_id")
+    if existing_source in REPAIR_STAGE_IDS:
+        return str(existing_source)
+    return current_step_id
+
+
 def _list_value(value) -> list:
-    return list(value) if isinstance(value, list) else []
+    compact = _compact_value(value)
+    return compact if isinstance(compact, list) else []
 
 
 def _dict_value(value) -> dict:
-    return dict(value) if isinstance(value, dict) else {{}}
+    compact = _compact_value(value)
+    return compact if isinstance(compact, dict) else {{}}
+
+
+def _scalar_value(value):
+    return _compact_value(value)
+
+
+def _bounded_text(value: object, *, max_bytes: int = MAX_WORKFLOW_TEXT_BYTES):
+    if not isinstance(value, str):
+        return value
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value
+    suffix = f"\\n...[truncated sha256:{{hashlib.sha256(encoded).hexdigest()}}]"
+    prefix_budget = max(1, max_bytes - len(suffix.encode("utf-8")))
+    prefix = encoded[:prefix_budget].decode("utf-8", "ignore")
+    return prefix + suffix
+
+
+def _json_size(value: object) -> int:
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def _compact_value(value: object, *, depth: int = 0):
+    if depth > 4:
+        return None
+    if isinstance(value, str):
+        return _bounded_text(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, list):
+        compact_list = []
+        for item in value[:128]:
+            compact_list.append(_compact_value(item, depth=depth + 1))
+            if _json_size(compact_list) > MAX_WORKFLOW_LIST_BYTES:
+                compact_list.pop()
+                break
+        return compact_list
+    if isinstance(value, dict):
+        compact_dict = {{}}
+        for key in sorted(value, key=lambda item: str(item))[:128]:
+            if not isinstance(key, str):
+                continue
+            compact_dict[key] = _compact_value(value[key], depth=depth + 1)
+            if _json_size(compact_dict) > MAX_WORKFLOW_LIST_BYTES:
+                compact_dict.pop(key, None)
+                break
+        return compact_dict
+    return None
+
+
+def _compact_artifact_path(value: str) -> str:
+    text = value.strip()
+    encoded = text.encode("utf-8")
+    if len(encoded) <= MAX_ARTIFACT_PATH_BYTES:
+        return text
+    digest = hashlib.sha256(encoded).hexdigest()
+    prefix = encoded[: MAX_ARTIFACT_PATH_BYTES - 80].decode("utf-8", "ignore")
+    return f"{{prefix}}...[sha256:{{digest}}]"
+
+
+def _compact_artifact_snapshot(value: dict) -> dict:
+    compact = {{
+        "output_keys": sorted(key for key in value if isinstance(key, str))[:128],
+    }}
+    for key, raw_value in value.items():
+        if not isinstance(key, str):
+            continue
+        if key.endswith("_path") or key.endswith("_paths") or key == "artifact_path":
+            if isinstance(raw_value, str):
+                compact[key] = _compact_artifact_path(raw_value)
+            elif isinstance(raw_value, list):
+                compact[key] = [
+                    _compact_artifact_path(item)
+                    for item in raw_value[:128]
+                    if isinstance(item, str) and item.strip()
+                ]
+        elif (
+            key.endswith("_index")
+            or key.endswith("_count")
+            or key.startswith("ready_")
+            or key.endswith("_ready")
+            or key.endswith("_complete")
+            or key.startswith("continue_")
+            or key.startswith("should_")
+            or key.endswith("_passed")
+        ) and isinstance(raw_value, (bool, int)):
+            compact[key] = raw_value
+    return compact
+
+
+def _normalize_artifact_journal(value: object) -> dict[str, list[dict]]:
+    if not isinstance(value, dict):
+        return {{}}
+    normalized = {{}}
+    for stage_id, entries in value.items():
+        if not isinstance(stage_id, str) or not isinstance(entries, list):
+            continue
+        compact_entries = [
+            _compact_artifact_snapshot(item)
+            for item in entries[-MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE:]
+            if isinstance(item, dict)
+        ]
+        if compact_entries:
+            normalized[stage_id] = compact_entries
+    while _json_size(normalized) > MAX_ARTIFACT_JOURNAL_BYTES:
+        oldest_stage = next(iter(normalized), None)
+        if oldest_stage is None:
+            break
+        entries = normalized[oldest_stage]
+        if len(entries) > 1:
+            entries.pop(0)
+        else:
+            normalized.pop(oldest_stage)
+    return normalized
 
 
 def _string_list(value) -> list[str]:
@@ -2240,10 +2918,17 @@ def _policy_outcome_route_lines(stage: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     for route in stage["outcome_routes"]:
         if route["outcome"] == "verifier_failed":
-            condition_line = (
-                '        if observation["status"] == "succeeded" and verifier_result is not None '
-                'and not verifier_result["passed"]:'
-            )
+            if stage.get("require_passing_verifier", False):
+                condition_line = (
+                    '        if observation["status"] == "succeeded" '
+                    'and _verifier_result_is_valid(verifier_result) '
+                    'and not _verifier_is_passed(verifier_result):'
+                )
+            else:
+                condition_line = (
+                    '        if observation["status"] == "succeeded" and verifier_result is not None '
+                    'and not _verifier_is_passed(verifier_result):'
+                )
         else:
             condition_line = f'        if observation["status"] == "{route["outcome"]}":'
         lines.extend(
@@ -2259,17 +2944,70 @@ def _policy_outcome_route_lines(stage: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _policy_cycle_limit_lines(
+    cycle_limit: dict[str, Any],
+    runtime_defaults: dict[str, int],
+) -> list[str]:
+    default_max_cycles = runtime_defaults.get(cycle_limit["constraint_key"], 3)
+    counter_state_key = cycle_limit.get("counter_state_key")
+    completed_cycles_expression = (
+        f"state.get({counter_state_key!r})"
+        if counter_state_key
+        else '(state.get("attempt_counts") or {}).get(current_step_id)'
+    )
+    return [
+        '        structured_output = observation.get("structured_output") or {}',
+        "        if isinstance(structured_output, dict):",
+        "            if condition_matches(",
+        f"                structured_output.get({cycle_limit['output_key']!r}),",
+        "                'is_true',",
+        "                None,",
+        "            ):",
+        f"                raw_completed_cycles = {completed_cycles_expression}",
+        '                completed_cycles = raw_completed_cycles if isinstance(raw_completed_cycles, int) and not isinstance(raw_completed_cycles, bool) else 0',
+        '                constraints = state.get("constraints") if isinstance(state, dict) else {}',
+        f'                raw_max_cycles = constraints.get({cycle_limit["constraint_key"]!r}) if isinstance(constraints, dict) else None',
+        f'                max_cycles = raw_max_cycles if isinstance(raw_max_cycles, int) and not isinstance(raw_max_cycles, bool) and raw_max_cycles > 0 else {default_max_cycles}',
+        '                if completed_cycles >= max_cycles:',
+        "                    return TransitionDecision(",
+        f"                        next_node={cycle_limit['next_node']!r},",
+        f"                        branch_kind={cycle_limit['branch_kind']!r},",
+        f"                        reason={cycle_limit['reason']!r},",
+        "                    )",
+    ]
+
+
 def _graph_template_context_update_lines(workflow_spec: dict[str, Any]) -> list[str]:
     start_input_schema = workflow_spec.get("start_input_schema") or {}
+    state_mode = workflow_spec.get("state_mode", "generated")
+    artifact_expression = (
+        "state.artifacts_by_stage"
+        if state_mode == "generated"
+        else 'getattr(state, "artifacts_by_stage", {})'
+    )
     lines: list[str] = [
-        '        "artifacts_by_stage_json": json.dumps(state.artifacts_by_stage, ensure_ascii=False, indent=2),'
+        f'        "artifacts_by_stage_json": json.dumps({artifact_expression}, ensure_ascii=False, indent=2),'
     ]
+    if state_mode == "generated":
+        lines.extend(
+            [
+                '        "repair_requirements": _format_prompt_value(state.repair_requirements),',
+                '        "repair_evidence": _format_prompt_value(state.repair_evidence),',
+                '        "repair_transition_reason": _format_prompt_value(state.repair_transition_reason),',
+                '        "repair_blocked_attempts": _format_prompt_value(state.repair_blocked_attempts),',
+            ]
+        )
     seen_keys = {"artifacts_by_stage_json"}
     for update in _collect_state_updates(workflow_spec):
         state_key = update["state_key"]
         if state_key in seen_keys:
             continue
-        lines.append(f'        "{state_key}": _format_prompt_value(state.{state_key}),')
+        state_expression = (
+            f"state.{state_key}"
+            if state_mode == "generated"
+            else f"getattr(state, {state_key!r}, None)"
+        )
+        lines.append(f'        "{state_key}": _format_prompt_value({state_expression}),')
         seen_keys.add(state_key)
     input_sources = (
         ("task_input", "task_input_values"),
@@ -2293,10 +3031,39 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
     main_stages = [stage for stage in stages if stage["stage_kind"] == "main"]
     final_step_id = workflow_spec["final_step_id"]
     first_main_stage_id = main_stages[0]["step_id"] if main_stages else final_step_id
+    runtime_defaults = dict(workflow_spec.get("runtime_defaults") or {})
+    repair_policy = workflow_spec.get("repair_policy") or _validate_repair_policy({})
+    required_verifier_stage_ids = tuple(
+        stage["step_id"]
+        for stage in main_stages
+        if stage.get("require_passing_verifier", False)
+    )
+    missing_verifier_routes = {
+        stage["step_id"]: stage.get("missing_verifier_route") or {
+            "next_node": "repair_and_resume",
+            "branch_kind": "repair",
+            "reason": (
+                f"{stage['step_id']} completed without a valid verifier result; "
+                "fail closed before continuing."
+            ),
+        }
+        for stage in main_stages
+        if stage.get("require_passing_verifier", False)
+    }
+    recovery_output_validation_block = _render_recovery_output_validation_block(workflow_spec)
     lines = [
         "from __future__ import annotations",
         "",
-        "from workflows.common.policies import TransitionDecision, condition_matches",
+        "from workflows.common.policies import (",
+        "    TransitionDecision,",
+        "    condition_matches,",
+        "    max_steps_exceeded_decision,",
+        ")",
+        "",
+        f"REQUIRED_VERIFIER_STAGE_IDS = {_python_literal(required_verifier_stage_ids)}",
+        f"MISSING_VERIFIER_ROUTES = {_python_literal(missing_verifier_routes)}",
+        "",
+        *recovery_output_validation_block.splitlines(),
         "",
         "",
         "def choose_next_node(",
@@ -2306,6 +3073,35 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
         "    observation: dict,",
         "    verifier_result: dict | None,",
         ") -> TransitionDecision:",
+        "    budget_decision = max_steps_exceeded_decision(",
+        "        current_step_id=current_step_id,",
+        "        state=state,",
+        "        include_repair_stages=True,",
+        "    )",
+        "    if budget_decision is not None:",
+        "        return TransitionDecision(",
+        f"            next_node={final_step_id!r},",
+        '            branch_kind="complete",',
+        '            reason=f"{budget_decision.reason}; terminate with a degraded final summary",',
+        "            metadata={",
+        "                **budget_decision.metadata,",
+        '                "degraded": True,',
+        '                "terminal_reason": "max_steps_exceeded",',
+        "            },",
+        "        )",
+        "",
+        "    if (",
+        "        current_step_id in REQUIRED_VERIFIER_STAGE_IDS",
+        '        and observation.get("status") == "succeeded"',
+        "        and not _verifier_result_is_valid(verifier_result)",
+        "    ):",
+        "        route = MISSING_VERIFIER_ROUTES[current_step_id]",
+        "        return TransitionDecision(",
+        "            next_node=route[\"next_node\"],",
+        "            branch_kind=route[\"branch_kind\"],",
+        "            reason=route[\"reason\"],",
+        "        )",
+        "",
     ]
     for stage in stages:
         if stage["stage_kind"] == "main":
@@ -2321,13 +3117,19 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                 if branch_kind == "complete"
                 else f"{stage['step_id']} completed; continue to {next_node}"
             )
-            default_next_node = stage["step_id"] if stage["transitions"] else next_node
-            default_branch_kind = "retry" if stage["transitions"] else branch_kind
-            default_reason = (
-                f"{stage['step_id']} did not match a declared business transition; retry the stage"
-                if stage["transitions"]
-                else reason
-            )
+            # A declared transition is an optional normal branch.  When none
+            # of its predicates matches, keep the generated linear happy path
+            # instead of turning an otherwise successful observation into an
+            # implicit retry.  Repair/unblock behavior belongs in
+            # repair_conditions and outcome_routes.
+            default_next_node = next_node
+            default_branch_kind = branch_kind
+            default_reason = reason
+            unmatched_transition = stage.get("unmatched_transition")
+            if unmatched_transition is not None:
+                default_next_node = unmatched_transition["next_node"]
+                default_branch_kind = unmatched_transition["branch_kind"]
+                default_reason = unmatched_transition["reason"]
             lines.extend(
                 [
                     f'    if current_step_id == "{stage["step_id"]}":',
@@ -2339,6 +3141,11 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                     "        )",
                     "        if status_decision is not None:",
                     "            return status_decision",
+                    *(
+                        _policy_cycle_limit_lines(stage["cycle_limit"], runtime_defaults)
+                        if stage.get("cycle_limit") is not None
+                        else []
+                    ),
                     *(_policy_repair_condition_lines(stage) if stage["repair_conditions"] else []),
                     *(_policy_transition_lines(stage) if stage["transitions"] else []),
                     "        return TransitionDecision(",
@@ -2368,9 +3175,14 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                 ]
             )
         if not _stage_handles_outcome(stage, "verifier_failed"):
+            verifier_condition = (
+                '        if observation["status"] == "succeeded" and not _verifier_is_passed(verifier_result):'
+                if stage.get("require_passing_verifier", False)
+                else '        if verifier_result is not None and not _verifier_is_passed(verifier_result):'
+            )
             recovery_lines.extend(
                 [
-                '        if verifier_result is not None and not verifier_result["passed"]:',
+                verifier_condition,
                 "            return TransitionDecision(",
                 f'                next_node="{stage["step_id"]}",',
                 '                branch_kind="retry",',
@@ -2397,6 +3209,16 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
         recovery_lines.extend(
             [
                 '        if observation["status"] == "succeeded":',
+                "            recovery_error = recovery_output_validation_error(",
+                f'                current_step_id="{stage["step_id"]}",',
+                '                structured_output=observation.get("structured_output"),',
+                "            )",
+                "            if recovery_error is not None:",
+                "                return TransitionDecision(",
+                f'                    next_node="{stage["step_id"]}",',
+                '                    branch_kind="retry",',
+                '                    reason=recovery_error,',
+                "                )",
                 "            return TransitionDecision(",
                 f'                next_node="{recovery_return_node}",',
                 '                branch_kind="continue",',
@@ -2415,6 +3237,16 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
         [
             '    if current_step_id == "request_unblocking_input":',
             '        if observation["status"] == "succeeded":',
+            '            recovery_error = recovery_output_validation_error(',
+            '                current_step_id="request_unblocking_input",',
+            '                structured_output=observation.get("structured_output"),',
+            '            )',
+            '            if recovery_error is not None:',
+            '                return TransitionDecision(',
+            '                    next_node="request_unblocking_input",',
+            '                    branch_kind="repair",',
+            '                    reason=recovery_error,',
+            '                )',
             '            return_stage_id = state.get("return_stage_id")',
             '            repair_context = state.get("repair_context") or {}',
             '            source_stage_id = repair_context.get("source_stage_id")',
@@ -2438,19 +3270,33 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
             "",
             '    if current_step_id == "repair_and_resume":',
             '        if observation["status"] == "blocked":',
-            '            repair_attempts = int((state.get("attempt_counts") or {}).get("repair_and_resume") or 0)',
-            f'            if repair_attempts < {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK}:',
+            '            raw_repair_attempts = state.get("repair_blocked_attempts")',
+            '            if not isinstance(raw_repair_attempts, int) or isinstance(raw_repair_attempts, bool):',
+            '                raw_attempt_counts = state.get("attempt_counts")',
+            '                raw_repair_attempts = raw_attempt_counts.get("repair_and_resume") if isinstance(raw_attempt_counts, dict) else None',
+            '            repair_attempts = raw_repair_attempts if isinstance(raw_repair_attempts, int) and not isinstance(raw_repair_attempts, bool) else 0',
+            f'            if repair_attempts < {repair_policy["max_self_repair_attempts"]}:',
             "                return TransitionDecision(",
             '                    next_node="repair_and_resume",',
             '                    branch_kind="retry",',
-            f'                    reason="repair must attempt self-repair at least {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} times before requesting external help",',
+            f'                    reason="repair must attempt self-repair at least {repair_policy["max_self_repair_attempts"]} times before the configured terminal handoff",',
             "                )",
             "            return TransitionDecision(",
-            '                next_node="request_unblocking_input",',
-            '                branch_kind="repair",',
-            f'                reason="repair exhausted {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} self-repair attempts and now requires external help before retry",',
+            f'                next_node={repair_policy["exhausted_next_node"]!r},',
+            f'                branch_kind={repair_policy["exhausted_branch_kind"]!r},',
+            f'                reason={repair_policy["exhausted_reason"]!r},',
             "            )",
             '        if observation["status"] == "succeeded":',
+            '            recovery_error = recovery_output_validation_error(',
+            '                current_step_id="repair_and_resume",',
+            '                structured_output=observation.get("structured_output"),',
+            '            )',
+            '            if recovery_error is not None:',
+            '                return TransitionDecision(',
+            '                    next_node="repair_and_resume",',
+            '                    branch_kind="retry",',
+            '                    reason=recovery_error,',
+            '                )',
             '            return_stage_id = state.get("return_stage_id")',
             '            if not return_stage_id:',
             "                return TransitionDecision(",
@@ -2496,13 +3342,21 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
             '            branch_kind="retry",',
             '            reason=f"{current_step_id} failed and should be retried",',
             "        )",
-            '    if verifier_result is not None and not verifier_result["passed"]:',
+            '    if verifier_result is not None and not _verifier_is_passed(verifier_result):',
             "        return TransitionDecision(",
             '            next_node="repair_and_resume",',
             '            branch_kind="retry",',
             '            reason=f"{current_step_id} did not satisfy verifier checks",',
             "        )",
             "    return None",
+            "",
+            "",
+            "def _verifier_is_passed(verifier_result: dict | None) -> bool:",
+            "    return _verifier_result_is_valid(verifier_result) and verifier_result.get(\"passed\") is True",
+            "",
+            "",
+            "def _verifier_result_is_valid(verifier_result: object) -> bool:",
+            '    return isinstance(verifier_result, dict) and isinstance(verifier_result.get("passed"), bool)',
             "",
         ]
     )
@@ -2516,6 +3370,11 @@ def _render_graphbuilder_runtime_py(workflow_spec: dict[str, Any]) -> str:
     first_stage = main_stages[0]["step_id"]
     shared_helpers = workflow_spec["shared_repair_helpers"]
     template_context_update_lines = _graph_template_context_update_lines(workflow_spec)
+    repair_blocked_attempts_context_line = (
+        '            "repair_blocked_attempts": _format_prompt_value(getattr(state, "repair_blocked_attempts", 0)),'
+        if workflow_spec.get("state_mode", "generated") == "generated"
+        else ""
+    )
     node_lines: list[str] = []
     for stage in workflow_spec["stages"]:
         node_lines.extend(
@@ -2756,7 +3615,8 @@ def build_template_context(*, step_id: str, run_state) -> dict:
     state = workflow_state.deserialize_state(
         run_state.graph_state if isinstance(run_state.graph_state, dict) else {{}}
     )
-    repair_context = state.repair_context if isinstance(state.repair_context, dict) else {{}}
+    repair_context_value = getattr(state, "repair_context", {{}})
+    repair_context = repair_context_value if isinstance(repair_context_value, dict) else {{}}
     repair_payload = repair_context.get("repair_payload")
     if not isinstance(repair_payload, dict):
         repair_payload = {{}}
@@ -2764,26 +3624,51 @@ def build_template_context(*, step_id: str, run_state) -> dict:
     context.update(
         {{
             "current_step_id": step_id,
-            "return_stage_id": state.return_stage_id or "",
+            "return_stage_id": getattr(state, "return_stage_id", None) or "",
             "source_stage_id": str(repair_context.get("source_stage_id") or ""),
-            "repair_category": str(repair_payload.get("category") or ""),
-            "repair_summary": str(repair_payload.get("summary") or ""),
-            "repair_requirements": _format_prompt_list(repair_payload.get("requirements")),
-            "repair_evidence": _format_prompt_list(repair_payload.get("evidence")),
+            "repair_category": _format_prompt_value(
+                getattr(state, "repair_category", None)
+                or repair_context.get("repair_category")
+                or repair_payload.get("category")
+            ),
+            "repair_summary": _format_prompt_value(
+                getattr(state, "repair_summary", None)
+                or repair_context.get("repair_summary")
+                or repair_payload.get("summary")
+            ),
+            "repair_requirements": _format_prompt_list(
+                getattr(state, "repair_requirements", None)
+                or repair_context.get("repair_requirements")
+                or repair_payload.get("requirements")
+            ),
+            "repair_evidence": _format_prompt_list(
+                getattr(state, "repair_evidence", None)
+                or repair_context.get("repair_evidence")
+                or repair_payload.get("evidence")
+            ),
+{repair_blocked_attempts_context_line}
+            "terminal_reason": str(getattr(run_state, "terminal_reason", "") or ""),
+            "degraded": str(
+                bool(getattr(run_state, "artifacts_degraded", False))
+                or str(getattr(run_state, "terminal_reason", "") or "") == "max_steps_exceeded"
+            ).lower(),
         }}
     )
     return context
 
 
 def _template_context_from_state(state: workflow_state.{class_name}) -> dict:
-    task_input_values = state.task_input if isinstance(state.task_input, dict) else {{}}
-    context_values = state.context if isinstance(state.context, dict) else {{}}
-    constraint_values = state.constraints if isinstance(state.constraints, dict) else {{}}
+    task_input_value = getattr(state, "task_input", {{}})
+    context_value = getattr(state, "context", {{}})
+    constraints_value = getattr(state, "constraints", {{}})
+    task_input_values = task_input_value if isinstance(task_input_value, dict) else {{}}
+    context_values = context_value if isinstance(context_value, dict) else {{}}
+    constraint_values = constraints_value if isinstance(constraints_value, dict) else {{}}
     context = {{
-        "workflow_goal": state.workflow_goal or "",
-        "task_input_json": json.dumps(state.task_input, ensure_ascii=False, indent=2),
-        "context_json": json.dumps(state.context, ensure_ascii=False, indent=2),
-        "constraints_json": json.dumps(state.constraints, ensure_ascii=False, indent=2),
+        "workflow_goal": getattr(state, "workflow_goal", None) or "",
+        "task_input_json": json.dumps(task_input_values, ensure_ascii=False, indent=2),
+        "context_json": json.dumps(context_values, ensure_ascii=False, indent=2),
+        "constraints_json": json.dumps(constraint_values, ensure_ascii=False, indent=2),
     }}
     context.update(
         {{
@@ -2861,6 +3746,21 @@ def _render_verifiers_py(
     lines = [
         "from __future__ import annotations",
         "",
+        "import os",
+        "import re",
+        *[
+            f"import {module_name}"
+            for module_name in sorted(
+                {
+                    module_name
+                    for stage in workflow_spec["stages"]
+                    for requirement in stage.get("custom_verifier_requirements") or []
+                    for module_name in requirement.get("python_imports") or []
+                }
+                - {"os", "re"}
+            )
+        ],
+        "",
         "from pathlib import Path",
         "",
         "from workflows.common.contracts import VerifierResult, make_verifier_result",
@@ -2897,18 +3797,26 @@ def _render_verifiers_py(
         )
         if custom_requirements:
             runner_name = _custom_verifier_runner_name(stage["step_id"])
-            lines.extend(
+            custom_call_lines = [
+                '    output = observation.get("structured_output") or {}',
+                f"    custom_error = {runner_name}(",
+                "        output=output,",
+                "        state=state,",
+                "        repo_root=repo_root,",
+            ]
+            if any(
+                "tool_trace" in (requirement.get("signals") or [])
+                for requirement in custom_requirements
+            ):
+                custom_call_lines.append('        tool_trace=observation.get("tool_trace"),')
+            custom_call_lines.extend(
                 [
-                    '    output = observation.get("structured_output") or {}',
-                    f"    custom_error = {runner_name}(",
-                    "        output=output,",
-                    "        state=state,",
-                    "        repo_root=repo_root,",
                     "    )",
                     "    if custom_error is not None:",
                     "        return _fail(custom_error, run_id, step_id, state)",
                 ]
             )
+            lines.extend(custom_call_lines)
         lines.extend(
             [
                 "    return result",
@@ -2940,6 +3848,14 @@ def _render_verifiers_py(
             "        output = {}",
             "    if not isinstance(output, dict):",
             "        return _fail(\"structured_output must be an object\", run_id, step_id, state)",
+            "    allowed_keys = set(required_schema) | set(optional_schema)",
+            "    unexpected_keys = [",
+            "        key for key in output",
+            "        if not isinstance(key, str) or key not in allowed_keys",
+            "    ]",
+            "    if unexpected_keys:",
+            "        unexpected = sorted(repr(key) for key in unexpected_keys)",
+            "        return _fail(f\"unexpected structured_output keys: {unexpected}\", run_id, step_id, state)",
             "    missing = [key for key in required_schema if key not in output]",
             "    if missing:",
             "        return _fail(f\"missing required structured_output keys: {missing}\", run_id, step_id, state)",
@@ -2964,7 +3880,7 @@ def _render_verifiers_py(
             "        return _fail(\"; \".join(rule_errors), run_id, step_id, state)",
             "    template_errors = []",
             "    for template in verifier_templates:",
-            "        message = _verifier_template_error(template, output, repo_root)",
+            "        message = _verifier_template_error(template, output, repo_root, state)",
             "        if message:",
             "            template_errors.append(message)",
             "    if template_errors:",
@@ -3022,7 +3938,7 @@ def _render_verifiers_py(
             "            if message:",
             "                return message",
             "        return None",
-            "    return None",
+            "    return f\"{key} has unsupported schema type: {schema_type}\"",
             "",
             "",
             "def _verifier_rule_error(rule: dict, output: dict, repo_root: str) -> str | None:",
@@ -3037,20 +3953,12 @@ def _render_verifiers_py(
             "    if operator == \"path_exists\":",
             "        if not isinstance(actual, str) or not actual.strip():",
             "            return message",
-            "        candidate = Path(actual)",
-            "        repo = Path(repo_root).resolve()",
-            "        if not candidate.is_absolute():",
-            "            candidate = repo / candidate",
-            "        try:",
-            "            candidate = candidate.resolve()",
-            "            candidate.relative_to(repo)",
-            "        except (OSError, ValueError):",
-            "            return message",
-            "        return None if candidate.is_file() else message",
+            "        text = _read_safe_repo_text(repo_root, actual)",
+            "        return None if text is not None and text.strip() else message",
             "    return None if condition_matches(actual, operator, expected) else message",
             "",
             "",
-            "def _verifier_template_error(template: dict, output: dict, repo_root: str) -> str | None:",
+            "def _verifier_template_error(template: dict, output: dict, repo_root: str, state: dict | None) -> str | None:",
             "    template_name = str(template.get(\"template\") or \"\")",
             "    message = str(template.get(\"message\") or f\"{template.get('id') or template_name} failed\")",
             "    key = str(template.get(\"output_key\") or \"\")",
@@ -3061,8 +3969,14 @@ def _render_verifiers_py(
             "        return _conditional_required_error(output, template, message)",
             "    if template_name == \"min_count\":",
             "        return _min_count_error(actual, template, message)",
+            "    if template_name == \"min_count_from_constraint\":",
+            "        return _min_count_from_constraint_error(actual, template, state, message)",
             "    if template_name == \"required_set_members\":",
             "        return _required_set_members_error(actual, template, message)",
+            "    if template_name == \"artifact_list_policy\":",
+            "        return _artifact_list_policy_error(actual, template, repo_root, message)",
+            "    if template_name == \"no_unresolved_findings\":",
+            "        return _no_unresolved_findings_error(output, template, message)",
             "    if template_name == \"repo_path_policy\":",
             "        return _repo_path_policy_error(actual, template, repo_root, message)",
             "    if template_name == \"artifact_file_contains_sections\":",
@@ -3097,7 +4011,28 @@ def _render_verifiers_py(
             "    min_count = template.get(\"min_count\")",
             "    if not isinstance(min_count, int) or isinstance(min_count, bool):",
             "        return message",
-            "    return None if len(actual) >= min_count else message",
+            "    if len(actual) < min_count:",
+            "        return message",
+            "    if any(isinstance(item, str) and not item.strip() for item in actual):",
+            "        return message",
+            "    return None",
+            "",
+            "",
+            "def _min_count_from_constraint_error(actual, template: dict, state: dict | None, message: str) -> str | None:",
+            "    if not isinstance(actual, list):",
+            "        return message",
+            "    constraints = state.get(\"constraints\") if isinstance(state, dict) else {}",
+            "    constraint_key = str(template.get(\"constraint_key\") or \"\")",
+            "    raw_min_count = constraints.get(constraint_key) if isinstance(constraints, dict) else None",
+            "    default_min_count = template.get(\"default_min_count\")",
+            "    min_count = raw_min_count if isinstance(raw_min_count, int) and not isinstance(raw_min_count, bool) and raw_min_count >= 0 else default_min_count",
+            "    if not isinstance(min_count, int) or isinstance(min_count, bool) or min_count < 0:",
+            "        return message",
+            "    if len(actual) < min_count:",
+            "        return message",
+            "    if any(isinstance(item, str) and not item.strip() for item in actual):",
+            "        return message",
+            "    return None",
             "",
             "",
             "def _required_set_members_error(actual, template: dict, message: str) -> str | None:",
@@ -3120,14 +4055,11 @@ def _render_verifiers_py(
             "def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:",
             "    if not isinstance(actual, str) or not actual.strip():",
             "        return message",
-            "    repo = Path(repo_root).resolve()",
-            "    candidate = Path(actual)",
-            "    if not candidate.is_absolute():",
-            "        candidate = repo / candidate",
-            "    try:",
-            "        relative_path = candidate.resolve().relative_to(repo)",
-            "    except ValueError:",
+            "    candidate = _safe_repo_path(repo_root, actual)",
+            "    if candidate is None:",
             "        return message",
+            "    repo = Path(repo_root).expanduser().resolve()",
+            "    relative_path = candidate.relative_to(repo)",
             "    relative_posix = relative_path.as_posix()",
             "    required_prefix = str(template.get(\"required_prefix\") or \"\")",
             "    if required_prefix and not relative_posix.startswith(required_prefix):",
@@ -3144,21 +4076,128 @@ def _render_verifiers_py(
             "def _artifact_file_contains_sections_error(actual, template: dict, repo_root: str, message: str) -> str | None:",
             "    if not isinstance(actual, str) or not actual.strip():",
             "        return message",
-            "    repo = Path(repo_root).resolve()",
-            "    candidate = Path(actual)",
-            "    if not candidate.is_absolute():",
-            "        candidate = repo / candidate",
-            "    try:",
-            "        candidate = candidate.resolve()",
-            "        candidate.relative_to(repo)",
-            "        if not candidate.is_file():",
-            "            return message",
-            "        text = candidate.read_text(encoding=\"utf-8\")",
-            "    except (OSError, ValueError, UnicodeError):",
+            "    if _safe_repo_file(repo_root, actual) is None:",
+            "        return message",
+            "    text = _read_safe_repo_text(repo_root, actual)",
+            "    if text is None or not text.strip():",
             "        return message",
             "    sections = [str(section) for section in template.get(\"sections\") or []]",
-            "    missing = [section for section in sections if section not in text]",
+            "    missing = []",
+            "    for section in sections:",
+            "        if section.startswith(\"#\") and set(section) == {\"#\"}:",
+            "            pattern = rf\"(?m)^\\s*{re.escape(section)}(?!#)\\s+\\S\"",
+            "            if re.search(pattern, text) is None:",
+            "                missing.append(section)",
+            "        elif section not in text:",
+            "            missing.append(section)",
             "    return None if not missing else f\"{message}: missing sections {missing}\"",
+            "",
+            "",
+            "def _artifact_list_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:",
+            "    if not isinstance(actual, list) or not actual:",
+            "        return message",
+            "    required_prefix = str(template.get(\"required_prefix\") or \"\")",
+            "    allowed_suffixes = tuple(str(item).lower() for item in template.get(\"allowed_suffixes\") or [])",
+            "    require_non_empty_content = bool(template.get(\"require_non_empty_content\", True))",
+            "    for index, item in enumerate(actual):",
+            "        if not isinstance(item, str) or not item.strip():",
+            "            return f\"{message}: invalid artifact at index {index}\"",
+            "        candidate = _safe_repo_file(repo_root, item)",
+            "        if candidate is None:",
+            "            return f\"{message}: invalid artifact at index {index}\"",
+            "        repo = Path(repo_root).expanduser().resolve()",
+            "        relative_posix = candidate.relative_to(repo).as_posix()",
+            "        if required_prefix and not relative_posix.startswith(required_prefix):",
+            "            return f\"{message}: artifact at index {index} is outside the required directory\"",
+            "        if allowed_suffixes and not relative_posix.lower().endswith(allowed_suffixes):",
+            "            return f\"{message}: artifact at index {index} has an unsupported file type\"",
+            "        if require_non_empty_content:",
+            "            text = _read_safe_repo_text(repo_root, item)",
+            "            if text is None or not text.strip():",
+            "                return f\"{message}: artifact at index {index} is empty or unreadable\"",
+            "    return None",
+            "",
+            "",
+            "def _no_unresolved_findings_error(output: dict, template: dict, message: str) -> str | None:",
+            "    when = template.get(\"when\")",
+            "    if when is not None:",
+            "        if not isinstance(when, dict):",
+            "            return message",
+            "        when_key = str(when.get(\"output_key\") or \"\")",
+            "        if not condition_matches(output.get(when_key), str(when.get(\"operator\") or \"\"), when.get(\"value\")):",
+            "            return None",
+            "    findings = output.get(str(template.get(\"output_key\") or \"\"))",
+            "    if not isinstance(findings, list):",
+            "        return message",
+            "    unresolved_terms = tuple(str(item).lower() for item in template.get(\"unresolved_terms\") or [])",
+            "    resolved_terms = tuple(str(item).lower() for item in template.get(\"resolved_terms\") or [])",
+            "    for finding in findings:",
+            "        if not isinstance(finding, str) or not finding.strip():",
+            "            return message",
+            "        lowered = finding.lower()",
+            "        unresolved = any(term and re.search(rf\"(?<!\\w){re.escape(term)}(?!\\w)\", lowered) for term in unresolved_terms)",
+            "        resolved = any(term and re.search(rf\"(?<!\\w){re.escape(term)}(?!\\w)\", lowered) for term in resolved_terms)",
+            "        if unresolved and not resolved:",
+            "            return f\"{message}: unresolved findings present\"",
+            "    return None",
+            "",
+            "",
+            "_MAX_SAFE_REPO_TEXT_BYTES = 512 * 1024",
+            "",
+            "",
+            "def _safe_repo_path(repo_root: str, raw_path: str) -> Path | None:",
+            "    if not isinstance(raw_path, str) or not raw_path.strip():",
+            "        return None",
+            "    try:",
+            "        repo = Path(repo_root).expanduser().resolve()",
+            "        normalized = raw_path",
+            "        if normalized != normalized.strip() or \"\\\\\" in normalized or any(ord(char) < 32 for char in normalized) or normalized.startswith(\"/\") or re.match(r\"^[A-Za-z]:/\", normalized):",
+            "            return None",
+            "        parts = normalized.split(\"/\")",
+            "        if any(part in (\"\", \".\", \"..\") for part in parts):",
+            "            return None",
+            "        candidate = repo.joinpath(*parts)",
+            "        resolved = candidate.resolve(strict=False)",
+            "        relative = resolved.relative_to(repo)",
+            "        current = repo",
+            "        for part in relative.parts:",
+            "            current = current / part",
+            "            if current.is_symlink():",
+            "                return None",
+            "        return resolved",
+            "    except (OSError, RuntimeError, ValueError):",
+            "        return None",
+            "",
+            "",
+            "def _safe_repo_file(repo_root: str, raw_path: str) -> Path | None:",
+            "    candidate = _safe_repo_path(repo_root, raw_path)",
+            "    if candidate is None or candidate.is_symlink() or not candidate.is_file():",
+            "        return None",
+            "    return candidate",
+            "",
+            "",
+            "def _read_safe_repo_text(repo_root: str, raw_path: str) -> str | None:",
+            "    candidate = _safe_repo_file(repo_root, raw_path)",
+            "    if candidate is None:",
+            "        return None",
+            "    file_descriptor = None",
+            "    try:",
+            "        flags = os.O_RDONLY | getattr(os, \"O_NOFOLLOW\", 0)",
+            "        file_descriptor = os.open(str(candidate), flags)",
+            "        with os.fdopen(file_descriptor, \"rb\") as handle:",
+            "            file_descriptor = None",
+            "            data = handle.read(_MAX_SAFE_REPO_TEXT_BYTES + 1)",
+            "            if len(data) > _MAX_SAFE_REPO_TEXT_BYTES:",
+            "                return None",
+            "            return data.decode(\"utf-8\")",
+            "    except (OSError, UnicodeError):",
+            "        return None",
+            "    finally:",
+            "        if file_descriptor is not None:",
+            "            try:",
+            "                os.close(file_descriptor)",
+            "            except OSError:",
+            "                pass",
             "",
             "",
             "def _meaningful_entries(value) -> list[str]:",
@@ -3260,17 +4299,25 @@ def _render_custom_verifier_requirement_helpers(
             continue
         stage_requirement_names: set[str] = set()
         runner_name = _custom_verifier_runner_name(stage["step_id"])
-        lines.extend(
+        runner_signature = [
+            f"def {runner_name}(",
+            "    *,",
+            "    output: dict,",
+            "    state: dict | None,",
+            "    repo_root: str,",
+        ]
+        if any(
+            "tool_trace" in (requirement.get("signals") or [])
+            for requirement in requirements
+        ):
+            runner_signature.append("    tool_trace: object | None = None,")
+        runner_signature.extend(
             [
-                f"def {runner_name}(",
-                "    *,",
-                "    output: dict,",
-                "    state: dict | None,",
-                "    repo_root: str,",
                 ") -> str | None:",
                 "    errors: list[str] = []",
             ]
         )
+        lines.extend(runner_signature)
         for requirement in requirements:
             requirement_key = (stage["step_id"], requirement["id"])
             current_requirement_keys.add(requirement_key)
@@ -3283,17 +4330,22 @@ def _render_custom_verifier_requirement_helpers(
                     f"{stage['step_id']}.{requirement['id']}"
                 )
             stage_requirement_names.add(function_name)
-            lines.extend(
+            requirement_call = [
+                f"    message = {function_name}(",
+                "        output=output,",
+                "        state=state,",
+                "        repo_root=repo_root,",
+            ]
+            if "tool_trace" in (requirement.get("signals") or []):
+                requirement_call.append("        tool_trace=tool_trace,")
+            requirement_call.extend(
                 [
-                    f"    message = {function_name}(",
-                    "        output=output,",
-                    "        state=state,",
-                    "        repo_root=repo_root,",
                     "    )",
                     "    if message:",
                     "        errors.append(message)",
                 ]
             )
+            lines.extend(requirement_call)
         lines.extend(
             [
                 '    return "; ".join(errors) if errors else None',
@@ -3386,11 +4438,18 @@ def _render_custom_requirement_scaffold(
         "    output: dict,",
         "    state: dict | None,",
         "    repo_root: str,",
-        ") -> str | None:",
-        f'    """{chr(10).join(doc_lines)}"""',
-        "    _ = output, state, repo_root",
-        f"    # TODO(custom_verifier_requirement): Implement `{requirement['id']}`.",
     ]
+    if "tool_trace" in (requirement.get("signals") or []):
+        lines.append("    tool_trace: object | None = None,")
+    lines.extend(
+        [
+            ") -> str | None:",
+        f'    """{chr(10).join(doc_lines)}"""',
+            "    _ = output, state, repo_root"
+            + (", tool_trace" if "tool_trace" in (requirement.get("signals") or []) else ""),
+        f"    # TODO(custom_verifier_requirement): Implement `{requirement['id']}`.",
+        ]
+    )
     if implementation_surface:
         lines.append(f"    # Intended implementation surfaces: {', '.join(implementation_surface)}.")
         if "verifier" not in implementation_surface:
@@ -3442,6 +4501,7 @@ def _custom_requirement_spec_fingerprint(stage: dict[str, Any], requirement: dic
         "id": requirement["id"],
         "description": requirement["description"],
         "signals": requirement.get("signals"),
+        "python_imports": requirement.get("python_imports"),
         "implementation_surface": requirement.get("implementation_surface"),
         "implementation_notes": requirement.get("implementation_notes"),
         "hint_pseudocode": requirement.get("hint_pseudocode"),
@@ -3705,6 +4765,16 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
     workflow_id = workflow_spec["workflow_id"]
     stages = workflow_spec["stages"]
     main_stages = [stage for stage in stages if stage["stage_kind"] == "main"]
+    repair_policy = workflow_spec.get("repair_policy") or _validate_repair_policy({})
+    repair_attempts = repair_policy["max_self_repair_attempts"]
+    exhausted_target = repair_policy["exhausted_next_node"]
+    exhausted_target_node = {
+        "request_unblocking_input": "unblock_loop",
+        "repair_and_resume": "repair_loop",
+    }.get(
+        exhausted_target,
+        _render_transition_target(exhausted_target, workflow_spec),
+    )
     lines = [
         f"# {workflow_id} Flowchart",
         "",
@@ -3719,26 +4789,60 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
         lines.append(f"    start([start {workflow_id}]) --> {_render_stage_node(main_stages[0])}")
     else:
         lines.append(f"    start([start {workflow_id}]) --> {workflow_spec['final_step_id']}([{workflow_spec['final_step_id']}])")
-    for previous, next_stage in zip(main_stages, main_stages[1:]):
-        lines.append(
-            f"    {previous['step_id']} -->|success| {_render_stage_node(next_stage)}"
+    for index, stage in enumerate(main_stages):
+        next_node = (
+            _render_stage_node(main_stages[index + 1])
+            if index + 1 < len(main_stages)
+            else f"{workflow_spec['final_step_id']}([{workflow_spec['final_step_id']}])"
         )
-    if main_stages:
-        lines.append(
-            f"    {main_stages[-1]['step_id']} -->|success| {workflow_spec['final_step_id']}([{workflow_spec['final_step_id']}])"
-        )
+        if not stage["transitions"] and stage.get("unmatched_transition") is None:
+            lines.append(f"    {stage['step_id']} -->|success| {next_node}")
+        elif stage.get("unmatched_transition") is None:
+            lines.append(f"    {stage['step_id']} -->|default success| {next_node}")
     for stage in stages:
         for route in stage["outcome_routes"]:
             target = _render_transition_target(route["next_node"], workflow_spec)
             label = _escape_mermaid_label(route["outcome"])
             lines.append(f"    {stage['step_id']} -->|{label}| {target}")
+        missing_verifier_route = stage.get("missing_verifier_route")
+        if stage.get("require_passing_verifier") and missing_verifier_route is not None:
+            missing_target = {
+                "request_unblocking_input": "unblock_loop",
+                "repair_and_resume": "repair_loop",
+            }.get(
+                missing_verifier_route["next_node"],
+                _render_transition_target(missing_verifier_route["next_node"], workflow_spec),
+            )
+            lines.append(
+                f"    {stage['step_id']} -->|verifier missing| {missing_target}"
+            )
         for transition in stage["transitions"]:
             target = _render_transition_target(transition["next_node"], workflow_spec)
             transition_label = f"{transition['output_key']} {transition['operator']}"
             if transition.get("value") is not None:
                 transition_label += f" {transition['value']}"
+            cycle_limit = stage.get("cycle_limit")
+            if (
+                cycle_limit is not None
+                and transition["output_key"] == cycle_limit["output_key"]
+                and transition["operator"] == "is_true"
+            ):
+                transition_label += " and cycle limit remains"
             label = _escape_mermaid_label(transition_label)
             lines.append(f"    {stage['step_id']} -->|{label}| {target}")
+        unmatched_transition = stage.get("unmatched_transition")
+        if unmatched_transition is not None:
+            target = _render_transition_target(unmatched_transition["next_node"], workflow_spec)
+            lines.append(
+                f"    {stage['step_id']} -.->|unmatched business output| {target}"
+            )
+        cycle_limit = stage.get("cycle_limit")
+        if cycle_limit is not None:
+            target = _render_transition_target(cycle_limit["next_node"], workflow_spec)
+            lines.append(
+                f"    {stage['step_id']} -->|{cycle_limit['output_key']} is_true and "
+                f"{cycle_limit['constraint_key']} limit reached| {target}"
+            )
         if stage["stage_kind"] == "recovery":
             target = _render_transition_target(stage["recovery_return_node"], workflow_spec)
             lines.append(f"    {stage['step_id']} -->|recovery complete| {target}")
@@ -3767,12 +4871,14 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
         [
             "    unblock_loop -.->|resume via repair owner or return_stage_id| resume_target",
             "    unblock_loop -.->|stay when return_stage_id missing| unblock_loop",
-            f"    repair_loop -.->|blocked after {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} tries| unblock_loop",
+            f"    repair_loop -.->|blocked after {repair_attempts} tries| {exhausted_target_node}",
             "    repair_loop -.->|retry via return_stage_id when repair succeeds| resume_target",
-            f"    repair_loop -.->|blocked before {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} tries / partial / failed / missing return_stage_id| repair_loop",
+            f"    repair_loop -.->|blocked before {repair_attempts} tries / partial / failed / missing return_stage_id| repair_loop",
             "```",
             "",
-            f"Global note: if `max_steps` is exceeded, runtime policy preempts normal business routing and sends the workflow to `repair_and_resume`; that shared repair stage may escalate to `request_unblocking_input` only after {_REPAIR_ATTEMPTS_BEFORE_UNBLOCK} blocked self-repair attempts while preserving `return_stage_id`.",
+            "Global note: if `max_steps` is exceeded, this workflow terminates at the final step with `terminal_reason=max_steps_exceeded` and degraded metadata; it does not enter repair because the runtime budget is exhausted, and the final prompt must not claim delivery completion from that branch.",
+            "",
+            "Recovery output note: a successful `request_unblocking_input` must include meaningful `blocking_reason` and `user_action_needed` values; a successful `repair_and_resume` must include `retry_reason`, `retry_notes`, and at least one meaningful `repair_actions` entry. Missing or malformed recovery output stays on its recovery node.",
             "",
         ]
     )
@@ -3845,6 +4951,7 @@ def _escape_mermaid_label(value: str) -> str:
 
 def _render_agent_review_md(workflow_spec: dict[str, Any]) -> str:
     workflow_id = workflow_spec["workflow_id"]
+    state_mode = workflow_spec.get("state_mode", "generated")
     stages = workflow_spec["stages"]
     stage_ids = [stage["step_id"] for stage in stages]
     if stage_ids:
@@ -3874,6 +4981,11 @@ def _render_agent_review_md(workflow_spec: dict[str, Any]) -> str:
                 surface_text = ", ".join(f"`{surface}`" for surface in implementation_surface)
                 custom_verifier_lines.append(
                     f"  Implementation surfaces: {surface_text}"
+                )
+            python_imports = requirement.get("python_imports") or []
+            if python_imports:
+                custom_verifier_lines.append(
+                    "  Python imports: " + ", ".join(f"`{module_name}`" for module_name in python_imports)
                 )
             custom_verifier_lines.append(
                 "  Self-contained contract: keep this requirement-scoped verifier self-contained when practical."
@@ -3912,6 +5024,13 @@ the right workflow.
 ## Generated Stage Path
 
 {stage_list}
+
+## State Ownership
+
+- `state_mode`: `{state_mode}`.
+- When `state_mode` is `custom`, review the existing workflow `state.py` as a
+  domain-owned implementation and verify strict persisted-state validation,
+  bounded serialization, and fail-closed verifier promotion before sign-off.
 
 {custom_verifier_block}
 
@@ -4126,9 +5245,13 @@ def _render_regression_tests_py(workflow_spec: dict[str, Any]) -> str:
 def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -> list[str]:
     lines: list[str] = []
     main_stages = [stage for stage in workflow_spec["stages"] if stage["stage_kind"] == "main"]
-    if main_stages:
+    if main_stages and workflow_spec.get("state_mode", "generated") == "generated":
         resume_target = main_stages[0]["step_id"]
         preserved_return_stage = main_stages[-1]["step_id"]
+        repair_policy = workflow_spec.get("repair_policy") or _validate_repair_policy({})
+        repair_attempts = repair_policy["max_self_repair_attempts"]
+        exhausted_next_node = repair_policy["exhausted_next_node"]
+        exhausted_branch_kind = repair_policy["exhausted_branch_kind"]
         lines.extend(
             [
                 "    def test_generated_request_unblocking_input_resumes_to_return_stage(self):",
@@ -4138,7 +5261,7 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "        result = graphbuilder_runtime.run_transition_preview(",
                 "            state=state,",
                 '            current_step_id="request_unblocking_input",',
-                "            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {}},",
+                "            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {'blocking_reason': 'Approval was missing.', 'user_action_needed': 'Confirm the approval.', 'suggested_next_input': 'Approval confirmed.'}},",
                 "            verifier_result=None,",
                 "        )",
                 f"        self.assertEqual(result.step_id, {resume_target!r})",
@@ -4148,7 +5271,7 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "        result = graphbuilder_runtime.run_transition_preview(",
                 "            state=self._make_state(None),",
                 '            current_step_id="request_unblocking_input",',
-                "            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {}},",
+                "            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {'blocking_reason': 'Approval was missing.', 'user_action_needed': 'Confirm the approval.', 'suggested_next_input': 'Approval confirmed.'}},",
                 "            verifier_result=None,",
                 "        )",
                 '        self.assertEqual(result.step_id, "request_unblocking_input")',
@@ -4161,7 +5284,7 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "        result = graphbuilder_runtime.run_transition_preview(",
                 "            state=state,",
                 '            current_step_id="request_unblocking_input",',
-                "            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {}},",
+                "            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {'blocking_reason': 'Approval was missing.', 'user_action_needed': 'Confirm the approval.', 'suggested_next_input': 'Approval confirmed.'}},",
                 "            verifier_result=None,",
                 "        )",
                 '        self.assertEqual(result.step_id, "repair_and_resume")',
@@ -4173,7 +5296,7 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "        result = graphbuilder_runtime.run_transition_preview(",
                 "            state=state,",
                 '            current_step_id="repair_and_resume",',
-                "            observation={'status': 'succeeded', 'summary': 'Repair completed.', 'structured_output': {}},",
+                "            observation={'status': 'succeeded', 'summary': 'Repair completed.', 'structured_output': {'retry_reason': 'Retry is safe after the repair.', 'retry_notes': 'The missing dependency was refreshed.', 'repair_actions': ['Retry the original stage.']}},",
                 "            verifier_result=None,",
                 "        )",
                 f"        self.assertEqual(result.step_id, {resume_target!r})",
@@ -4183,7 +5306,7 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "        result = graphbuilder_runtime.run_transition_preview(",
                 "            state=self._make_state(None),",
                 '            current_step_id="repair_and_resume",',
-                "            observation={'status': 'succeeded', 'summary': 'Repair completed.', 'structured_output': {}},",
+                "            observation={'status': 'succeeded', 'summary': 'Repair completed.', 'structured_output': {'retry_reason': 'Retry is safe after the repair.', 'retry_notes': 'The missing dependency was refreshed.', 'repair_actions': ['Retry the original stage.']}},",
                 "            verifier_result=None,",
                 "        )",
                 '        self.assertEqual(result.step_id, "repair_and_resume")',
@@ -4203,7 +5326,7 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 f"        self.assertEqual(state.return_stage_id, {preserved_return_stage!r})",
                 "",
                 "    def test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking(self):",
-                "        state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})",
+                f"        state = self._make_state({{'attempt_counts': {{'repair_and_resume': {repair_attempts - 1}}}}})",
                 f"        state.return_stage_id = {preserved_return_stage!r}",
                 "        result = graphbuilder_runtime.run_transition_preview(",
                 "            state=state,",
@@ -4211,8 +5334,8 @@ def _render_default_structural_regression_tests(workflow_spec: dict[str, Any]) -
                 "            observation={'status': 'blocked', 'summary': 'Repair still needs external input.', 'structured_output': {'missing_inputs': ['approval']}},",
                 "            verifier_result=None,",
                 "        )",
-                '        self.assertEqual(result.step_id, "request_unblocking_input")',
-                '        self.assertEqual(result.branch_kind, "repair")',
+                f"        self.assertEqual(result.step_id, {exhausted_next_node!r})",
+                f"        self.assertEqual(result.branch_kind, {exhausted_branch_kind!r})",
                 f"        self.assertEqual(state.return_stage_id, {preserved_return_stage!r})",
                 "",
                 "    def test_generated_blocked_repair_context_preserves_host_visible_summary(self):",
@@ -4339,6 +5462,14 @@ def _register_binding_entry(
 def _write_json_atomic(path: Path, payload: dict[str, Any]) -> None:
     tmp_path = path.with_suffix(path.suffix + ".tmp")
     tmp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    tmp_path.replace(path)
+
+
+def _restore_file_bytes(path: Path, content: bytes) -> None:
+    """Restore a pre-transaction file snapshot without a partial write."""
+
+    tmp_path = path.with_name(f".{path.name}.creator-rollback.tmp")
+    tmp_path.write_bytes(content)
     tmp_path.replace(path)
 
 

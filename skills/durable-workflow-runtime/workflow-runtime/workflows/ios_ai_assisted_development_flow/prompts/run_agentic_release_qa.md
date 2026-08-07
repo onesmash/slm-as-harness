@@ -10,8 +10,10 @@ Stage Context:
 - Verification commands: {{verification_commands}}
 - Open issues: {{open_issues}}
 - UI surface affected: {{ui_surface_affected}}
+- Visual specification detail summary: {{visual_spec_detail_summary}}
 - Design comparison source: {{design_comparison_source}}
 - Runtime visual comparison scope: {{runtime_visual_comparison_scope}}
+- Optional visual inputs: when UI surface affected or either comparison input is empty, report that visual comparison was not applicable or blocked; do not infer a design source or screenshot scope.
 
 Stage Boundaries:
 
@@ -23,6 +25,7 @@ Stage Boundaries:
 - Do not return release_qa_verdict=ship while blocked checks or other unresolved QA issues still remain.
 - If required QA inputs are missing, return observation.status=blocked instead of encoding blocked as a succeeded release_qa_verdict.
 - If ui_surface_affected is true and both design_comparison_source and runtime_visual_comparison_scope are available, include an explicit visual comparison pass and report the executed or blocked visual diff evidence.
+- If ui_surface_affected is false, or the visual inputs are empty, do not claim visual QA was executed and do not invent visual evidence.
 - Return the concrete QA target scope or artifact under test so later stages know exactly what was validated.
 
 Blocked Conditions:

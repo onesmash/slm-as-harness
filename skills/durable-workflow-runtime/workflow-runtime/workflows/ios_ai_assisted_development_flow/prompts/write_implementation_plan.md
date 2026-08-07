@@ -5,6 +5,9 @@ Stage Context:
 - Design path: {{design_path}}
 - Design summary: {{design_summary}}
 - Repository root: {{repo_root}}
+- Spec review findings summary: {{spec_review_findings_summary}}
+- Spec review subagent summaries: {{spec_review_subagent_summaries}}
+- Spec review artifact paths: {{spec_review_artifact_paths}}
 - Latest plan update summary: {{plan_update_summary}}
 - Latest debugging summary: {{debugging_summary}}
 - Latest open issues: {{open_issues}}
@@ -22,4 +25,5 @@ Blocked Conditions:
 
 - Block if the design package is missing or ambiguous.
 - Block if the design package is missing or still ambiguous after incorporating the recorded replanning feedback.
+- Block if the plan file has not been written yet.
 - Block if the recorded execution mode is not subagent-driven.

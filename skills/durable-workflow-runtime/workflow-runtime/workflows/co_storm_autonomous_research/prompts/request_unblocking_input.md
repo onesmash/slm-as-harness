@@ -1,10 +1,7 @@
-Record the exact external dependency that blocked the autonomous workflow; this compatibility fallback is not selected by the normal autonomous path.
+Record the exact dependency that prevents autonomous continuation and the action needed to proceed; use this compatibility fallback only when self-repair cannot continue.
 
 Stage Context:
 
-- Current step: {{current_step_id}}
-- Return stage: {{return_stage_id}}
-- Source stage: {{source_stage_id}}
 - Repair category: {{repair_category}}
 - Repair summary: {{repair_summary}}
 - Required external inputs or approvals:
@@ -16,7 +13,7 @@ Stage Boundaries:
 
 - Do not claim that autonomous research completed while the external dependency is missing.
 - Do not invent files, credentials, or user decisions that are not already available.
-- Use this helper only after repair has already attempted self-repair 3 times and still requires external help.
+- Use this helper only when autonomous repair cannot proceed without the missing dependency.
 
 Blocked Conditions:
 

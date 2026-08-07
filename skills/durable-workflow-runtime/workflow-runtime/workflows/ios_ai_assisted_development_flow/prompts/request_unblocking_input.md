@@ -11,6 +11,9 @@ Stage Context:
 - {{repair_requirements}}
 - Relevant evidence:
 - {{repair_evidence}}
+- Latest blocking reason: {{unblocking_blocking_reason}}
+- Latest user action needed: {{unblocking_user_action_needed}}
+- Suggested next input: {{unblocking_suggested_next_input}}
 
 Stage Boundaries:
 

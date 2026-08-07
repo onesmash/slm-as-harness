@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import json
 from dataclasses import asdict, dataclass, field
 
-from workflows.common.policies import condition_matches, max_steps_exceeded_decision
-from workflows.common.repair_payloads import build_default_agent_repair_payload, make_agent_repair_payload
+from workflows.common.policies import max_steps_exceeded_decision as common_max_steps_exceeded_decision
+from workflows.common.repair_payloads import build_default_agent_repair_payload
+
+
+MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE = 32
+MAX_ARTIFACT_JOURNAL_BYTES = 64 * 1024
 
 
 MAIN_STAGE_IDS = ('run_brainstorming',
@@ -18,6 +23,8 @@ REPAIR_STAGE_IDS = (
     "request_unblocking_input",
     "repair_and_resume",
 )
+FINAL_STAGE_ID = "finalize_delivery_summary"
+ALL_STAGE_IDS = set(MAIN_STAGE_IDS) | set(REPAIR_STAGE_IDS) | {FINAL_STAGE_ID}
 
 
 @dataclass
@@ -35,6 +42,7 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     design_summary: str | None = None
     design_path: str | None = None
     ui_surface_affected: bool | None = None
+    visual_spec_detail_summary: str | None = None
     design_comparison_source: str | None = None
     runtime_visual_comparison_scope: str | None = None
     open_questions: list = field(default_factory=list)
@@ -87,6 +95,10 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     repair_evidence: list = field(default_factory=list)
     repair_transition_reason: str | None = None
     repair_blocked_attempts: int = 0
+    unblocking_blocking_reason: str | None = None
+    unblocking_user_action_needed: str | None = None
+    unblocking_suggested_next_input: str | None = None
+    terminal_reason: str | None = None
     artifacts_by_stage: dict[str, list[dict]] = field(default_factory=dict)
     repair_context: dict[str, object] = field(default_factory=dict)
 
@@ -110,25 +122,52 @@ def _select_workflow_goal(task_input: dict) -> str | None:
 
 
 def serialize_state(state: IosAiAssistedDevelopmentFlowWorkflowState) -> dict:
-    return asdict(state)
+    payload = asdict(state)
+    payload["artifacts_by_stage"] = _normalize_artifact_journal(
+        state.artifacts_by_stage
+    )
+    return payload
 
 
 def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkflowState:
-    payload = payload or {}
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, dict):
+        raise ValueError("persisted workflow state must be an object")
+    raw_task_input = payload.get("task_input")
+    raw_context = payload.get("context")
+    raw_constraints = payload.get("constraints")
+    raw_completed_stages = payload.get("completed_stages")
+    if raw_task_input is not None and not isinstance(raw_task_input, dict):
+        raise ValueError("persisted task_input must be an object")
+    if raw_context is not None and not isinstance(raw_context, dict):
+        raise ValueError("persisted context must be an object")
+    if raw_constraints is not None and not isinstance(raw_constraints, dict):
+        raise ValueError("persisted constraints must be an object")
+    if raw_completed_stages is not None and not isinstance(raw_completed_stages, list):
+        raise ValueError("persisted completed_stages must be a list")
+    completed_stages = list(raw_completed_stages or [])
+    if any(
+        not isinstance(stage_id, str)
+        or stage_id not in set(MAIN_STAGE_IDS) | {FINAL_STAGE_ID}
+        for stage_id in completed_stages
+    ):
+        raise ValueError("persisted completed_stages contains an unknown stage")
     return IosAiAssistedDevelopmentFlowWorkflowState(
-        attempt_counts=dict(payload.get("attempt_counts") or {}),
+        attempt_counts=_normalize_attempt_counts(payload.get("attempt_counts")),
         workflow_goal=payload.get("workflow_goal"),
-        task_input=dict(payload.get("task_input") or {}),
-        context=dict(payload.get("context") or {}),
-        constraints=dict(payload.get("constraints") or {}),
-        current_stage_id=payload.get("current_stage_id") or MAIN_STAGE_IDS[0],
-        completed_stages=list(payload.get("completed_stages") or []),
-        return_stage_id=payload.get("return_stage_id"),
+        task_input=dict(raw_task_input or {}),
+        context=dict(raw_context or {}),
+        constraints=dict(raw_constraints or {}),
+        current_stage_id=_validate_stage_id(payload.get("current_stage_id") or MAIN_STAGE_IDS[0]),
+        completed_stages=completed_stages,
+        return_stage_id=_validate_return_stage_id(payload.get("return_stage_id")),
         clarification_questions=list(payload.get('clarification_questions') or []),
         clarification_answers_summary=payload.get('clarification_answers_summary'),
         design_summary=payload.get('design_summary'),
         design_path=payload.get('design_path'),
         ui_surface_affected=payload.get('ui_surface_affected'),
+        visual_spec_detail_summary=payload.get('visual_spec_detail_summary'),
         design_comparison_source=payload.get('design_comparison_source'),
         runtime_visual_comparison_scope=payload.get('runtime_visual_comparison_scope'),
         open_questions=list(payload.get('open_questions') or []),
@@ -180,8 +219,12 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         repair_requirements=list(payload.get('repair_requirements') or []),
         repair_evidence=list(payload.get('repair_evidence') or []),
         repair_transition_reason=payload.get('repair_transition_reason'),
-        repair_blocked_attempts=int(payload.get('repair_blocked_attempts') or 0),
-        artifacts_by_stage=dict(payload.get("artifacts_by_stage") or {}),
+        repair_blocked_attempts=_nonnegative_int(payload.get('repair_blocked_attempts')),
+        unblocking_blocking_reason=payload.get('unblocking_blocking_reason'),
+        unblocking_user_action_needed=payload.get('unblocking_user_action_needed'),
+        unblocking_suggested_next_input=payload.get('unblocking_suggested_next_input'),
+        terminal_reason=payload.get('terminal_reason'),
+        artifacts_by_stage=_normalize_artifact_journal(payload.get("artifacts_by_stage")),
         repair_context=dict(payload.get("repair_context") or {}),
     )
 
@@ -194,10 +237,16 @@ def record_observation(
     verifier_result: dict | None,
 ) -> None:
     state.attempt_counts[current_step_id] = state.attempt_counts.get(current_step_id, 0) + 1
+    max_steps_decision = common_max_steps_exceeded_decision(
+        current_step_id=current_step_id,
+        state=serialize_state(state),
+        include_repair_stages=True,
+    )
+    budget_exhausted = max_steps_decision is not None
     if (
-        current_step_id in {"run_brainstorming", "run_spec_review"}
-        and verifier_result is not None
-        and not verifier_result.get("passed", False)
+        current_step_id not in REPAIR_STAGE_IDS
+        and observation.get("status") == "succeeded"
+        and not _verifier_passed(verifier_result)
     ):
         repair_payload = build_default_agent_repair_payload(
             current_step_id=current_step_id,
@@ -222,22 +271,45 @@ def record_observation(
                 repair_payload=repair_payload,
                 reset_blocked_attempts=True,
             )
+        if budget_exhausted:
+            _mark_max_steps_terminal(state)
         return
+    recovery_output_error = recovery_output_validation_error(
+        current_step_id=current_step_id,
+        structured_output=observation.get("structured_output"),
+    ) if current_step_id in REPAIR_STAGE_IDS and observation.get("status") == "succeeded" else None
     if current_step_id == "repair_and_resume":
-        if observation.get("status") == "blocked":
+        if observation.get("status") == "blocked" or recovery_output_error is not None:
             state.repair_blocked_attempts += 1
         elif observation.get("status") == "succeeded":
             state.repair_blocked_attempts = 0
     structured_output = observation.get("structured_output") or {}
     if isinstance(structured_output, dict):
-        state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
-        if observation.get("status") == "succeeded":
+        verifier_passed = (
+            isinstance(verifier_result, dict)
+            and verifier_result.get("passed") is True
+        )
+        if (
+            observation.get("status") == "succeeded"
+            and (
+                verifier_passed
+                or (
+                    current_step_id in REPAIR_STAGE_IDS
+                    and recovery_output_error is None
+                )
+            )
+        ):
+            state.artifacts_by_stage.setdefault(current_step_id, []).append(
+                _compact_artifact_snapshot(structured_output)
+            )
+            state.artifacts_by_stage = _normalize_artifact_journal(state.artifacts_by_stage)
             if current_step_id == 'run_brainstorming':
                 state.clarification_questions = _list_value(structured_output.get('clarification_questions'))
                 state.clarification_answers_summary = structured_output.get('clarification_answers_summary')
                 state.design_summary = structured_output.get('design_summary')
                 state.design_path = structured_output.get('design_path')
                 state.ui_surface_affected = structured_output.get('ui_surface_affected')
+                state.visual_spec_detail_summary = structured_output.get('visual_spec_detail_summary')
                 state.design_comparison_source = structured_output.get('design_comparison_source')
                 state.runtime_visual_comparison_scope = structured_output.get('runtime_visual_comparison_scope')
                 state.open_questions = _list_value(structured_output.get('open_questions'))
@@ -293,40 +365,31 @@ def record_observation(
                 state.completion_remaining_risks = _list_value(structured_output.get('remaining_risks'))
                 state.completion_release_qa_risks_resolved = structured_output.get('release_qa_risks_resolved')
                 state.completion_release_qa_risk_resolution_summary = structured_output.get('release_qa_risk_resolution_summary')
+            elif current_step_id == 'request_unblocking_input':
+                blocking_reason = _optional_text(structured_output.get('blocking_reason'))
+                user_action_needed = _optional_text(structured_output.get('user_action_needed'))
+                suggested_next_input = _optional_text(structured_output.get('suggested_next_input'))
+                if blocking_reason is not None:
+                    state.unblocking_blocking_reason = blocking_reason
+                if user_action_needed is not None:
+                    state.unblocking_user_action_needed = user_action_needed
+                if suggested_next_input is not None:
+                    state.unblocking_suggested_next_input = suggested_next_input
+                unblocking_input = {
+                    key: value
+                    for key, value in {
+                        "blocking_reason": blocking_reason,
+                        "user_action_needed": user_action_needed,
+                        "suggested_next_input": suggested_next_input,
+                    }.items()
+                    if value is not None
+                }
+                if unblocking_input:
+                    state.repair_context["latest_unblocking_input"] = unblocking_input
             elif current_step_id == 'repair_and_resume':
                 _promote_repair_outputs(state, structured_output)
             else:
                 pass
-
-    max_steps_decision = max_steps_exceeded_decision(
-        current_step_id=current_step_id,
-        state=serialize_state(state),
-    )
-    if max_steps_decision is not None:
-        return_stage_id = determine_return_stage_id(
-            current_step_id=current_step_id,
-            existing_return_stage_id=state.return_stage_id,
-        )
-        repair_payload = make_agent_repair_payload(
-            category="blocked",
-            summary=max_steps_decision.reason,
-            requirements=[],
-            evidence=[],
-        )
-        state.return_stage_id = return_stage_id
-        state.repair_context = _build_repair_context(
-            current_step_id=current_step_id,
-            return_stage_id=return_stage_id,
-            transition_reason="max_steps_exceeded",
-            repair_payload=repair_payload,
-        )
-        _apply_repair_payload(
-            state,
-            transition_reason="max_steps_exceeded",
-            repair_payload=repair_payload,
-            reset_blocked_attempts=True,
-        )
-        return
 
     transition_reason = determine_transition_reason(
         current_step_id=current_step_id,
@@ -334,6 +397,8 @@ def record_observation(
         verifier_result=verifier_result,
     )
     if transition_reason is None:
+        if budget_exhausted:
+            _mark_max_steps_terminal(state)
         return
     return_stage_id = determine_return_stage_id(
         current_step_id=current_step_id,
@@ -346,7 +411,7 @@ def record_observation(
     )
     state.return_stage_id = return_stage_id
     state.repair_context = _build_repair_context(
-        current_step_id=current_step_id,
+        current_step_id=_repair_context_source_stage_id(state, current_step_id),
         return_stage_id=return_stage_id,
         transition_reason=transition_reason,
         repair_payload=repair_payload or {},
@@ -357,6 +422,8 @@ def record_observation(
         repair_payload=repair_payload or {},
         reset_blocked_attempts=current_step_id not in REPAIR_STAGE_IDS,
     )
+    if budget_exhausted:
+        _mark_max_steps_terminal(state)
 
 
 def determine_return_stage_id(
@@ -376,18 +443,84 @@ def determine_transition_reason(
     verifier_result: dict | None,
 ) -> str | None:
     status = observation.get("status")
+    structured_output = observation.get("structured_output") or {}
     if status == "blocked":
         return "blocked"
     if status == "partial":
         return "partial"
     if status == "failed":
         return "failed"
-    if verifier_result is not None and not verifier_result.get("passed", False):
+    if current_step_id in MAIN_STAGE_IDS and status == "succeeded" and not _verifier_passed(verifier_result):
         return "verifier_failed"
-    structured_output = observation.get("structured_output") or {}
-    if isinstance(structured_output, dict):
-        pass
+    if verifier_result is not None and not _verifier_passed(verifier_result):
+        return "verifier_failed"
+    if current_step_id in REPAIR_STAGE_IDS and status == "succeeded":
+        if recovery_output_validation_error(
+            current_step_id=current_step_id,
+            structured_output=structured_output,
+        ) is not None:
+            return "verifier_failed"
     return None
+
+
+def _compact_artifact_snapshot(value: dict) -> dict:
+    compact = {
+        "output_keys": sorted(key for key in value if isinstance(key, str))[:128],
+    }
+    for key, raw_value in value.items():
+        if not isinstance(key, str):
+            continue
+        if key.endswith("_path") or key.endswith("_paths") or key == "artifact_path":
+            if isinstance(raw_value, str):
+                compact[key] = raw_value[:2048]
+            elif isinstance(raw_value, list):
+                compact[key] = [
+                    item[:2048]
+                    for item in raw_value[:128]
+                    if isinstance(item, str) and item.strip()
+                ]
+        elif (
+            key.endswith("_index")
+            or key.endswith("_count")
+            or key.startswith("ready_")
+            or key.endswith("_ready")
+            or key.endswith("_complete")
+            or key.startswith("continue_")
+            or key.startswith("should_")
+            or key.endswith("_passed")
+        ) and isinstance(raw_value, (bool, int)):
+            compact[key] = raw_value
+    return compact
+
+
+def _normalize_artifact_journal(value: object) -> dict[str, list[dict]]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, list[dict]] = {}
+    for stage_id, entries in value.items():
+        if not isinstance(stage_id, str) or not isinstance(entries, list):
+            continue
+        compact_entries = [
+            _compact_artifact_snapshot(item)
+            for item in entries[-MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE:]
+            if isinstance(item, dict)
+        ]
+        if compact_entries:
+            normalized[stage_id] = compact_entries
+    while _json_size(normalized) > MAX_ARTIFACT_JOURNAL_BYTES:
+        oldest_stage = next(iter(normalized), None)
+        if oldest_stage is None:
+            break
+        entries = normalized[oldest_stage]
+        if len(entries) > 1:
+            entries.pop(0)
+        else:
+            normalized.pop(oldest_stage)
+    return normalized
+
+
+def _json_size(value: object) -> int:
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
 def apply_transition(state: IosAiAssistedDevelopmentFlowWorkflowState, *, current_step_id: str, next_step_id: str) -> None:
@@ -413,6 +546,14 @@ def apply_transition(state: IosAiAssistedDevelopmentFlowWorkflowState, *, curren
             _clear_repair_state(state)
 
     state.current_stage_id = next_step_id
+
+
+def max_steps_exceeded_decision(*, current_step_id: str, state: dict):
+    return common_max_steps_exceeded_decision(
+        current_step_id=current_step_id,
+        state=state,
+        include_repair_stages=True,
+    )
 
 
 def _is_forward_completion_transition(current_step_id: str, next_step_id: str) -> bool:
@@ -445,6 +586,19 @@ def _build_repair_context(
         "repair_blocked_attempts": 0,
         "repair_payload": dict(repair_payload or {}),
     }
+
+
+def _repair_context_source_stage_id(
+    state: IosAiAssistedDevelopmentFlowWorkflowState,
+    current_step_id: str,
+) -> str:
+    if current_step_id != "request_unblocking_input":
+        return current_step_id
+    existing_context = state.repair_context if isinstance(state.repair_context, dict) else {}
+    existing_source = existing_context.get("source_stage_id")
+    if existing_source in REPAIR_STAGE_IDS:
+        return str(existing_source)
+    return current_step_id
 
 
 def _apply_repair_payload(
@@ -495,12 +649,126 @@ def _promote_repair_outputs(
 
 def _clear_repair_state(state: IosAiAssistedDevelopmentFlowWorkflowState) -> None:
     state.repair_context = {}
+    state.return_stage_id = None
     state.repair_category = None
     state.repair_summary = None
     state.repair_requirements = []
     state.repair_evidence = []
     state.repair_transition_reason = None
     state.repair_blocked_attempts = 0
+    state.unblocking_blocking_reason = None
+    state.unblocking_user_action_needed = None
+    state.unblocking_suggested_next_input = None
+
+
+def _mark_max_steps_terminal(state: IosAiAssistedDevelopmentFlowWorkflowState) -> None:
+    state.terminal_reason = "max_steps_exceeded"
+    _clear_repair_state(state)
+
+
+def _validate_stage_id(value: object) -> str:
+    if not isinstance(value, str) or value not in ALL_STAGE_IDS:
+        raise ValueError(f"invalid persisted current_stage_id: {value!r}")
+    return value
+
+
+def _validate_return_stage_id(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or value not in MAIN_STAGE_IDS:
+        raise ValueError(f"invalid persisted return_stage_id: {value!r}")
+    return value
+
+
+def _verifier_passed(verifier_result: object) -> bool:
+    return isinstance(verifier_result, dict) and verifier_result.get("passed") is True
+
+
+def recovery_output_validation_error(*, current_step_id: str, structured_output: object) -> str | None:
+    if not isinstance(structured_output, dict):
+        return "recovery succeeded output must be an object"
+
+    if current_step_id == "request_unblocking_input":
+        allowed = {"blocking_reason", "user_action_needed", "suggested_next_input"}
+        missing = [
+            key
+            for key in ("blocking_reason", "user_action_needed")
+            if _optional_text(structured_output.get(key)) is None
+        ]
+        if missing:
+            return f"request_unblocking_input is missing meaningful fields: {missing}"
+        unexpected = sorted(
+            repr(key) for key in structured_output if key not in allowed
+        )
+        if unexpected:
+            return f"request_unblocking_input returned unexpected fields: {unexpected}"
+        if "suggested_next_input" in structured_output and _optional_text(
+            structured_output.get("suggested_next_input")
+        ) is None:
+            return "suggested_next_input must be meaningful text when provided"
+        return None
+
+    if current_step_id == "repair_and_resume":
+        allowed = {
+            "retry_reason",
+            "retry_notes",
+            "repair_actions",
+            "needs_external_unblocking",
+        }
+        missing = [
+            key
+            for key in ("retry_reason", "retry_notes", "repair_actions")
+            if key not in structured_output
+        ]
+        if missing:
+            return f"repair_and_resume is missing required fields: {missing}"
+        if _optional_text(structured_output.get("retry_reason")) is None:
+            return "retry_reason must be meaningful text"
+        if _optional_text(structured_output.get("retry_notes")) is None:
+            return "retry_notes must be meaningful text"
+        actions = structured_output.get("repair_actions")
+        if not isinstance(actions, list) or not _string_list(actions):
+            return "repair_actions must contain at least one meaningful action"
+        if len(_string_list(actions)) != len(actions):
+            return "repair_actions must contain only non-empty strings"
+        if "needs_external_unblocking" in structured_output and not isinstance(
+            structured_output.get("needs_external_unblocking"), bool
+        ):
+            return "needs_external_unblocking must be boolean when provided"
+        unexpected = sorted(
+            repr(key) for key in structured_output if key not in allowed
+        )
+        if unexpected:
+            return f"repair_and_resume returned unexpected fields: {unexpected}"
+        return None
+
+    return None
+
+
+def _normalize_attempt_counts(value: object) -> dict[str, int]:
+    if not isinstance(value, dict):
+        return {}
+    normalized: dict[str, int] = {}
+    for key, raw_count in value.items():
+        if not isinstance(key, str):
+            continue
+        count = _nonnegative_int(raw_count)
+        if count > 0:
+            normalized[key] = count
+    return normalized
+
+
+def _nonnegative_int(value: object) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return 0
+    return max(value, 0)
+
+
+def _optional_text(value: object) -> str | None:
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
 
 
 def _list_value(value) -> list:

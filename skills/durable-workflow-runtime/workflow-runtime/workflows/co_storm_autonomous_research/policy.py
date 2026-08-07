@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from workflows.common.policies import TransitionDecision, condition_matches
+from workflows.common.policies import (
+    TransitionDecision,
+    condition_matches,
+    max_steps_exceeded_decision,
+)
 
 
 def choose_next_node(
@@ -10,6 +14,13 @@ def choose_next_node(
     observation: dict,
     verifier_result: dict | None,
 ) -> TransitionDecision:
+    budget_decision = max_steps_exceeded_decision(
+        current_step_id=current_step_id,
+        state=state,
+    )
+    if budget_decision is not None:
+        return budget_decision
+
     if current_step_id == "warm_start_shared_space":
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
@@ -18,6 +29,12 @@ def choose_next_node(
         )
         if status_decision is not None:
             return status_decision
+        if observation["status"] == "succeeded" and not _verifier_is_passed(verifier_result):
+            return TransitionDecision(
+                next_node="repair_and_resume",
+                branch_kind="retry",
+                reason="warm_start_shared_space completed without a passing verifier result",
+            )
         return TransitionDecision(
             next_node="launch_expert_subagents",
             branch_kind="continue",
@@ -32,6 +49,12 @@ def choose_next_node(
         )
         if status_decision is not None:
             return status_decision
+        if observation["status"] == "succeeded" and not _verifier_is_passed(verifier_result):
+            return TransitionDecision(
+                next_node="repair_and_resume",
+                branch_kind="retry",
+                reason="launch_expert_subagents completed without a passing verifier result",
+            )
         return TransitionDecision(
             next_node="autonomous_roundtable",
             branch_kind="continue",
@@ -46,6 +69,12 @@ def choose_next_node(
         )
         if status_decision is not None:
             return status_decision
+        if observation["status"] == "succeeded" and not _verifier_is_passed(verifier_result):
+            return TransitionDecision(
+                next_node="repair_and_resume",
+                branch_kind="retry",
+                reason="autonomous_roundtable completed without a passing verifier result",
+            )
         structured_output = observation.get("structured_output") or {}
         if isinstance(structured_output, dict):
             if condition_matches(structured_output.get('should_reorganize'), 'is_true', None):
@@ -64,7 +93,7 @@ def choose_next_node(
                 return TransitionDecision(
                     next_node='launch_expert_subagents',
                     branch_kind='continue',
-                    reason='Moderator selected another autonomous roundtable turn; launch a fresh independent subagent fan-out first.',
+                    reason='Moderator selected another autonomous roundtable turn; collect a fresh result for each expert first.',
                 )
         return TransitionDecision(
             next_node="autonomous_roundtable",
@@ -80,13 +109,19 @@ def choose_next_node(
         )
         if status_decision is not None:
             return status_decision
+        if observation["status"] == "succeeded" and not _verifier_is_passed(verifier_result):
+            return TransitionDecision(
+                next_node="repair_and_resume",
+                branch_kind="retry",
+                reason="reorganize_knowledge_space completed without a passing verifier result",
+            )
         structured_output = observation.get("structured_output") or {}
         if isinstance(structured_output, dict):
             if condition_matches(structured_output.get('reorganized'), 'is_true', None):
                 return TransitionDecision(
                     next_node='launch_expert_subagents',
                     branch_kind='continue',
-                    reason='Knowledge-space maintenance completed; launch a fresh independent expert-subagent fan-out before the next Moderator turn.',
+                    reason='Knowledge-space maintenance completed; return the updated map for the next expert-result round.',
                 )
         return TransitionDecision(
             next_node="reorganize_knowledge_space",
@@ -102,6 +137,12 @@ def choose_next_node(
         )
         if status_decision is not None:
             return status_decision
+        if observation["status"] == "succeeded" and not _verifier_is_passed(verifier_result):
+            return TransitionDecision(
+                next_node="repair_and_resume",
+                branch_kind="retry",
+                reason="synthesize_report completed without a passing verifier result",
+            )
         return TransitionDecision(
             next_node="verify_report",
             branch_kind="continue",
@@ -109,7 +150,13 @@ def choose_next_node(
         )
 
     if current_step_id == "verify_report":
-        if observation["status"] == "succeeded" and verifier_result is not None and not verifier_result["passed"]:
+        if observation["status"] == "succeeded" and not isinstance(verifier_result, dict):
+            return TransitionDecision(
+                next_node='repair_and_resume',
+                branch_kind='repair',
+                reason='verify_report completed without a verifier result; fail closed and preserve the report for recovery.',
+            )
+        if observation["status"] == "succeeded" and isinstance(verifier_result, dict) and not _verifier_is_passed(verifier_result):
             return TransitionDecision(
                 next_node='repair_report',
                 branch_kind='repair',
@@ -122,6 +169,12 @@ def choose_next_node(
         )
         if status_decision is not None:
             return status_decision
+        if observation["status"] == "succeeded" and not _verifier_is_passed(verifier_result):
+            return TransitionDecision(
+                next_node="repair_and_resume",
+                branch_kind="retry",
+                reason="verify_report completed without a passing verifier result",
+            )
         return TransitionDecision(
             next_node="finalize_collaborative_report",
             branch_kind="complete",
@@ -135,7 +188,7 @@ def choose_next_node(
                 branch_kind="repair",
                 reason="repair_report is blocked and should be triaged by shared repair first",
             )
-        if verifier_result is not None and not verifier_result["passed"]:
+        if observation["status"] == "succeeded" and not _verifier_is_passed(verifier_result):
             return TransitionDecision(
                 next_node="repair_report",
                 branch_kind="retry",
@@ -184,19 +237,30 @@ def choose_next_node(
 
     if current_step_id == "repair_and_resume":
         if observation["status"] == "blocked":
-            repair_attempts = int((state.get("attempt_counts") or {}).get("repair_and_resume") or 0)
+            raw_repair_attempts = state.get("repair_blocked_attempts")
+            if not isinstance(raw_repair_attempts, int) or isinstance(raw_repair_attempts, bool):
+                raw_attempt_counts = state.get("attempt_counts")
+                raw_repair_attempts = raw_attempt_counts.get("repair_and_resume") if isinstance(raw_attempt_counts, dict) else None
+            repair_attempts = raw_repair_attempts if isinstance(raw_repair_attempts, int) and not isinstance(raw_repair_attempts, bool) else 0
             if repair_attempts < 3:
                 return TransitionDecision(
                     next_node="repair_and_resume",
                     branch_kind="retry",
-                    reason="repair must attempt self-repair at least 3 times before requesting external help",
+                    reason="repair must attempt self-repair at least 3 times before the configured terminal handoff",
                 )
             return TransitionDecision(
-                next_node="request_unblocking_input",
-                branch_kind="repair",
-                reason="repair exhausted 3 self-repair attempts and now requires external help before retry",
+                next_node='finalize_collaborative_report',
+                branch_kind='partial',
+                reason='repair exhausted 3 self-repair attempts; terminate with a partial handoff instead of waiting for user input',
             )
         if observation["status"] == "succeeded":
+            structured_output = observation.get("structured_output") or {}
+            if not _repair_output_is_complete(structured_output, state):
+                return TransitionDecision(
+                    next_node="repair_and_resume",
+                    branch_kind="retry",
+                    reason="repair_and_resume succeeded without a complete retry plan",
+                )
             return_stage_id = state.get("return_stage_id")
             if not return_stage_id:
                 return TransitionDecision(
@@ -242,10 +306,35 @@ def _route_common_failure(
             branch_kind="retry",
             reason=f"{current_step_id} failed and should be retried",
         )
-    if verifier_result is not None and not verifier_result["passed"]:
+    if verifier_result is not None and not _verifier_is_passed(verifier_result):
         return TransitionDecision(
             next_node="repair_and_resume",
             branch_kind="retry",
             reason=f"{current_step_id} did not satisfy verifier checks",
         )
     return None
+
+
+def _verifier_is_passed(verifier_result: dict | None) -> bool:
+    return isinstance(verifier_result, dict) and verifier_result.get("passed") is True
+
+
+def _repair_output_is_complete(output: dict, state: dict) -> bool:
+    if not isinstance(output, dict):
+        return False
+    repair_context = state.get("repair_context") if isinstance(state, dict) else None
+    if not isinstance(repair_context, dict):
+        return False
+    repair_payload = repair_context.get("repair_payload")
+    if not isinstance(repair_payload, dict) or not str(repair_payload.get("summary") or "").strip():
+        return False
+    for key in ("retry_reason", "retry_notes"):
+        value = output.get(key)
+        if not isinstance(value, str) or not value.strip():
+            return False
+    actions = output.get("repair_actions")
+    return (
+        isinstance(actions, list)
+        and bool(actions)
+        and all(isinstance(action, str) and action.strip() for action in actions)
+    )

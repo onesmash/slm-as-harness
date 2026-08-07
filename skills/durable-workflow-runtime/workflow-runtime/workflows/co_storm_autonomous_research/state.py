@@ -1,19 +1,11 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import asdict, dataclass, field
 
 from workflows.common.policies import condition_matches
 from workflows.common.repair_payloads import build_default_agent_repair_payload, make_agent_repair_payload
-
-from .fanout_contract import (
-    FanoutContractError,
-    build_attempt_snapshot,
-    build_canonical_history,
-    canonical_history_errors,
-    normalize_history,
-    parse_binding_records,
-    parse_expert_roster,
-)
 
 
 MAIN_STAGE_IDS = ('warm_start_shared_space',
@@ -34,18 +26,12 @@ RUNTIME_DEFAULTS = {'max_steps': 24,
  'min_evidence_items': 3,
  'coverage_threshold': 2,
  'max_reorganizations': 3}
-MAX_FANOUT_ITEMS = 128
-MAX_ATTEMPT_HISTORY = 256
-ATTEMPT_SNAPSHOT_FIELDS = frozenset(
-    {
-        "status",
-        "fanout_round_index",
-        "expert_ids",
-        "subagent_run_ids",
-        "artifact_paths",
-        "verifier_passed",
-    }
-)
+MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE = 32
+MAX_ARTIFACT_JOURNAL_BYTES = 64 * 1024
+MAX_ARTIFACT_PATH_BYTES = 2048
+MAX_WORKFLOW_TEXT_BYTES = 16 * 1024
+MAX_WORKFLOW_LIST_ITEM_BYTES = 8 * 1024
+MAX_WORKFLOW_LIST_BYTES = 64 * 1024
 
 
 @dataclass
@@ -58,28 +44,25 @@ class CoStormAutonomousResearchWorkflowState:
     current_stage_id: str = MAIN_STAGE_IDS[0]
     completed_stages: list[str] = field(default_factory=list)
     return_stage_id: str | None = None
+    repair_requirements: list = field(default_factory=list)
+    repair_evidence: list = field(default_factory=list)
+    repair_transition_reason: str | None = None
+    repair_blocked_attempts: int = 0
     expert_roster: list = field(default_factory=list)
     conversation_transcript: list = field(default_factory=list)
     knowledge_map_summary: str | None = None
     evidence_registry: list = field(default_factory=list)
     coverage_map: list = field(default_factory=list)
-    round_index: object | None = None
-    fanout_round_index: object | None = None
-    subagent_expert_ids: list = field(default_factory=list)
-    subagent_run_ids: list = field(default_factory=list)
-    subagent_result_summaries: list = field(default_factory=list)
-    subagent_artifact_paths: list = field(default_factory=list)
-    subagent_binding_records: list = field(default_factory=list)
-    subagent_run_history: list = field(default_factory=list)
-    subagent_attempt_history: list = field(default_factory=list)
-    current_fanout_attempt: dict = field(default_factory=dict)
-    fanout_complete: bool | None = None
+    round_index: int = 0
+    expert_round_index: int = 0
+    expert_results: list = field(default_factory=list)
+    expert_results_complete: bool | None = None
     last_turn_summary: str | None = None
     round_decision: str | None = None
     coverage_sufficient: bool | None = None
     ready_for_report: bool | None = None
     reorganization_summary: str | None = None
-    reorganization_count: object | None = None
+    reorganization_count: int = 0
     outline: str | None = None
     report_path: str | None = None
     report_summary: str | None = None
@@ -115,7 +98,13 @@ def _select_workflow_goal(task_input: dict) -> str | None:
 
 
 def serialize_state(state: CoStormAutonomousResearchWorkflowState) -> dict:
-    return asdict(state)
+    payload = _compact_value(asdict(state))
+    if not isinstance(payload, dict):
+        payload = {}
+    payload["artifacts_by_stage"] = _normalize_artifact_journal(
+        payload.get("artifacts_by_stage")
+    )
+    return payload
 
 
 def _normalize_constraints(value: dict) -> dict:
@@ -147,73 +136,10 @@ def _validate_return_stage_id(value) -> str | None:
     return value
 
 
-def _persisted_string_list(payload: dict, key: str, *, unique: bool = True) -> list[str]:
-    value = payload.get(key)
-    if value is None:
-        return []
-    if not isinstance(value, list) or any(
-        not isinstance(item, str) or not item.strip() for item in value
-    ):
-        raise ValueError(f"persisted {key} must be a list of non-empty strings")
-    normalized = [item.strip() for item in value]
-    if unique and len(set(normalized)) != len(normalized):
-        raise ValueError(f"persisted {key} must contain unique strings")
-    return normalized
-
-
-def _validate_attempt_snapshot(value: object, label: str) -> dict:
-    if not isinstance(value, dict):
-        raise ValueError(f"persisted {label} must be an object")
-    required = ATTEMPT_SNAPSHOT_FIELDS - {"verifier_passed"}
-    if not required.issubset(value) or not set(value).issubset(ATTEMPT_SNAPSHOT_FIELDS):
-        raise ValueError(
-            f"persisted {label} must contain only the bounded fan-out attempt fields"
-        )
-    status = value.get("status")
-    if not isinstance(status, str) or not status.strip():
-        raise ValueError(f"persisted {label}.status must be a non-empty string")
-    round_index = value.get("fanout_round_index")
-    if round_index is not None and (
-        not isinstance(round_index, int) or isinstance(round_index, bool) or round_index < 1
-    ):
-        raise ValueError(f"persisted {label}.fanout_round_index must be a positive integer or null")
-    normalized = {
-        "status": status.strip(),
-        "fanout_round_index": round_index,
-    }
-    for key in ("expert_ids", "subagent_run_ids", "artifact_paths"):
-        raw_values = value.get(key)
-        if not isinstance(raw_values, list) or len(raw_values) > MAX_FANOUT_ITEMS:
-            raise ValueError(
-                f"persisted {label}.{key} must be a bounded list of non-empty strings"
-            )
-        if any(not isinstance(item, str) or not item.strip() for item in raw_values):
-            raise ValueError(
-                f"persisted {label}.{key} must contain non-empty strings"
-            )
-        values = [item.strip() for item in raw_values]
-        if len(set(values)) != len(values):
-            raise ValueError(f"persisted {label}.{key} must contain unique strings")
-        normalized[key] = values
-    if "verifier_passed" in value:
-        verifier_passed = value["verifier_passed"]
-        if not isinstance(verifier_passed, bool):
-            raise ValueError(f"persisted {label}.verifier_passed must be boolean")
-        normalized["verifier_passed"] = verifier_passed
-    return normalized
-
-
-def _validate_attempt_history(value: object) -> list[dict]:
-    if value is None:
-        return []
-    if not isinstance(value, list) or len(value) > MAX_ATTEMPT_HISTORY:
-        raise ValueError(
-            "persisted subagent_attempt_history must be a bounded list of objects"
-        )
-    return [
-        _validate_attempt_snapshot(item, f"subagent_attempt_history[{index}]")
-        for index, item in enumerate(value)
-    ]
+def _non_negative_integer(value, label: str) -> int:
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        raise ValueError(f"{label} must be a non-negative integer")
+    return value
 
 
 def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflowState:
@@ -221,8 +147,9 @@ def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflow
         payload = {}
     if not isinstance(payload, dict):
         raise ValueError("persisted workflow state must be an object")
-    attempt_counts = dict(payload.get("attempt_counts") or {})
-    if any(
+    raw_attempt_counts = payload.get("attempt_counts")
+    attempt_counts = raw_attempt_counts if raw_attempt_counts is not None else {}
+    if not isinstance(attempt_counts, dict) or any(
         not isinstance(key, str)
         or not isinstance(value, int)
         or isinstance(value, bool)
@@ -233,111 +160,30 @@ def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflow
     workflow_goal = payload.get("workflow_goal")
     if workflow_goal is not None and not isinstance(workflow_goal, str):
         raise ValueError("persisted workflow_goal must be a string or null")
-    task_input = payload.get("task_input")
-    context = payload.get("context")
-    if task_input is None:
-        task_input = {}
-    if context is None:
-        context = {}
+    raw_task_input = payload.get("task_input")
+    raw_context = payload.get("context")
+    task_input = raw_task_input if raw_task_input is not None else {}
+    context = raw_context if raw_context is not None else {}
     if not isinstance(task_input, dict) or not isinstance(context, dict):
         raise ValueError("persisted task_input and context must be objects")
-    current_stage_id = _validate_stage_id(payload.get("current_stage_id") or MAIN_STAGE_IDS[0])
-    return_stage_id = _validate_return_stage_id(payload.get("return_stage_id"))
-    completed_stages = list(payload.get("completed_stages") or [])
-    allowed_completed = set(MAIN_STAGE_IDS) | {FINAL_STAGE_ID}
-    if any(item not in allowed_completed for item in completed_stages):
-        raise ValueError("persisted completed_stages contains an unknown stage")
-    canonical_history, history_errors = normalize_history(payload.get("subagent_run_history"))
-    if history_errors:
-        raise ValueError("invalid persisted subagent_run_history: " + "; ".join(history_errors))
-    if "expert_roster" in payload and payload.get("expert_roster") is not None:
-        persisted_roster = payload.get("expert_roster")
-        if persisted_roster == []:
-            expert_roster = []
-            roster_errors = []
-        else:
-            expert_roster, roster_errors = parse_expert_roster(persisted_roster)
-            if roster_errors:
-                raise ValueError("invalid persisted expert_roster: " + "; ".join(roster_errors))
-    else:
-        expert_roster = []
-    history_contract_errors = canonical_history_errors(
-        canonical_history,
-        [record["id"] for record in expert_roster] or None,
+    raw_repair_blocked_attempts = payload.get("repair_blocked_attempts")
+    repair_blocked_attempts = (
+        raw_repair_blocked_attempts
+        if raw_repair_blocked_attempts is not None
+        else attempt_counts.get("repair_and_resume", 0)
     )
-    if history_contract_errors:
-        raise ValueError(
-            "invalid persisted subagent_run_history: " + "; ".join(history_contract_errors)
-        )
-    subagent_expert_ids = _persisted_string_list(payload, "subagent_expert_ids")
-    subagent_run_ids = _persisted_string_list(payload, "subagent_run_ids")
-    subagent_result_summaries = _persisted_string_list(payload, "subagent_result_summaries")
-    subagent_artifact_paths = _persisted_string_list(payload, "subagent_artifact_paths")
-    if "subagent_binding_records" in payload and payload.get("subagent_binding_records") is not None:
-        binding_records, binding_errors = parse_binding_records(payload.get("subagent_binding_records"))
-        if binding_errors:
-            raise ValueError(
-                "invalid persisted subagent_binding_records: " + "; ".join(binding_errors)
-            )
-    else:
-        binding_records = []
-    if expert_roster and subagent_expert_ids:
-        roster_ids = [record["id"] for record in expert_roster]
-        if subagent_expert_ids != roster_ids:
-            raise ValueError("persisted subagent_expert_ids must match expert_roster order")
-    if (subagent_expert_ids or subagent_run_ids or subagent_result_summaries
-            or subagent_artifact_paths or binding_records) and not expert_roster:
-        raise ValueError("persisted fan-out records require a structured expert_roster")
-    current_fanout_lengths = {
-        len(subagent_expert_ids),
-        len(subagent_run_ids),
-        len(subagent_result_summaries),
-        len(subagent_artifact_paths),
-        len(binding_records),
-    }
-    if len(current_fanout_lengths) > 1:
-        raise ValueError("persisted fan-out arrays and binding records must have equal lengths")
-    if binding_records:
-        for index, binding in enumerate(binding_records):
-            expected = {
-                "expert_id": subagent_expert_ids[index],
-                "subagent_run_id": subagent_run_ids[index],
-                "summary": subagent_result_summaries[index],
-                "artifact_path": subagent_artifact_paths[index],
-            }
-            if any(binding.get(key) != value for key, value in expected.items()):
-                raise ValueError(
-                    f"persisted subagent_binding_records[{index}] does not match fan-out arrays"
-                )
-        spawn_receipts = [binding["spawn_receipt"] for binding in binding_records]
-        completion_receipts = [binding["completion_receipt"] for binding in binding_records]
-        if len(set(spawn_receipts)) != len(spawn_receipts):
-            raise ValueError("persisted spawn receipts must be unique")
-        if set(spawn_receipts).intersection(completion_receipts):
-            raise ValueError("persisted spawn and completion receipts must not overlap")
-    attempt_history = _validate_attempt_history(payload.get("subagent_attempt_history"))
-    raw_current_attempt = payload.get("current_fanout_attempt")
-    if raw_current_attempt is None or raw_current_attempt == {}:
-        current_attempt = {}
-    else:
-        current_attempt = _validate_attempt_snapshot(
-            raw_current_attempt, "current_fanout_attempt"
-        )
-    round_index = payload.get("round_index")
-    if round_index is not None and (
-        not isinstance(round_index, int) or isinstance(round_index, bool) or round_index < 0
+    current_stage_id = _validate_stage_id(
+        payload.get("current_stage_id", MAIN_STAGE_IDS[0])
+    )
+    return_stage_id = _validate_return_stage_id(payload.get("return_stage_id"))
+    raw_completed_stages = payload.get("completed_stages")
+    completed_stages = raw_completed_stages if raw_completed_stages is not None else []
+    allowed_completed = set(MAIN_STAGE_IDS) | {FINAL_STAGE_ID}
+    if not isinstance(completed_stages, list) or any(
+        not isinstance(item, str) or item not in allowed_completed
+        for item in completed_stages
     ):
-        raise ValueError("persisted round_index must be a non-negative integer or null")
-    fanout_round_index = payload.get("fanout_round_index")
-    if fanout_round_index is not None and (
-        not isinstance(fanout_round_index, int)
-        or isinstance(fanout_round_index, bool)
-        or fanout_round_index < 1
-    ):
-        raise ValueError("persisted fanout_round_index must be a positive integer or null")
-    fanout_complete = payload.get("fanout_complete")
-    if fanout_complete is not None and not isinstance(fanout_complete, bool):
-        raise ValueError("persisted fanout_complete must be boolean or null")
+        raise ValueError("persisted completed_stages contains an unknown stage")
     return CoStormAutonomousResearchWorkflowState(
         attempt_counts=attempt_counts,
         workflow_goal=workflow_goal,
@@ -347,40 +193,40 @@ def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflow
         current_stage_id=current_stage_id,
         completed_stages=completed_stages,
         return_stage_id=return_stage_id,
-        expert_roster=expert_roster,
-        conversation_transcript=list(payload.get('conversation_transcript') or []),
-        knowledge_map_summary=payload.get('knowledge_map_summary'),
-        evidence_registry=list(payload.get('evidence_registry') or []),
-        coverage_map=list(payload.get('coverage_map') or []),
-        round_index=round_index,
-        fanout_round_index=fanout_round_index,
-        subagent_expert_ids=subagent_expert_ids,
-        subagent_run_ids=subagent_run_ids,
-        subagent_result_summaries=subagent_result_summaries,
-        subagent_artifact_paths=subagent_artifact_paths,
-        subagent_binding_records=binding_records,
-        subagent_run_history=canonical_history,
-        subagent_attempt_history=list(attempt_history),
-        current_fanout_attempt=dict(current_attempt),
-        fanout_complete=fanout_complete,
-        last_turn_summary=payload.get('last_turn_summary'),
-        round_decision=payload.get('round_decision'),
-        coverage_sufficient=payload.get('coverage_sufficient'),
-        ready_for_report=payload.get('ready_for_report'),
-        reorganization_summary=payload.get('reorganization_summary'),
-        reorganization_count=payload.get('reorganization_count'),
-        outline=payload.get('outline'),
-        report_path=payload.get('report_path'),
-        report_summary=payload.get('report_summary'),
-        report_sections=list(payload.get('report_sections') or []),
-        quality_verdict=payload.get('quality_verdict'),
-        quality_findings=list(payload.get('quality_findings') or []),
-        citation_coverage_summary=payload.get('citation_coverage_summary'),
-        report_ready=payload.get('report_ready'),
-        verified_report_path=payload.get('verified_report_path'),
-        report_repair_summary=payload.get('report_repair_summary'),
-        repair_actions=list(payload.get('repair_actions') or []),
-        artifacts_by_stage=dict(payload.get("artifacts_by_stage") or {}),
+        repair_requirements=_list_value(payload.get("repair_requirements")),
+        repair_evidence=_list_value(payload.get("repair_evidence")),
+        repair_transition_reason=_scalar_value(payload.get("repair_transition_reason")),
+        repair_blocked_attempts=_non_negative_integer(
+            repair_blocked_attempts,
+            "persisted repair_blocked_attempts",
+        ),
+        expert_roster=_list_value(payload.get('expert_roster')),
+        conversation_transcript=_list_value(payload.get('conversation_transcript')),
+        knowledge_map_summary=_scalar_value(payload.get('knowledge_map_summary')),
+        evidence_registry=_list_value(payload.get('evidence_registry')),
+        coverage_map=_list_value(payload.get('coverage_map')),
+        round_index=_non_negative_integer(payload.get('round_index', 0), 'persisted round_index'),
+        expert_round_index=_non_negative_integer(payload.get('expert_round_index', 0), 'persisted expert_round_index'),
+        expert_results=_list_value(payload.get('expert_results')),
+        expert_results_complete=_scalar_value(payload.get('expert_results_complete')),
+        last_turn_summary=_scalar_value(payload.get('last_turn_summary')),
+        round_decision=_scalar_value(payload.get('round_decision')),
+        coverage_sufficient=_scalar_value(payload.get('coverage_sufficient')),
+        ready_for_report=_scalar_value(payload.get('ready_for_report')),
+        reorganization_summary=_scalar_value(payload.get('reorganization_summary')),
+        reorganization_count=_non_negative_integer(payload.get('reorganization_count', 0), 'persisted reorganization_count'),
+        outline=_scalar_value(payload.get('outline')),
+        report_path=_scalar_value(payload.get('report_path')),
+        report_summary=_scalar_value(payload.get('report_summary')),
+        report_sections=_list_value(payload.get('report_sections')),
+        quality_verdict=_scalar_value(payload.get('quality_verdict')),
+        quality_findings=_list_value(payload.get('quality_findings')),
+        citation_coverage_summary=_scalar_value(payload.get('citation_coverage_summary')),
+        report_ready=_scalar_value(payload.get('report_ready')),
+        verified_report_path=_scalar_value(payload.get('verified_report_path')),
+        report_repair_summary=_scalar_value(payload.get('report_repair_summary')),
+        repair_actions=_list_value(payload.get('repair_actions')),
+        artifacts_by_stage=_normalize_artifact_journal(payload.get("artifacts_by_stage")),
         repair_context=dict(payload.get("repair_context") or {}),
     )
 
@@ -393,83 +239,63 @@ def record_observation(
     verifier_result: dict | None,
 ) -> None:
     state.attempt_counts[current_step_id] = state.attempt_counts.get(current_step_id, 0) + 1
+    if current_step_id == "repair_and_resume":
+        if observation.get("status") == "blocked":
+            state.repair_blocked_attempts += 1
+        elif observation.get("status") == "succeeded":
+            state.repair_blocked_attempts = 0
     structured_output = observation.get("structured_output") or {}
     if isinstance(structured_output, dict):
-        if current_step_id == "launch_expert_subagents":
-            verifier_passed = (
-                isinstance(verifier_result, dict)
-                and verifier_result.get("passed") is True
-            )
-        else:
-            verifier_passed = verifier_result is None or verifier_result.get("passed") is True
-        if current_step_id != "launch_expert_subagents" or (
-            observation.get("status") == "succeeded" and verifier_passed
-        ):
-            state.artifacts_by_stage.setdefault(current_step_id, []).append(structured_output)
-        if current_step_id == "launch_expert_subagents":
-            state.current_fanout_attempt = build_attempt_snapshot(
-                output=structured_output,
-                status=observation.get("status"),
-                verifier_result=verifier_result,
-            )
-            state.subagent_attempt_history.append(dict(state.current_fanout_attempt))
+        verifier_passed = (
+            isinstance(verifier_result, dict)
+            and verifier_result.get("passed") is True
+        )
         if observation.get("status") == "succeeded" and verifier_passed:
+            state.artifacts_by_stage.setdefault(current_step_id, []).append(
+                _compact_artifact_snapshot(structured_output)
+            )
+            state.artifacts_by_stage = _normalize_artifact_journal(state.artifacts_by_stage)
             if current_step_id == 'warm_start_shared_space':
                 state.expert_roster = _list_value(structured_output.get('expert_roster'))
                 state.conversation_transcript = _list_value(structured_output.get('conversation_transcript'))
-                state.knowledge_map_summary = structured_output.get('knowledge_map_summary')
+                state.knowledge_map_summary = _scalar_value(structured_output.get('knowledge_map_summary'))
                 state.evidence_registry = _list_value(structured_output.get('evidence_registry'))
                 state.coverage_map = _list_value(structured_output.get('coverage_map'))
-                state.round_index = structured_output.get('round_index')
+                state.round_index = _scalar_value(structured_output.get('round_index'))
             elif current_step_id == 'launch_expert_subagents':
-                state.fanout_round_index = structured_output.get('fanout_round_index')
-                state.subagent_expert_ids = _list_value(structured_output.get('subagent_expert_ids'))
-                state.subagent_run_ids = _list_value(structured_output.get('subagent_run_ids'))
-                state.subagent_result_summaries = _list_value(structured_output.get('subagent_result_summaries'))
-                state.subagent_artifact_paths = _list_value(structured_output.get('subagent_artifact_paths'))
-                state.subagent_binding_records = _list_value(structured_output.get('subagent_binding_records'))
-                try:
-                    state.subagent_run_history = build_canonical_history(
-                        previous_history=state.subagent_run_history,
-                        round_index=structured_output.get('fanout_round_index'),
-                        expert_ids=structured_output.get('subagent_expert_ids'),
-                        run_ids=structured_output.get('subagent_run_ids'),
-                        artifact_paths=structured_output.get('subagent_artifact_paths'),
-                    )
-                except FanoutContractError as exc:
-                    raise ValueError(f"cannot promote fan-out canonical history: {exc}") from exc
-                state.current_fanout_attempt = {}
-                state.fanout_complete = structured_output.get('fanout_complete')
+                state.expert_round_index = _scalar_value(structured_output.get('expert_round_index'))
+                state.expert_results = _list_value(structured_output.get('expert_results'))
+                state.expert_results_complete = _scalar_value(structured_output.get('expert_results_complete'))
             elif current_step_id == 'autonomous_roundtable':
-                state.last_turn_summary = structured_output.get('last_turn_summary')
+                state.last_turn_summary = _scalar_value(structured_output.get('last_turn_summary'))
                 state.conversation_transcript = _list_value(structured_output.get('conversation_transcript'))
                 state.evidence_registry = _list_value(structured_output.get('evidence_registry'))
                 state.coverage_map = _list_value(structured_output.get('coverage_map'))
-                state.knowledge_map_summary = structured_output.get('knowledge_map_summary')
+                state.knowledge_map_summary = _scalar_value(structured_output.get('knowledge_map_summary'))
                 state.expert_roster = _list_value(structured_output.get('expert_roster'))
-                state.round_index = structured_output.get('round_index')
-                state.round_decision = structured_output.get('round_decision')
-                state.coverage_sufficient = structured_output.get('coverage_sufficient')
-                state.ready_for_report = structured_output.get('ready_for_report')
+                state.round_index = _scalar_value(structured_output.get('round_index'))
+                state.round_decision = _scalar_value(structured_output.get('round_decision'))
+                state.coverage_sufficient = _scalar_value(structured_output.get('coverage_sufficient'))
+                state.ready_for_report = _scalar_value(structured_output.get('ready_for_report'))
             elif current_step_id == 'reorganize_knowledge_space':
-                state.knowledge_map_summary = structured_output.get('knowledge_map_summary')
+                state.knowledge_map_summary = _scalar_value(structured_output.get('knowledge_map_summary'))
                 state.coverage_map = _list_value(structured_output.get('coverage_map'))
                 state.evidence_registry = _list_value(structured_output.get('evidence_registry'))
-                state.reorganization_summary = structured_output.get('reorganization_summary')
-                state.reorganization_count = structured_output.get('reorganization_count')
+                state.reorganization_summary = _scalar_value(structured_output.get('reorganization_summary'))
+                state.reorganization_count = _scalar_value(structured_output.get('reorganization_count'))
             elif current_step_id == 'synthesize_report':
-                state.outline = structured_output.get('outline')
-                state.report_path = structured_output.get('report_path')
-                state.report_summary = structured_output.get('report_summary')
+                state.outline = _scalar_value(structured_output.get('outline'))
+                state.report_path = _scalar_value(structured_output.get('report_path'))
+                state.report_summary = _scalar_value(structured_output.get('report_summary'))
                 state.report_sections = _list_value(structured_output.get('report_sections'))
             elif current_step_id == 'verify_report':
-                state.quality_verdict = structured_output.get('quality_verdict')
+                state.quality_verdict = _scalar_value(structured_output.get('quality_verdict'))
                 state.quality_findings = _list_value(structured_output.get('quality_findings'))
-                state.citation_coverage_summary = structured_output.get('citation_coverage_summary')
-                state.report_ready = structured_output.get('report_ready')
-                state.verified_report_path = structured_output.get('verified_report_path')
+                state.citation_coverage_summary = _scalar_value(structured_output.get('citation_coverage_summary'))
+                state.report_ready = _scalar_value(structured_output.get('report_ready'))
+                state.verified_report_path = _scalar_value(structured_output.get('verified_report_path'))
             elif current_step_id == 'repair_report':
-                state.report_repair_summary = structured_output.get('report_repair_summary')
+                state.report_repair_summary = _scalar_value(structured_output.get('report_repair_summary'))
                 state.repair_actions = _list_value(structured_output.get('repair_actions'))
             else:
                 pass
@@ -497,6 +323,7 @@ def record_observation(
         transition_reason=transition_reason,
         repair_payload=repair_payload or {},
     )
+    state.repair_context["repair_blocked_attempts"] = state.repair_blocked_attempts
 
 
 def determine_return_stage_id(
@@ -522,13 +349,10 @@ def determine_transition_reason(
         return "partial"
     if status == "failed":
         return "failed"
-    if (
-        current_step_id == "launch_expert_subagents"
-        and status == "succeeded"
-        and not (isinstance(verifier_result, dict) and verifier_result.get("passed") is True)
+    if verifier_result is not None and (
+        not isinstance(verifier_result, dict)
+        or verifier_result.get("passed") is not True
     ):
-        return "verifier_failed"
-    if verifier_result is not None and not verifier_result.get("passed", False):
         return "verifier_failed"
     structured_output = observation.get("structured_output") or {}
     if isinstance(structured_output, dict):
@@ -544,9 +368,19 @@ def apply_transition(state: CoStormAutonomousResearchWorkflowState, *, current_s
     if current_step_id in REPAIR_STAGE_IDS and next_step_id == state.return_stage_id:
         state.return_stage_id = None
         state.repair_context = {}
+        state.repair_blocked_attempts = 0
     elif current_step_id in DECLARED_RECOVERY_STAGE_IDS and next_step_id != current_step_id:
         state.return_stage_id = None
         state.repair_context = {}
+
+    if current_step_id == "request_unblocking_input" and next_step_id == "repair_and_resume":
+        state.repair_blocked_attempts = 0
+        state.repair_context["repair_blocked_attempts"] = 0
+    elif current_step_id == "repair_and_resume":
+        if next_step_id == "request_unblocking_input":
+            state.repair_context["repair_blocked_attempts"] = state.repair_blocked_attempts
+        elif next_step_id not in REPAIR_STAGE_IDS:
+            state.repair_blocked_attempts = 0
 
     state.current_stage_id = next_step_id
 
@@ -579,11 +413,127 @@ def _build_repair_context(
 
 
 def _list_value(value) -> list:
-    return list(value) if isinstance(value, list) else []
+    compact = _compact_value(value)
+    return compact if isinstance(compact, list) else []
 
 
 def _dict_value(value) -> dict:
-    return dict(value) if isinstance(value, dict) else {}
+    compact = _compact_value(value)
+    return compact if isinstance(compact, dict) else {}
+
+
+def _scalar_value(value):
+    return _compact_value(value)
+
+
+def _bounded_text(value: object, *, max_bytes: int = MAX_WORKFLOW_TEXT_BYTES):
+    if not isinstance(value, str):
+        return value
+    encoded = value.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return value
+    suffix = f"\n...[truncated sha256:{hashlib.sha256(encoded).hexdigest()}]"
+    prefix_budget = max(1, max_bytes - len(suffix.encode("utf-8")))
+    prefix = encoded[:prefix_budget].decode("utf-8", "ignore")
+    return prefix + suffix
+
+
+def _json_size(value: object) -> int:
+    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+
+
+def _compact_value(value: object, *, depth: int = 0):
+    if depth > 4:
+        return None
+    if isinstance(value, str):
+        return _bounded_text(value)
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    if isinstance(value, list):
+        compact_list = []
+        for item in value[:128]:
+            compact_list.append(_compact_value(item, depth=depth + 1))
+            if _json_size(compact_list) > MAX_WORKFLOW_LIST_BYTES:
+                compact_list.pop()
+                break
+        return compact_list
+    if isinstance(value, dict):
+        compact_dict = {}
+        for key in sorted(value, key=lambda item: str(item))[:128]:
+            if not isinstance(key, str):
+                continue
+            compact_dict[key] = _compact_value(value[key], depth=depth + 1)
+            if _json_size(compact_dict) > MAX_WORKFLOW_LIST_BYTES:
+                compact_dict.pop(key, None)
+                break
+        return compact_dict
+    return None
+
+
+def _compact_artifact_path(value: str) -> str:
+    text = value.strip()
+    encoded = text.encode("utf-8")
+    if len(encoded) <= MAX_ARTIFACT_PATH_BYTES:
+        return text
+    digest = hashlib.sha256(encoded).hexdigest()
+    prefix = encoded[: MAX_ARTIFACT_PATH_BYTES - 80].decode("utf-8", "ignore")
+    return f"{prefix}...[sha256:{digest}]"
+
+
+def _compact_artifact_snapshot(value: dict) -> dict:
+    compact = {
+        "output_keys": sorted(key for key in value if isinstance(key, str))[:128],
+    }
+    for key, raw_value in value.items():
+        if not isinstance(key, str):
+            continue
+        if key.endswith("_path") or key.endswith("_paths") or key == "artifact_path":
+            if isinstance(raw_value, str):
+                compact[key] = _compact_artifact_path(raw_value)
+            elif isinstance(raw_value, list):
+                compact[key] = [
+                    _compact_artifact_path(item)
+                    for item in raw_value[:128]
+                    if isinstance(item, str) and item.strip()
+                ]
+        elif (
+            key.endswith("_index")
+            or key.endswith("_count")
+            or key.startswith("ready_")
+            or key.endswith("_ready")
+            or key.endswith("_complete")
+            or key.startswith("continue_")
+            or key.startswith("should_")
+            or key.endswith("_passed")
+        ) and isinstance(raw_value, (bool, int)):
+            compact[key] = raw_value
+    return compact
+
+
+def _normalize_artifact_journal(value: object) -> dict[str, list[dict]]:
+    if not isinstance(value, dict):
+        return {}
+    normalized = {}
+    for stage_id, entries in value.items():
+        if not isinstance(stage_id, str) or not isinstance(entries, list):
+            continue
+        compact_entries = [
+            _compact_artifact_snapshot(item)
+            for item in entries[-MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE:]
+            if isinstance(item, dict)
+        ]
+        if compact_entries:
+            normalized[stage_id] = compact_entries
+    while _json_size(normalized) > MAX_ARTIFACT_JOURNAL_BYTES:
+        oldest_stage = next(iter(normalized), None)
+        if oldest_stage is None:
+            break
+        entries = normalized[oldest_stage]
+        if len(entries) > 1:
+            entries.pop(0)
+        else:
+            normalized.pop(oldest_stage)
+    return normalized
 
 
 def _string_list(value) -> list[str]:

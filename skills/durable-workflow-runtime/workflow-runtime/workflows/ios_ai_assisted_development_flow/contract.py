@@ -6,7 +6,7 @@ WORKFLOW_ID = 'ios_ai_assisted_development_flow'
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     task_input_schema={'goal': 'string', 'preferred_change_name': 'string?'},
     context_schema={'repo_root': 'string', 'source_doc_url': 'string?', 'source_skill_url': 'string?'},
-    constraints_schema={'max_steps': 'integer?', 'require_user_approval': 'boolean?'},
+    constraints_schema={'max_steps': 'integer?'},
 )
 
 RUN_BRAINSTORMING_ROUTE_1 = SkillRoute(

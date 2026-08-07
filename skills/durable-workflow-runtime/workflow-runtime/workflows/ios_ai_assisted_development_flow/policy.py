@@ -1,6 +1,14 @@
 from __future__ import annotations
 
-from workflows.common.policies import TransitionDecision, condition_matches, max_steps_exceeded_decision
+from workflows.common.policies import TransitionDecision, condition_matches
+
+from . import state as workflow_state
+
+
+_MISSING_VERIFIER_REASONS = {
+    stage_id: f"{stage_id} completed without a valid verifier result; fail closed before continuing."
+    for stage_id in workflow_state.MAIN_STAGE_IDS
+}
 
 
 def choose_next_node(
@@ -10,12 +18,34 @@ def choose_next_node(
     observation: dict,
     verifier_result: dict | None,
 ) -> TransitionDecision:
-    max_steps_decision = max_steps_exceeded_decision(
+    max_steps_decision = workflow_state.max_steps_exceeded_decision(
         current_step_id=current_step_id,
         state=state,
     )
     if max_steps_decision is not None:
-        return max_steps_decision
+        return TransitionDecision(
+            next_node="finalize_delivery_summary",
+            branch_kind="complete",
+            reason=(
+                f"{max_steps_decision.reason}; terminate with a degraded final summary"
+            ),
+            metadata={
+                **max_steps_decision.metadata,
+                "degraded": True,
+                "terminal_reason": "max_steps_exceeded",
+            },
+        )
+
+    if (
+        current_step_id in workflow_state.MAIN_STAGE_IDS
+        and observation.get("status") == "succeeded"
+        and not _verifier_result_is_valid(verifier_result)
+    ):
+        return TransitionDecision(
+            next_node="repair_and_resume",
+            branch_kind="repair",
+            reason=_MISSING_VERIFIER_REASONS[current_step_id],
+        )
 
     if current_step_id == "run_brainstorming":
         if observation["status"] == "succeeded" and verifier_result is not None and not verifier_result["passed"]:
@@ -133,9 +163,9 @@ def choose_next_node(
                 )
             if condition_matches(structured_output.get('verification_passed'), 'is_false', None):
                 return TransitionDecision(
-                    next_node='execute_implementation',
+                    next_node='write_implementation_plan',
                     branch_kind='retry',
-                    reason='Implementation verification did not pass yet and must be resolved before release QA.',
+                    reason='Implementation verification did not pass and requires a plan/debugging update before execution can continue.',
                 )
         return TransitionDecision(
             next_node="run_agentic_release_qa",
@@ -217,6 +247,16 @@ def choose_next_node(
 
     if current_step_id == "request_unblocking_input":
         if observation["status"] == "succeeded":
+            recovery_error = workflow_state.recovery_output_validation_error(
+                current_step_id=current_step_id,
+                structured_output=observation.get("structured_output"),
+            )
+            if recovery_error is not None:
+                return TransitionDecision(
+                    next_node="request_unblocking_input",
+                    branch_kind="repair",
+                    reason=recovery_error,
+                )
             return_stage_id = state.get("return_stage_id")
             repair_context = state.get("repair_context") or {}
             source_stage_id = repair_context.get("source_stage_id")
@@ -253,6 +293,16 @@ def choose_next_node(
                 reason="repair exhausted 3 self-repair attempts and now requires external help before retry",
             )
         if observation["status"] == "succeeded":
+            recovery_error = workflow_state.recovery_output_validation_error(
+                current_step_id=current_step_id,
+                structured_output=observation.get("structured_output"),
+            )
+            if recovery_error is not None:
+                return TransitionDecision(
+                    next_node="repair_and_resume",
+                    branch_kind="retry",
+                    reason=recovery_error,
+                )
             structured_output = observation.get("structured_output") or {}
             if isinstance(structured_output, dict) and structured_output.get("needs_external_unblocking") is True:
                 return TransitionDecision(
@@ -288,7 +338,7 @@ def _route_common_failure(
     verifier_result: dict | None,
 ) -> TransitionDecision | None:
     if current_step_id in {"run_brainstorming", "run_spec_review"}:
-        if verifier_result is not None and not verifier_result["passed"]:
+        if verifier_result is not None and not _verifier_is_passed(verifier_result):
             return None
     if observation["status"] == "blocked":
         return TransitionDecision(
@@ -308,10 +358,20 @@ def _route_common_failure(
             branch_kind="retry",
             reason=f"{current_step_id} failed and should be retried",
         )
-    if verifier_result is not None and not verifier_result["passed"]:
+    if verifier_result is not None and not _verifier_is_passed(verifier_result):
         return TransitionDecision(
             next_node="repair_and_resume",
             branch_kind="retry",
             reason=f"{current_step_id} did not satisfy verifier checks",
         )
     return None
+
+
+def _verifier_result_is_valid(verifier_result: object) -> bool:
+    return isinstance(verifier_result, dict) and isinstance(
+        verifier_result.get("passed"), bool
+    )
+
+
+def _verifier_is_passed(verifier_result: object) -> bool:
+    return _verifier_result_is_valid(verifier_result) and verifier_result.get("passed") is True

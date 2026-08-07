@@ -1,5 +1,6 @@
 {
   "workflow_id": "performance_optimization_cycle",
+  "state_mode": "custom",
   "flow_description": "适用于性能敏感内核的通用、可恢复优化闭环：从头脑风暴、研究、直接实现与评审到知识库更新，并将已验证结果带入下一轮优化。",
   "start_input_schema": {
     "task_input": {
@@ -9,7 +10,13 @@
     "context": {
       "repo_root": "string"
     },
-    "constraints": {}
+    "constraints": {
+      "max_steps": "integer?",
+      "max_cycles": "integer?"
+    }
+  },
+  "runtime_defaults": {
+    "max_cycles": 3
   },
   "stages": [
     {
@@ -83,6 +90,8 @@
         }
       ],
       "template_context_keys": [
+        "goal",
+        "repo_root",
         "baseline_metrics",
         "bottleneck_summary",
         "performance_report_path"
@@ -198,7 +207,12 @@
         }
       ],
       "template_context_keys": [
+        "goal",
+        "repo_root",
         "optimization_hypotheses",
+        "baseline_metrics",
+        "bottleneck_summary",
+        "performance_report_path",
         "success_criteria",
         "brainstorm_artifact_path",
         "knowledge_base_update_summary"
@@ -228,7 +242,7 @@
         },
         {
           "output_key": "brainstorm_artifact_path",
-          "operator": "truthy",
+          "operator": "path_exists",
           "value": null,
           "message": "brainstorming must return an ideation artifact path"
         },
@@ -248,7 +262,7 @@
       "recovery_return_node": null,
       "intent": "gather_optimization_evidence",
       "expected_artifact": "research brief, implementation-ready change summary, verification plan, and evidence map",
-      "prompt": "/research-nex {{optimization_hypotheses}} for {{goal}}",
+      "prompt": "/research-nex investigate {{optimization_hypotheses}} for {{goal}} in {{repo_root}}",
       "prompt_sections": {
         "stage_goal": "Turn the selected hypothesis into traceable technical evidence, a bounded change summary, and a verification plan for implementation.",
         "context": [
@@ -323,6 +337,11 @@
         }
       ],
       "template_context_keys": [
+        "optimization_hypotheses",
+        "goal",
+        "repo_root",
+        "success_criteria",
+        "brainstorm_artifact_path",
         "research_brief_path",
         "evidence_summary",
         "open_risks",
@@ -371,7 +390,17 @@
           "message": "research must declare implementation readiness"
         }
       ],
-      "verifier_templates": [],
+      "verifier_templates": [
+        {
+          "id": "research_brief_contains_markdown_heading",
+          "template": "artifact_file_contains_sections",
+          "output_key": "research_brief_path",
+          "message": "research must return a non-empty Markdown brief artifact",
+          "sections": [
+            "#"
+          ]
+        }
+      ],
       "custom_verifier_requirements": []
     },
     {
@@ -476,22 +505,23 @@
         {
           "state_key": "submission_tests_passed",
           "output_key": "submission_tests_passed",
-          "kind": "scalar"
+          "kind": "boolean"
         },
         {
           "state_key": "ready_for_review",
           "output_key": "ready_for_review",
-          "kind": "scalar"
+          "kind": "boolean"
         }
       ],
       "template_context_keys": [
+        "implementation_summary",
         "research_brief_path",
         "planned_change_summary",
         "verification_plan",
+        "repo_root",
         "success_criteria",
         "evidence_summary",
         "open_risks",
-        "implementation_summary",
         "changed_paths",
         "submission_test_output",
         "submission_test_command",
@@ -556,25 +586,31 @@
       "custom_verifier_requirements": [
         {
           "id": "enforce_submission_constraints",
-          "description": "Verify directly that tests/ is unchanged from origin/main, problem.py assigns N_CORES = 1, and python tests/submission_tests.py succeeds from repo_root.",
+          "description": "Verify directly that changed_paths is the exact non-empty implementation-path set changed from origin/main, tests/ is unchanged, repository paths are strict relative paths with bounded reads, problem.py contains exactly one literal N_CORES = 1 assignment, and python tests/submission_tests.py succeeds from repo_root.",
           "signals": [
             "changed_paths",
             "submission_test_command",
             "submission_test_exit_code",
             "submission_tests_passed"
           ],
+          "python_imports": [
+            "ast",
+            "subprocess"
+          ],
           "implementation_surface": [
             "verifiers.py",
             "tests/test_workflow.py"
           ],
+          "implementation_notes": "All repository paths accepted by this verifier must reject absolute, traversal, separator-ambiguous, and symlink escapes; text reads must be bounded and UTF-8 validated.",
           "hint_pseudocode": [
-            "Reject changed_paths containing tests or tests/.",
+            "Reject empty, absolute, traversal-containing, separator-ambiguous, or tests/ changed_paths; require the declared set to equal the origin/main diff set.",
             "Run git diff --quiet origin/main -- tests/.",
-            "Parse problem.py and require literal N_CORES = 1.",
+            "Parse problem.py and require exactly one literal N_CORES = 1 assignment.",
             "Run python tests/submission_tests.py in repo_root and require exit code 0."
           ],
           "test_intent": [
             "Reject a changed tests/ path.",
+            "Reject a changed implementation path omitted from changed_paths.",
             "Reject N_CORES other than 1.",
             "Reject a failing submission command."
           ]
@@ -601,11 +637,12 @@
           "Do not update the knowledge base in this stage."
         ],
         "blocked_conditions": [
-          "Block if submission-test evidence is missing."
+          "Block if submission-test evidence is missing.",
+          "Do not approve knowledge-base maintenance while review_findings contains an unresolved critical, blocker, P0, high, or P1 finding."
         ]
       },
-      "done_when": [
-        "Review findings and a readiness decision are recorded."
+        "done_when": [
+          "Review findings and a readiness decision are recorded."
       ],
       "output_schema": {
         "review_summary": "string",
@@ -646,6 +683,7 @@
         }
       ],
       "template_context_keys": [
+        "implementation_summary",
         "research_brief_path",
         "verification_plan",
         "submission_test_output",
@@ -678,12 +716,45 @@
           "message": "review must approve knowledge-base maintenance"
         }
       ],
-      "verifier_templates": [],
+      "verifier_templates": [
+        {
+          "id": "review_findings_are_resolved_before_approval",
+          "template": "no_unresolved_findings",
+          "output_key": "review_findings",
+          "message": "review cannot approve knowledge-base maintenance with unresolved high-severity findings",
+          "when": {
+            "output_key": "ready_for_knowledge_base",
+            "operator": "is_true",
+            "value": null
+          },
+          "unresolved_terms": [
+            "critical",
+            "blocker",
+            "p0",
+            "high",
+            "p1"
+          ],
+          "resolved_terms": [
+            "resolved",
+            "fixed",
+            "closed"
+          ]
+        }
+      ],
       "custom_verifier_requirements": []
     },
     {
       "step_id": "update_optimization_knowledge_base",
       "stage_kind": "main",
+      "require_passing_verifier": true,
+      "cycle_limit": {
+        "output_key": "continue_optimization",
+          "constraint_key": "max_cycles",
+          "counter_state_key": "completed_optimization_cycles",
+          "next_node": "finalize_optimization_cycle",
+        "branch_kind": "complete",
+        "reason": "Knowledge-base maintenance requested another iteration, but the configured max_cycles limit has been reached."
+      },
       "recovery_return_node": null,
       "intent": "update_optimization_knowledge_base",
       "expected_artifact": "updated durable knowledge-base record and next-cycle decision",
@@ -743,11 +814,32 @@
           "state_key": "knowledge_base_artifacts",
           "output_key": "knowledge_base_artifacts",
           "kind": "list"
+        },
+        {
+          "state_key": "continue_optimization",
+          "output_key": "continue_optimization",
+          "kind": "boolean"
+        },
+        {
+          "state_key": "completed_optimization_cycles",
+          "output_key": "completed_optimization_cycles",
+          "kind": "integer",
+          "runtime_owned": true,
+          "increment_on_verified_success": true
         }
       ],
       "template_context_keys": [
+        "repo_root",
+        "research_brief_path",
+        "implementation_summary",
+        "review_summary",
+        "review_findings",
+        "submission_test_output",
         "knowledge_base_update_summary",
-        "knowledge_base_artifacts"
+        "knowledge_base_artifacts",
+        "continue_optimization",
+        "completed_optimization_cycles",
+        "max_cycles"
       ],
       "repair_conditions": [],
       "transitions": [
@@ -782,12 +874,27 @@
           "message": "knowledge-base maintenance must record durable artifacts"
         }
       ],
-      "verifier_templates": [],
+      "verifier_templates": [
+        {
+          "id": "knowledge_base_artifacts_are_safe_markdown",
+          "template": "artifact_list_policy",
+          "output_key": "knowledge_base_artifacts",
+          "message": "knowledge-base maintenance must record existing non-empty Markdown knowledge-base artifacts",
+          "required_prefix": "knowledge-base/",
+          "allowed_suffixes": [
+            ".md",
+            ".markdown",
+            ".txt"
+          ],
+          "require_non_empty_content": true
+        }
+      ],
       "custom_verifier_requirements": []
     },
     {
       "step_id": "capture_blocked_cycle_knowledge",
       "stage_kind": "recovery",
+      "require_passing_verifier": true,
       "recovery_return_node": "diagnose_performance",
       "intent": "capture_blocked_cycle_knowledge",
       "expected_artifact": "durable knowledge-base record of the blocked stage and its next-cycle learning",
@@ -857,6 +964,11 @@
         }
       ],
       "template_context_keys": [
+        "source_stage_id",
+        "repo_root",
+        "repair_summary",
+        "repair_requirements",
+        "repair_evidence",
         "knowledge_base_update_summary",
         "knowledge_base_artifacts"
       ],
@@ -888,6 +1000,11 @@
           "reason": "Knowledge-base capture could not be verified; retain its runtime evidence and begin a fresh diagnosis without requesting user input."
         }
       ],
+      "missing_verifier_route": {
+        "next_node": "diagnose_performance",
+        "branch_kind": "continue",
+        "reason": "Knowledge-base capture could not be verified; retain its runtime evidence and begin a fresh diagnosis without requesting user input."
+      },
       "verifier_rules": [
         {
           "output_key": "knowledge_base_update_summary",
@@ -908,7 +1025,21 @@
           "message": "blocked-cycle capture must identify a next-cycle lead"
         }
       ],
-      "verifier_templates": [],
+      "verifier_templates": [
+        {
+          "id": "blocked_cycle_artifacts_are_safe_markdown",
+          "template": "artifact_list_policy",
+          "output_key": "knowledge_base_artifacts",
+          "message": "blocked-cycle capture must record existing non-empty Markdown knowledge-base artifacts",
+          "required_prefix": "knowledge-base/",
+          "allowed_suffixes": [
+            ".md",
+            ".markdown",
+            ".txt"
+          ],
+          "require_non_empty_content": true
+        }
+      ],
       "custom_verifier_requirements": []
     }
   ],
@@ -1013,7 +1144,7 @@
     }
   },
   "final_step_id": "finalize_optimization_cycle",
-  "final_prompt": "Summarize the completed optimization cycle, including its hypothesis, evidence, implementation verification, review result, knowledge-base artifacts, and the reason no further iteration is scheduled.",
+  "final_prompt": "Summarize the optimization handoff, including its hypothesis, evidence, implementation verification, review result, knowledge-base artifacts, and why no further iteration is scheduled. If {{degraded}} is true or {{terminal_reason}} is max_steps_exceeded, explicitly label the result partial and do not claim that the optimization cycle completed or passed all gates. Include whether another iteration was requested ({{continue_optimization}}) and the configured cycle limit ({{max_cycles}}).",
   "dependencies": [
     {
       "id": "systematic-debugging",
@@ -1233,10 +1364,59 @@
           "continue_optimization": true
         }
       },
-      "verifier_result": null,
+      "verifier_result": {
+        "passed": true
+      },
       "state": null,
       "expected_next_node": "diagnose_performance",
       "expected_branch_kind": "continue"
+    },
+    {
+      "name": "knowledge_base_missing_verifier_retries_repair",
+      "type": "transition",
+      "current_step_id": "update_optimization_knowledge_base",
+      "observation": {
+        "status": "succeeded",
+        "summary": "KB update was claimed without an authoritative verification result.",
+        "structured_output": {
+          "knowledge_base_update_summary": "Recorded result.",
+          "knowledge_base_artifacts": [
+            "knowledge-base/topics/applied-optimization-log.md"
+          ],
+          "continue_optimization": false
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "retry"
+    },
+    {
+      "name": "knowledge_base_cycle_limit_routes_to_finalization",
+      "type": "transition",
+      "current_step_id": "update_optimization_knowledge_base",
+      "observation": {
+        "status": "succeeded",
+        "summary": "KB update requested another iteration at the cycle limit.",
+        "structured_output": {
+          "knowledge_base_update_summary": "Recorded result.",
+          "knowledge_base_artifacts": [
+            "knowledge-base/topics/applied-optimization-log.md"
+          ],
+          "continue_optimization": true
+        }
+      },
+      "verifier_result": {
+        "passed": true
+      },
+      "state": {
+        "constraints": {
+          "max_cycles": 1
+        },
+        "completed_optimization_cycles": 1
+      },
+      "expected_next_node": "finalize_optimization_cycle",
+      "expected_branch_kind": "complete"
     },
     {
       "name": "research_directly_feeds_implementation_without_plan_stage",
@@ -1283,7 +1463,7 @@
       "state": {}
     },
     {
-      "name": "research_accepts_complete_implementation_handoff",
+      "name": "research_rejects_unrelated_existing_artifact",
       "type": "verifier",
       "step_id": "research_optimization",
       "observation": {
@@ -1300,7 +1480,7 @@
           "ready_for_implementation": true
         }
       },
-      "expected_passed": true,
+      "expected_passed": false,
       "state": {}
     },
     {

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import json
+import os
+import re
 import shutil
+import tempfile
 from pathlib import Path
 
 
@@ -17,6 +21,15 @@ GLOBAL_SKILL_RECURSIVE_ROOTS = [
     "~/.codex/plugins/cache/openai-primary-runtime",
 ]
 RECORDED_BY = "bridge.py preflight"
+_WORKFLOW_ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+_DEPENDENCY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
+_PYTHON_MODULE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
+_CLI_COMMAND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
+_PREFLIGHT_CACHE_SCHEMA_VERSION = 1
+_PREFLIGHT_RUNTIME_VERSION = "3"
+_MAX_CACHE_BYTES = 2 * 1024 * 1024
+_MAX_SOURCE_FILE_BYTES = 8 * 1024 * 1024
+_MAX_MANIFEST_BYTES = 2 * 1024 * 1024
 
 
 def build_preflight_result(
@@ -24,7 +37,10 @@ def build_preflight_result(
     repo_root: str | Path,
     runtime_root: str | Path,
     workflow_id: str,
+    binding_path: str | Path | None = None,
 ) -> dict:
+    if not isinstance(workflow_id, str) or not _WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+        raise ValueError("invalid workflow_id for preflight")
     repo_path = Path(repo_root).resolve()
     runtime_path = Path(runtime_root).resolve()
     manifest_path = runtime_path / "workflows" / workflow_id / "manifest.json"
@@ -36,6 +52,7 @@ def build_preflight_result(
         "lockfile_path": str(lockfile_path),
         "status": "error",
         "message": "",
+        "cache_hit": False,
         "summary": {
             "total": 0,
             "available": 0,
@@ -80,6 +97,21 @@ def build_preflight_result(
         return base_result
 
     _write_manifest(manifest_path, manifest)
+    cache_path = _preflight_cache_path(repo_path, workflow_id)
+    fingerprint = _preflight_fingerprint(
+        repo_root=repo_path,
+        runtime_root=runtime_path,
+        workflow_id=workflow_id,
+        manifest=manifest,
+        binding_path=binding_path,
+    )
+    cached_result = _load_preflight_cache(
+        cache_path,
+        fingerprint=fingerprint,
+        lockfile_path=lockfile_path,
+    )
+    if cached_result is not None:
+        return {**cached_result, "cache_hit": True}
 
     dependency_results: list[dict] = []
     install_plan: list[dict] = []
@@ -146,6 +178,7 @@ def build_preflight_result(
         base_result["status"] = "ready"
         base_result["message"] = "Workflow dependencies are satisfied."
 
+    _write_preflight_cache(cache_path, fingerprint=fingerprint, result=base_result)
     return base_result
 
 
@@ -162,6 +195,11 @@ def is_preflight_error(preflight_result: dict) -> bool:
 
 
 def _load_manifest(path: Path) -> dict:
+    try:
+        if path.stat().st_size > _MAX_MANIFEST_BYTES:
+            raise ValueError(f"workflow manifest exceeds {_MAX_MANIFEST_BYTES} bytes")
+    except OSError as exc:
+        raise ValueError(f"cannot read workflow manifest: {path}") from exc
     try:
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
@@ -182,6 +220,8 @@ def _load_manifest(path: Path) -> dict:
         raise ValueError("workflow manifest must define non-empty description")
     if not isinstance(dependencies, list):
         raise ValueError("workflow manifest field 'dependencies' must be a list")
+    if len(dependencies) > 256:
+        raise ValueError("workflow manifest cannot declare more than 256 dependencies")
 
     normalized_start_input_schema = None
     if start_input_schema is not None:
@@ -215,6 +255,8 @@ def _load_lockfile(path: Path, *, workflow_id: str) -> dict:
             "installed": [],
         }
     try:
+        if path.stat().st_size > _MAX_MANIFEST_BYTES:
+            raise ValueError(f"workflow lock file exceeds {_MAX_MANIFEST_BYTES} bytes")
         payload = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
         raise ValueError(f"invalid workflow lock file JSON: {exc}") from exc
@@ -236,6 +278,8 @@ def _load_lockfile(path: Path, *, workflow_id: str) -> dict:
         )
     if not isinstance(installed, list):
         raise ValueError("workflow lock file field 'installed' must be a list")
+    if len(installed) > 1024:
+        raise ValueError("workflow lock file cannot contain more than 1024 installed entries")
 
     return {
         "schema_version": 1,
@@ -267,6 +311,9 @@ def _normalize_dependency(item: object) -> dict:
     source = _require_non_empty_string(item.get("source"), "dependency.source")
     purpose = _require_non_empty_string(item.get("purpose"), "dependency.purpose")
 
+    if not _DEPENDENCY_ID_PATTERN.fullmatch(dependency_id) or dependency_id in {".", ".."}:
+        raise ValueError(f"dependency.id contains unsafe path characters: {dependency_id}")
+
     if dependency_type not in SUPPORTED_DEPENDENCY_TYPES:
         raise ValueError(f"unsupported dependency type: {dependency_type}")
     if not isinstance(required, bool):
@@ -293,9 +340,15 @@ def _normalize_dependency(item: object) -> dict:
             "dependency.install_command",
         )
     if dependency_type == "cli":
-        normalized["command"] = _require_non_empty_string(item.get("command"), "dependency.command")
+        command = _require_non_empty_string(item.get("command"), "dependency.command")
+        if not _CLI_COMMAND_PATTERN.fullmatch(command):
+            raise ValueError(f"dependency.command must be a simple executable name: {command}")
+        normalized["command"] = command
     if dependency_type == "python_package":
-        normalized["module"] = _require_non_empty_string(item.get("module"), "dependency.module")
+        module_name = _require_non_empty_string(item.get("module"), "dependency.module")
+        if not _PYTHON_MODULE_PATTERN.fullmatch(module_name):
+            raise ValueError(f"dependency.module must be a dotted Python module name: {module_name}")
+        normalized["module"] = module_name
     return normalized
 
 
@@ -516,10 +569,10 @@ def _build_suggested_actions(dependency: dict, reason: str) -> list[str]:
 def _find_project_skill(repo_root: Path, skill_name: str) -> Path | None:
     candidate_names = _skill_name_candidates(skill_name)
     for relative_root in PROJECT_SKILL_ROOTS:
-        root_path = repo_root / relative_root
+        root_path = (repo_root / relative_root).resolve()
         for candidate_name in candidate_names:
-            candidate = root_path / candidate_name / "SKILL.md"
-            if candidate.is_file():
+            candidate = _safe_skill_file(root_path, candidate_name)
+            if candidate is not None and candidate.is_file():
                 return candidate
         matched = _find_skill_by_frontmatter_name(root_path, candidate_names)
         if matched is not None:
@@ -533,8 +586,8 @@ def _find_global_skill(skill_name: str) -> Path | None:
     for root in GLOBAL_SKILL_ROOTS:
         root_path = Path(root).expanduser().resolve()
         for candidate_name in candidate_names:
-            candidate = root_path / candidate_name / "SKILL.md"
-            if candidate.is_file():
+            candidate = _safe_skill_file(root_path, candidate_name)
+            if candidate is not None and candidate.is_file():
                 return candidate
         matched = _find_skill_by_frontmatter_name(root_path, candidate_names)
         if matched is not None:
@@ -552,6 +605,15 @@ def _find_global_skill(skill_name: str) -> Path | None:
         if matched is not None:
             return matched
     return None
+
+
+def _safe_skill_file(root_path: Path, candidate_name: str) -> Path | None:
+    candidate = (root_path / candidate_name / "SKILL.md").resolve(strict=False)
+    try:
+        candidate.relative_to(root_path)
+    except ValueError:
+        return None
+    return candidate
 
 
 def _skill_name_candidates(skill_name: str) -> list[str]:
@@ -602,10 +664,7 @@ def _write_manifest(path: Path, payload: dict) -> None:
     if "start_input_schema" in payload:
         ordered_payload["start_input_schema"] = payload["start_input_schema"]
     ordered_payload["dependencies"] = payload["dependencies"]
-    path.write_text(
-        json.dumps(ordered_payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
-    )
+    _write_json_atomically(path, ordered_payload, mode=0o644)
 
 
 def _write_lockfile(path: Path, payload: dict) -> None:
@@ -614,10 +673,207 @@ def _write_lockfile(path: Path, payload: dict) -> None:
         "workflow_id": payload["workflow_id"],
         "installed": payload["installed"],
     }
-    path.write_text(
-        json.dumps(ordered_payload, ensure_ascii=False, indent=2) + "\n",
-        encoding="utf-8",
+    _write_json_atomically(path, ordered_payload, mode=0o644)
+
+
+def _preflight_cache_path(repo_root: Path, workflow_id: str) -> Path:
+    if not _WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+        raise ValueError("invalid workflow_id for preflight cache")
+    return (
+        repo_root
+        / ".durable-workflow-runtime"
+        / "cache"
+        / "preflight"
+        / f"{workflow_id}.json"
     )
+
+
+def _load_preflight_cache(
+    path: Path,
+    *,
+    fingerprint: str,
+    lockfile_path: Path,
+) -> dict | None:
+    if not path.is_file() or path.is_symlink() or not lockfile_path.is_file():
+        return None
+    try:
+        if path.stat().st_size > _MAX_CACHE_BYTES:
+            return None
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    if payload.get("schema_version") != _PREFLIGHT_CACHE_SCHEMA_VERSION:
+        return None
+    if payload.get("fingerprint") != fingerprint:
+        return None
+    result = payload.get("result")
+    if not isinstance(result, dict):
+        return None
+    if result.get("status") not in {"ready", "ready_with_warnings", "needs_install"}:
+        return None
+    return result
+
+
+def _write_preflight_cache(path: Path, *, fingerprint: str, result: dict) -> None:
+    _write_json_atomically(
+        path,
+        {
+            "schema_version": _PREFLIGHT_CACHE_SCHEMA_VERSION,
+            "fingerprint": fingerprint,
+            "result": result,
+        },
+        mode=0o600,
+    )
+
+
+def _preflight_fingerprint(
+    *,
+    repo_root: Path,
+    runtime_root: Path,
+    workflow_id: str,
+    manifest: dict,
+    binding_path: str | Path | None,
+) -> str:
+    digest = hashlib.sha256()
+    _hash_json(
+        digest,
+        {
+            "workflow_id": workflow_id,
+            "manifest": manifest,
+            "runtime_version": _PREFLIGHT_RUNTIME_VERSION,
+        },
+    )
+    if binding_path is not None:
+        _hash_path_contents(digest, Path(binding_path).expanduser().resolve(strict=False))
+    workflow_dir = (runtime_root / "workflows" / workflow_id).resolve()
+    if workflow_dir.is_dir():
+        for path in sorted(workflow_dir.rglob("*")):
+            if not path.is_file() or path.is_symlink() or "__pycache__" in path.parts:
+                continue
+            if path.name in {".workflow-lock.json", ".preflight-cache.json"}:
+                continue
+            try:
+                relative = path.relative_to(workflow_dir).as_posix()
+                file_size = path.stat().st_size
+                digest.update(relative.encode("utf-8"))
+                digest.update(str(file_size).encode("ascii"))
+                if file_size <= _MAX_SOURCE_FILE_BYTES:
+                    digest.update(path.read_bytes())
+            except (OSError, ValueError):
+                digest.update(b"unreadable")
+
+    for dependency in manifest["dependencies"]:
+        _hash_json(digest, _dependency_environment_token(repo_root, dependency))
+    return digest.hexdigest()
+
+
+def _hash_path_contents(digest: "hashlib._Hash", path: Path) -> None:
+    digest.update(str(path).encode("utf-8"))
+    if path.is_symlink() or not path.is_file():
+        digest.update(b"missing-or-symlink")
+        return
+    try:
+        file_size = path.stat().st_size
+        digest.update(str(file_size).encode("ascii"))
+        if file_size <= _MAX_SOURCE_FILE_BYTES:
+            digest.update(path.read_bytes())
+    except OSError:
+        digest.update(b"unreadable")
+
+
+def _dependency_environment_token(repo_root: Path, dependency: dict) -> dict:
+    dependency_type = dependency["type"]
+    token = {
+        "id": dependency["id"],
+        "type": dependency_type,
+        "scope": dependency["scope"],
+    }
+    if dependency_type == "skill":
+        token["project"] = _path_token(_find_project_skill(repo_root, dependency["id"]))
+        token["global"] = _path_token(_find_global_skill(dependency["id"]))
+    elif dependency_type == "cli":
+        location = shutil.which(dependency["command"])
+        token["command"] = dependency["command"]
+        token["location"] = _path_token(Path(location) if location else None)
+    elif dependency_type == "python_package":
+        token["module"] = dependency["module"]
+        try:
+            spec = importlib.util.find_spec(dependency["module"])
+        except (ImportError, ModuleNotFoundError, ValueError):
+            spec = None
+        origin = getattr(spec, "origin", None) if spec is not None else None
+        token["origin"] = _path_token(Path(origin) if origin and origin not in {"built-in", "frozen"} else None)
+    return token
+
+
+def _path_token(path: Path | None) -> dict | None:
+    if path is None:
+        return None
+    try:
+        resolved = path.expanduser().resolve(strict=False)
+        stat_result = resolved.stat()
+    except OSError:
+        return {"path": str(path), "missing": True}
+    token = {
+        "path": str(resolved),
+        "size": stat_result.st_size,
+        "mtime_ns": stat_result.st_mtime_ns,
+    }
+    if stat_result.st_size <= _MAX_SOURCE_FILE_BYTES and resolved.is_file():
+        try:
+            token["sha256"] = hashlib.sha256(resolved.read_bytes()).hexdigest()
+        except OSError:
+            token["sha256"] = "unreadable"
+    return token
+
+
+def _hash_json(digest: "hashlib._Hash", value: object) -> None:
+    digest.update(
+        json.dumps(
+            value,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        ).encode("utf-8")
+    )
+
+
+def _write_json_atomically(path: Path, payload: dict, *, mode: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if path.is_symlink():
+        raise ValueError(f"refusing to replace symlink: {path}")
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    if path.is_file():
+        try:
+            if path.read_text(encoding="utf-8") == serialized:
+                return
+        except (OSError, UnicodeError):
+            pass
+
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{path.name}.",
+        suffix=".tmp",
+        dir=path.parent,
+    )
+    temporary_path = Path(temporary_name)
+    try:
+        os.fchmod(descriptor, mode)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as temporary_file:
+            temporary_file.write(serialized)
+            temporary_file.flush()
+            os.fsync(temporary_file.fileno())
+        os.replace(temporary_path, path)
+        directory_descriptor = os.open(path.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory_descriptor)
+        finally:
+            os.close(directory_descriptor)
+    except Exception:
+        temporary_path.unlink(missing_ok=True)
+        raise
 
 
 def _require_non_empty_string(value: object, field_name: str) -> str:

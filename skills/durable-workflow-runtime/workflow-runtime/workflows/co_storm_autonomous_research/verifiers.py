@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import re
+
 from pathlib import Path
 
 from workflows.common.contracts import VerifierResult, make_verifier_result
@@ -47,10 +50,11 @@ def verify_warm_start_shared_space(
   'message': 'Warm start must contain at least two grounded research turns.',
   'min_count': 2},
  {'id': 'warm_start_requires_evidence',
-  'template': 'min_count',
+  'template': 'min_count_from_constraint',
   'output_key': 'evidence_registry',
-  'message': 'Warm start must seed at least three traceable evidence entries.',
-  'min_count': 3},
+  'message': 'Warm start must seed the configured number of traceable evidence entries.',
+  'constraint_key': 'min_evidence_items',
+  'default_min_count': 3},
  {'id': 'warm_start_requires_coverage_baseline',
   'template': 'min_count',
   'output_key': 'coverage_map',
@@ -62,14 +66,6 @@ def verify_warm_start_shared_space(
     )
     if not result["passed"]:
         return result
-    output = observation.get("structured_output") or {}
-    custom_error = _run_custom_verifier_requirements_warm_start_shared_space(
-        output=output,
-        state=state,
-        repo_root=repo_root,
-    )
-    if custom_error is not None:
-        return _fail(custom_error, run_id, step_id, state)
     return result
 
 def verify_launch_expert_subagents(
@@ -83,42 +79,18 @@ def verify_launch_expert_subagents(
     result = _verify_structured_output_schema(
         run_id=run_id,
         step_id=step_id,
-        required_schema={'execution_mode': 'string',
- 'fanout_round_index': 'integer',
- 'subagent_expert_ids': 'string[]',
- 'subagent_run_ids': 'string[]',
- 'subagent_result_summaries': 'string[]',
- 'subagent_artifact_paths': 'string[]',
- 'subagent_binding_records': 'object[]',
- 'fanout_complete': 'boolean'},
+        required_schema={'expert_round_index': 'integer',
+ 'expert_results': 'object[]',
+ 'expert_results_complete': 'boolean'},
         optional_schema={},
-        verifier_rules=[{'output_key': 'execution_mode',
-  'operator': 'equals',
-  'value': 'parallel_fanout',
-  'message': 'Expert subagents must be launched through the parallel fan-out execution mode.'},
- {'output_key': 'fanout_complete',
+        verifier_rules=[{'output_key': 'expert_results_complete',
   'operator': 'is_true',
   'value': None,
-  'message': 'The fan-out stage must confirm that every expert subagent completed.'}],
-        verifier_templates=[{'id': 'fanout_requires_experts',
+  'message': 'The expert-result stage must confirm that every expert result is complete.'}],
+        verifier_templates=[{'id': 'expert_results_require_multiple_experts',
   'template': 'min_count',
-  'output_key': 'subagent_expert_ids',
-  'message': 'Fan-out must return at least two independent expert identifiers.',
-  'min_count': 2},
- {'id': 'fanout_requires_run_ids',
-  'template': 'min_count',
-  'output_key': 'subagent_run_ids',
-  'message': 'Fan-out must return independent subagent run identifiers.',
-  'min_count': 2},
- {'id': 'fanout_requires_summaries',
-  'template': 'min_count',
-  'output_key': 'subagent_result_summaries',
-  'message': 'Every expert subagent must return a grounded result summary.',
-  'min_count': 2},
- {'id': 'fanout_requires_artifacts',
-  'template': 'min_count',
-  'output_key': 'subagent_artifact_paths',
-  'message': 'Every expert subagent must hand in a result artifact path.',
+  'output_key': 'expert_results',
+  'message': 'The stage must return at least two independent expert results.',
   'min_count': 2}],
         observation=observation,
         repo_root=repo_root,
@@ -131,7 +103,6 @@ def verify_launch_expert_subagents(
         output=output,
         state=state,
         repo_root=repo_root,
-        tool_trace=observation.get("tool_trace"),
     )
     if custom_error is not None:
         return _fail(custom_error, run_id, step_id, state)
@@ -170,10 +141,11 @@ def verify_autonomous_roundtable(
   'value': ['continue', 'reorganize', 'report'],
   'message': 'round_decision must be continue, reorganize, or report.'}],
         verifier_templates=[{'id': 'roundtable_requires_evidence',
-  'template': 'min_count',
+  'template': 'min_count_from_constraint',
   'output_key': 'evidence_registry',
-  'message': 'The roundtable must preserve at least three traceable evidence entries.',
-  'min_count': 3},
+  'message': 'The roundtable must preserve the configured number of traceable evidence entries.',
+  'constraint_key': 'min_evidence_items',
+  'default_min_count': 3},
  {'id': 'roundtable_requires_coverage',
   'template': 'min_count',
   'output_key': 'coverage_map',
@@ -231,10 +203,11 @@ def verify_reorganize_knowledge_space(
   'message': 'Reorganization must preserve at least two visible coverage topics.',
   'min_count': 2},
  {'id': 'reorganization_requires_evidence',
-  'template': 'min_count',
+  'template': 'min_count_from_constraint',
   'output_key': 'evidence_registry',
-  'message': 'Reorganization must preserve at least three evidence entries.',
-  'min_count': 3}],
+  'message': 'Reorganization must preserve the configured number of evidence entries.',
+  'constraint_key': 'min_evidence_items',
+  'default_min_count': 3}],
         observation=observation,
         repo_root=repo_root,
         state=state,
@@ -392,116 +365,174 @@ def verify_repair_report(
         return result
     return result
 
-def _run_custom_verifier_requirements_warm_start_shared_space(
-    *,
-    output: dict,
-    state: dict | None,
-    repo_root: str,
-) -> str | None:
-    errors: list[str] = []
-    message = _custom_verifier_requirement_warm_start_shared_space_expert_roster_has_stable_identity(
-        output=output,
-        state=state,
-        repo_root=repo_root,
-    )
-    if message:
-        errors.append(message)
-    return "; ".join(errors) if errors else None
-
-# custom_verifier_stage_id: warm_start_shared_space
-# custom_verifier_requirement_id: expert_roster_has_stable_identity
-# template_version: 1
-# spec_fingerprint: c181413b065524a1534ef02412c374429b21e06d5cb0aff57b77e972271ce374
-# implementation_version: 1
-def _custom_verifier_requirement_warm_start_shared_space_expert_roster_has_stable_identity(
-    *,
-    output: dict,
-    state: dict | None,
-    repo_root: str,
-) -> str | None:
-    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
-Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
-If reuse is needed, import stable helpers from shared modules outside verifiers.py.
-Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
-
-Requirement: The warm-start expert roster must be a structured list of stable expert records; later fan-out bindings reference only each record's id.
-Signals: expert_roster
-Implementation surfaces: verifiers.py, state.py, workflow-specific regression tests
-Hint pseudocode:
-- Require expert_roster to be a list of objects with exactly id, role, and brief string fields.
-- Require every expert id, role, and brief to be non-empty and every id to be unique.
-- Reject legacy string-only roster entries instead of guessing whether a description is a stable identifier.
-Test intent:
-- Accept two structured expert records with distinct ids.
-- Reject a legacy string-only roster entry.
-- Reject duplicate or incomplete expert records."""
-    from .fanout_contract import parse_expert_roster
-
-    _, errors = parse_expert_roster(output.get("expert_roster"))
-    return "; ".join(errors) if errors else None
-
 def _run_custom_verifier_requirements_launch_expert_subagents(
     *,
     output: dict,
     state: dict | None,
     repo_root: str,
-    tool_trace: object,
 ) -> str | None:
     errors: list[str] = []
-    message = _custom_verifier_requirement_launch_expert_subagents_independent_subagents_complete(
+    message = _custom_verifier_requirement_launch_expert_subagents_expert_results_match_roster(
         output=output,
         state=state,
         repo_root=repo_root,
-        tool_trace=tool_trace,
     )
     if message:
         errors.append(message)
     return "; ".join(errors) if errors else None
 
 # custom_verifier_stage_id: launch_expert_subagents
-# custom_verifier_requirement_id: independent_subagents_complete
+# custom_verifier_requirement_id: expert_results_match_roster
 # template_version: 1
-# spec_fingerprint: 5b0c20db5ce718f5fce94650cbdb676cec28461895917aa1f3ac1fd7815ca758
-# implementation_version: 2
-def _custom_verifier_requirement_launch_expert_subagents_independent_subagents_complete(
+# spec_fingerprint: 91d85e24740693b5266cad0d48cf2c55cd8853d2fc6712c33bcd929534ec4415
+# implementation_version: 3
+def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_roster(
     *,
     output: dict,
     state: dict | None,
     repo_root: str,
-    tool_trace: object,
 ) -> str | None:
-    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
-Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
-If reuse is needed, import stable helpers from shared modules outside verifiers.py.
-Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
+    """Validate exact roster-matched, evidence-grounded expert artifacts."""
+    persisted_state = state if isinstance(state, dict) else {}
+    errors: list[str] = []
+    if output.get("expert_results_complete") is not True:
+        errors.append("expert_results_complete must be true")
 
-Requirement: The fan-out stage must launch exactly one independent subagent per stable expert identifier, collect all results for one autonomous round, preserve prior run history, and prove that each result is grounded and stored as a safe repository-relative artifact.
-Signals: expert_roster, fanout_round_index, subagent_expert_ids, subagent_run_ids, subagent_result_summaries, subagent_artifact_paths, subagent_binding_records, subagent_run_history, execution_mode, tool_trace
-Implementation surfaces: verifiers.py, state.py, policy.py, workflow-specific regression tests
-Hint pseudocode:
-- Require execution_mode to be parallel_fanout and fanout_complete to be true.
-- Require persisted state.round_index to be non-negative, require fanout_round_index to be at least one and equal persisted state.round_index + 1, and reject values above constraints.max_rounds.
-- Require subagent_expert_ids to equal the persisted expert_roster exactly, with no duplicates or omissions.
-- Require subagent_run_ids, summaries, and artifact paths to have the same length as expert_roster; all run IDs, summaries, and paths must be unique and non-empty.
-- Require subagent_binding_records to be structured objects whose expert_id, subagent_run_id, summary, and artifact_path fields match the corresponding arrays in order; spawn_receipt must be unique per expert and completion_receipt may be shared only when one real batch join trace covers the same experts and runs.
-- Treat persisted subagent_run_history as canonical structured records, reject any reused run ID, and let runtime derive the exact current history tail instead of requiring model-echoed history.
-- Resolve every artifact path under repo_root, require a regular readable file with non-empty UTF-8 content, and reject paths outside repo_root.
-- Normalize flat and nested trace entries before checking them. Require one successful spawn per expert and exactly one successful join coverage per expert; a batch join may cover several experts with one real receipt and must not be split into synthetic receipts.
-- Do not accept a single summary or one reused subagent run ID as evidence for multiple expert perspectives.
-Test intent:
-- Accept a parallel fan-out with two stable expert IDs, two distinct subagent run IDs, two result summaries, and two readable artifacts.
-- Reject a fan-out that reuses one subagent run ID for two experts.
-- Reject a fan-out that omits an expert or adds an unknown expert.
-- Reject a fan-out with a skipped round, rewritten canonical history, prior run reuse, an artifact alias, or an artifact outside repo_root.
-- Reject a fan-out with missing spawn/wait tool traces or binding records that mismatch the parallel arrays."""
-    from .fanout_contract import fanout_contract_errors
+    roster = persisted_state.get("expert_roster")
+    expected_ids: list[str] = []
+    if not isinstance(roster, list) or not roster:
+        errors.append("persisted expert_roster must contain at least one expert record")
+    else:
+        for index, expert in enumerate(roster):
+            if not isinstance(expert, dict):
+                errors.append(f"expert_roster[{index}] must be an object")
+                continue
+            if set(expert) != {"id", "role", "brief"}:
+                errors.append(f"expert_roster[{index}] must contain exactly id, role, and brief")
+            expert_id = expert.get("id")
+            if not isinstance(expert_id, str) or not expert_id.strip():
+                errors.append(f"expert_roster[{index}].id must be a non-empty string")
+                continue
+            for field_name in ("role", "brief"):
+                value = expert.get(field_name)
+                if not isinstance(value, str) or not value.strip():
+                    errors.append(f"expert_roster[{index}].{field_name} must be a non-empty string")
+            normalized_id = expert_id.strip()
+            if normalized_id in expected_ids:
+                errors.append(f"expert_roster contains duplicate id {normalized_id!r}")
+            else:
+                expected_ids.append(normalized_id)
 
-    errors = fanout_contract_errors(
-        output=output,
-        state=state,
-        repo_root=repo_root,
-        tool_trace=tool_trace,
-    )
+    previous_round = persisted_state.get("round_index")
+    round_index = output.get("expert_round_index")
+    if not isinstance(previous_round, int) or isinstance(previous_round, bool) or previous_round < 0:
+        errors.append("persisted state.round_index must be a non-negative integer")
+    if not isinstance(round_index, int) or isinstance(round_index, bool) or round_index < 1:
+        errors.append("expert_round_index must be a positive integer")
+    elif isinstance(previous_round, int) and not isinstance(previous_round, bool) and round_index != previous_round + 1:
+        errors.append(f"expert_round_index expected {previous_round + 1}, actual {round_index}")
+
+    constraints = persisted_state.get("constraints")
+    constraints = constraints if isinstance(constraints, dict) else {}
+    max_rounds = constraints.get("max_rounds")
+    if not isinstance(max_rounds, int) or isinstance(max_rounds, bool) or max_rounds <= 0:
+        errors.append("constraints.max_rounds must be a positive integer")
+    elif isinstance(round_index, int) and not isinstance(round_index, bool) and round_index > max_rounds:
+        errors.append(f"expert_round_index {round_index} exceeds max_rounds {max_rounds}")
+
+    evidence_registry = persisted_state.get("evidence_registry")
+    evidence_ids: set[int] = set()
+    if not isinstance(evidence_registry, list) or not evidence_registry:
+        errors.append("persisted evidence_registry must contain grounded entries")
+    else:
+        for index, entry in enumerate(evidence_registry):
+            if not isinstance(entry, str):
+                errors.append(f"evidence_registry[{index}] must be a string")
+                continue
+            match = re.match(r"^\s*\[(\d+)\]\s*(.+?)\s*$", entry)
+            if match is None:
+                errors.append(f"evidence_registry[{index}] must contain a citation identifier and claim")
+                continue
+            evidence_id = int(match.group(1))
+            if evidence_id in evidence_ids:
+                errors.append(f"evidence_registry contains duplicate citation identifier {evidence_id}")
+            evidence_ids.add(evidence_id)
+
+    results = output.get("expert_results")
+    if not isinstance(results, list):
+        errors.append("expert_results must be a list")
+    elif len(results) != len(expected_ids):
+        errors.append(f"expert_results must contain exactly {len(expected_ids)} results, actual {len(results)}")
+
+    seen_ids: set[str] = set()
+    seen_paths: set[str] = set()
+    if isinstance(results, list):
+        for index, result in enumerate(results):
+            if not isinstance(result, dict):
+                errors.append(f"expert_results[{index}] must be an object")
+                continue
+            if set(result) != {"expert_id", "summary", "artifact_path"}:
+                errors.append(f"expert_results[{index}] must contain exactly expert_id, summary, and artifact_path")
+                continue
+            expert_id = result.get("expert_id")
+            summary = result.get("summary")
+            artifact_path = result.get("artifact_path")
+            if not isinstance(expert_id, str) or not expert_id.strip():
+                errors.append(f"expert_results[{index}].expert_id must be a non-empty string")
+            else:
+                expert_id = expert_id.strip()
+                if expert_id in seen_ids:
+                    errors.append(f"expert_results contains duplicate expert_id {expert_id!r}")
+                seen_ids.add(expert_id)
+                if index < len(expected_ids) and expert_id != expected_ids[index]:
+                    errors.append(f"expert_results[{index}].expert_id must be {expected_ids[index]!r}, actual {expert_id!r}")
+                elif expert_id not in expected_ids:
+                    errors.append(f"expert_results contains unknown expert_id {expert_id!r}")
+            if not isinstance(summary, str) or not summary.strip():
+                errors.append(f"expert_results[{index}].summary must be a non-empty string")
+            elif evidence_ids:
+                summary_ids = {int(value) for value in re.findall(r"\[(\d+)\]", summary)}
+                if not summary_ids.intersection(evidence_ids) or summary_ids - evidence_ids:
+                    errors.append(f"expert_results[{index}].summary must cite only registered evidence entries")
+            if not isinstance(artifact_path, str) or not artifact_path.strip():
+                errors.append(f"expert_results[{index}].artifact_path must be a non-empty string")
+                continue
+            artifact_path = artifact_path.strip()
+            if artifact_path in seen_paths:
+                errors.append(f"expert_results contains duplicate artifact_path {artifact_path!r}")
+            seen_paths.add(artifact_path)
+            if (
+                artifact_path.startswith("/")
+                or "\\" in artifact_path
+                or any(ord(char) < 32 for char in artifact_path)
+                or any(part in ("", ".", "..") for part in artifact_path.split("/"))
+                or re.match(r"^[A-Za-z]:/", artifact_path)
+            ):
+                errors.append(f"expert_results[{index}].artifact_path is not repository-relative")
+                continue
+            try:
+                repository = Path(repo_root).expanduser().resolve()
+                lexical_path = repository
+                for part in artifact_path.split("/"):
+                    lexical_path = lexical_path / part
+                    if lexical_path.is_symlink():
+                        raise ValueError("symlink")
+                candidate = repository.joinpath(*artifact_path.split("/"))
+                resolved = candidate.resolve(strict=False)
+                resolved.relative_to(repository)
+                if not resolved.is_file() or resolved.is_symlink() or resolved.stat().st_size <= 0:
+                    raise ValueError("not a non-empty regular file")
+                with resolved.open("rb") as handle:
+                    data = handle.read(_MAX_SAFE_REPO_TEXT_BYTES + 1)
+                if len(data) > _MAX_SAFE_REPO_TEXT_BYTES:
+                    raise ValueError("artifact is too large")
+                artifact_text = data.decode("utf-8")
+                if evidence_ids:
+                    artifact_ids = {int(value) for value in re.findall(r"\[(\d+)\]", artifact_text)}
+                    if not artifact_ids.intersection(evidence_ids) or artifact_ids - evidence_ids:
+                        errors.append(f"expert_results[{index}].artifact_path must contain only registered evidence citations")
+            except (OSError, UnicodeError, RuntimeError, ValueError):
+                errors.append(f"expert_results[{index}].artifact_path must identify a safe, bounded UTF-8 repository file")
     return "; ".join(errors) if errors else None
 
 def _run_custom_verifier_requirements_autonomous_roundtable(
@@ -523,8 +554,8 @@ def _run_custom_verifier_requirements_autonomous_roundtable(
 # custom_verifier_stage_id: autonomous_roundtable
 # custom_verifier_requirement_id: roundtable_flags_match_decision
 # template_version: 1
-# spec_fingerprint: 65104bbd55e4e39b82b2acd40c7dbc812b484ed07a3cccc83f1239e163ad7236
-# implementation_version: 3
+# spec_fingerprint: e9cd8c49d53369a2002e309a0872a9c7b2bb2c79e073f8d1c2c7804996a234ca
+# implementation_version: 4
 def _custom_verifier_requirement_autonomous_roundtable_roundtable_flags_match_decision(
     *,
     output: dict,
@@ -536,15 +567,15 @@ Self-contained contract: keep this requirement-scoped verifier self-contained wh
 If reuse is needed, import stable helpers from shared modules outside verifiers.py.
 Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
-Requirement: The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, and keep the boolean flags and configured budgets consistent with round_decision.
-Signals: round_decision, continue_roundtable, should_reorganize, ready_for_report, subagent_run_ids, fanout_complete
+Requirement: The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, and require a completed expert-result package.
+Signals: round_decision, continue_roundtable, should_reorganize, ready_for_report, expert_results, expert_results_complete
 Implementation surfaces: verifiers.py, policy.py, workflow-specific regression tests
 Hint pseudocode:
 - Count the three decision flags and require exactly one true value.
 - Map continue to continue_roundtable, reorganize to should_reorganize, and report to ready_for_report.
 - Require output.round_index to equal persisted state.round_index + 1 and require the returned transcript to preserve the persisted transcript as an exact prefix plus one new turn.
-- Require persisted fanout_complete to be true and persisted subagent_run_ids to be non-empty before the Moderator can accept a round.
-- Require the Moderator to carry forward the persisted structured expert roster exactly; fan-out bindings reference expert ids, while role and brief remain runtime-owned roster data.
+- Require persisted expert_results_complete to be true and persisted expert_results to be non-empty before the Moderator can accept a round.
+- Require the Moderator to carry forward the persisted structured expert roster exactly.
 - Reject round_index values below one, reject values above constraints.max_rounds, and reject continue or reorganize once max_rounds has been reached.
 - When coverage_threshold is supplied, require coverage_map to contain at least that many distinct non-empty topics.
 Test intent:
@@ -552,50 +583,37 @@ Test intent:
 - Reject ambiguous decisions with two true flags.
 - Reject a report decision before coverage_sufficient is true unless max_rounds has been reached.
 - Reject a skipped round or a rewritten transcript prefix.
-- Reject a Moderator turn that has no completed independent expert-subagent fan-out."""
-    from .fanout_contract import parse_expert_roster
-
+- Reject a Moderator turn that has no completed expert-result package."""
     persisted_state = state if isinstance(state, dict) else {}
     errors: list[str] = []
 
-    persisted_roster, persisted_errors = parse_expert_roster(
-        persisted_state.get("expert_roster")
-    )
-    output_roster, output_errors = parse_expert_roster(output.get("expert_roster"))
-    errors.extend(persisted_errors)
-    errors.extend(output_errors)
-    if not persisted_errors and not output_errors and output_roster != persisted_roster:
-        errors.append("Moderator must carry forward the persisted expert roster exactly")
-
-    decision = output.get("round_decision")
-    flag_names = {
+    decision_to_flag = {
         "continue": "continue_roundtable",
         "reorganize": "should_reorganize",
         "report": "ready_for_report",
     }
-    flag_values = {
-        name: output.get(name) for name in ("continue_roundtable", "should_reorganize", "ready_for_report")
-    }
+    flag_names = tuple(decision_to_flag.values())
+    flag_values = {name: output.get(name) for name in flag_names}
     if any(not isinstance(value, bool) for value in flag_values.values()):
         errors.append("roundtable decision flags must be booleans")
     true_flags = [name for name, value in flag_values.items() if value is True]
     if len(true_flags) != 1:
         errors.append("exactly one roundtable decision flag must be true")
-    elif decision in flag_names and true_flags[0] != flag_names[decision]:
-        errors.append(f"roundtable flags do not match round_decision={decision!r}")
-    if decision not in flag_names:
+    decision = output.get("round_decision")
+    if decision not in decision_to_flag:
         errors.append("round_decision must be continue, reorganize, or report")
+    elif len(true_flags) == 1 and true_flags[0] != decision_to_flag[decision]:
+        errors.append(f"roundtable flags do not match round_decision={decision!r}")
 
-    round_index = output.get("round_index")
     previous_round = persisted_state.get("round_index")
+    round_index = output.get("round_index")
     if not isinstance(previous_round, int) or isinstance(previous_round, bool) or previous_round < 0:
         errors.append("persisted state.round_index must be a non-negative integer")
     if not isinstance(round_index, int) or isinstance(round_index, bool) or round_index < 1:
         errors.append("round_index must be a positive integer")
-    elif isinstance(previous_round, int) and not isinstance(previous_round, bool) and round_index != previous_round + 1:
-        errors.append(
-            f"round_index expected {previous_round + 1}, actual {round_index}"
-        )
+    elif isinstance(previous_round, int) and not isinstance(previous_round, bool):
+        if round_index != previous_round + 1:
+            errors.append(f"round_index expected {previous_round + 1}, actual {round_index}")
 
     constraints = persisted_state.get("constraints")
     constraints = constraints if isinstance(constraints, dict) else {}
@@ -610,15 +628,14 @@ Test intent:
         if decision == "report" and output.get("coverage_sufficient") is not True and round_index != max_rounds:
             errors.append("report requires coverage_sufficient unless max_rounds is reached")
 
-    if persisted_state.get("fanout_complete") is not True:
-        errors.append("Moderator requires a completed expert fan-out")
-    run_ids = persisted_state.get("subagent_run_ids")
-    if not isinstance(run_ids, list) or not run_ids:
-        errors.append("persisted subagent_run_ids must contain completed independent runs")
-    elif any(not isinstance(item, str) or not item.strip() for item in run_ids):
-        errors.append("persisted subagent_run_ids must contain non-empty strings")
-    elif len(set(run_ids)) != len(run_ids):
-        errors.append("persisted subagent_run_ids must be unique")
+    if persisted_state.get("expert_results_complete") is not True:
+        errors.append("Moderator requires a completed expert-result package")
+    expert_results = persisted_state.get("expert_results")
+    if not isinstance(expert_results, list) or not expert_results:
+        errors.append("persisted expert_results must contain completed results")
+
+    if output.get("expert_roster") != persisted_state.get("expert_roster"):
+        errors.append("Moderator must carry forward the persisted expert roster exactly")
 
     previous_transcript = persisted_state.get("conversation_transcript")
     current_transcript = output.get("conversation_transcript")
@@ -807,26 +824,17 @@ Test intent:
     if not isinstance(verified_report_path, str) or not verified_report_path.strip():
         return "verified_report_path is missing"
 
-    repo = Path(repo_root).resolve()
     resolved_paths = []
     for label, raw_path in (("report_path", report_path), ("verified_report_path", verified_report_path)):
-        candidate = Path(raw_path)
-        if not candidate.is_absolute():
-            candidate = repo / candidate
-        try:
-            resolved = candidate.resolve()
-            resolved.relative_to(repo)
-        except (OSError, ValueError):
-            return f"{label} must resolve inside repo_root"
-        if not resolved.is_file():
-            return f"{label} must point to a readable report file"
+        resolved = _safe_repo_file(repo_root, raw_path)
+        if resolved is None:
+            return f"{label} must point to a readable repository-relative regular report file"
         resolved_paths.append(resolved)
     if resolved_paths[0] != resolved_paths[1]:
         return "verified_report_path must identify the same artifact as persisted report_path"
 
-    try:
-        report_text = resolved_paths[0].read_text(encoding="utf-8")
-    except (OSError, UnicodeError):
+    report_text = _read_safe_repo_text(repo_root, report_path)
+    if report_text is None:
         return "report file could not be read as UTF-8"
 
     markers = {int(value) for value in re.findall(r"\[(\d+)\]", report_text)}
@@ -864,7 +872,7 @@ Test intent:
         findings = output.get("quality_findings") or []
         if any(
             isinstance(finding, str)
-            and re.match(r"^\s*(critical|blocker|p0)(?:\b|:)", finding, re.IGNORECASE)
+            and re.search(r"\b(critical|blocker|p0)\b", finding, re.IGNORECASE)
             and not re.search(r"\b(resolved|fixed|closed)\b", finding, re.IGNORECASE)
             for finding in findings
         ):
@@ -912,7 +920,7 @@ def _verify_structured_output_schema(
         return _fail("; ".join(rule_errors), run_id, step_id, state)
     template_errors = []
     for template in verifier_templates:
-        message = _verifier_template_error(template, output, repo_root)
+        message = _verifier_template_error(template, output, repo_root, state)
         if message:
             template_errors.append(message)
     if template_errors:
@@ -985,20 +993,11 @@ def _verifier_rule_error(rule: dict, output: dict, repo_root: str) -> str | None
     if operator == "path_exists":
         if not isinstance(actual, str) or not actual.strip():
             return message
-        candidate = Path(actual)
-        repo = Path(repo_root).resolve()
-        if not candidate.is_absolute():
-            candidate = repo / candidate
-        try:
-            candidate = candidate.resolve()
-            candidate.relative_to(repo)
-        except (OSError, ValueError):
-            return message
-        return None if candidate.is_file() else message
+        return None if _safe_repo_file(repo_root, actual) is not None else message
     return None if condition_matches(actual, operator, expected) else message
 
 
-def _verifier_template_error(template: dict, output: dict, repo_root: str) -> str | None:
+def _verifier_template_error(template: dict, output: dict, repo_root: str, state: dict | None) -> str | None:
     template_name = str(template.get("template") or "")
     message = str(template.get("message") or f"{template.get('id') or template_name} failed")
     key = str(template.get("output_key") or "")
@@ -1009,8 +1008,14 @@ def _verifier_template_error(template: dict, output: dict, repo_root: str) -> st
         return _conditional_required_error(output, template, message)
     if template_name == "min_count":
         return _min_count_error(actual, template, message)
+    if template_name == "min_count_from_constraint":
+        return _min_count_from_constraint_error(actual, template, state, message)
     if template_name == "required_set_members":
         return _required_set_members_error(actual, template, message)
+    if template_name == "artifact_list_policy":
+        return _artifact_list_policy_error(actual, template, repo_root, message)
+    if template_name == "no_unresolved_findings":
+        return _no_unresolved_findings_error(output, template, message)
     if template_name == "repo_path_policy":
         return _repo_path_policy_error(actual, template, repo_root, message)
     if template_name == "artifact_file_contains_sections":
@@ -1045,7 +1050,28 @@ def _min_count_error(actual, template: dict, message: str) -> str | None:
     min_count = template.get("min_count")
     if not isinstance(min_count, int) or isinstance(min_count, bool):
         return message
-    return None if len(actual) >= min_count else message
+    if len(actual) < min_count:
+        return message
+    if any(isinstance(item, str) and not item.strip() for item in actual):
+        return message
+    return None
+
+
+def _min_count_from_constraint_error(actual, template: dict, state: dict | None, message: str) -> str | None:
+    if not isinstance(actual, list):
+        return message
+    constraints = state.get("constraints") if isinstance(state, dict) else {}
+    constraint_key = str(template.get("constraint_key") or "")
+    raw_min_count = constraints.get(constraint_key) if isinstance(constraints, dict) else None
+    default_min_count = template.get("default_min_count")
+    min_count = raw_min_count if isinstance(raw_min_count, int) and not isinstance(raw_min_count, bool) and raw_min_count >= 0 else default_min_count
+    if not isinstance(min_count, int) or isinstance(min_count, bool) or min_count < 0:
+        return message
+    if len(actual) < min_count:
+        return message
+    if any(isinstance(item, str) and not item.strip() for item in actual):
+        return message
+    return None
 
 
 def _required_set_members_error(actual, template: dict, message: str) -> str | None:
@@ -1068,14 +1094,11 @@ def _required_set_members_error(actual, template: dict, message: str) -> str | N
 def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
-    repo = Path(repo_root).resolve()
-    candidate = Path(actual)
-    if not candidate.is_absolute():
-        candidate = repo / candidate
-    try:
-        relative_path = candidate.resolve().relative_to(repo)
-    except ValueError:
+    candidate = _safe_repo_path(repo_root, actual)
+    if candidate is None:
         return message
+    repo = Path(repo_root).expanduser().resolve()
+    relative_path = candidate.relative_to(repo)
     relative_posix = relative_path.as_posix()
     required_prefix = str(template.get("required_prefix") or "")
     if required_prefix and not relative_posix.startswith(required_prefix):
@@ -1092,21 +1115,128 @@ def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str
 def _artifact_file_contains_sections_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
-    repo = Path(repo_root).resolve()
-    candidate = Path(actual)
-    if not candidate.is_absolute():
-        candidate = repo / candidate
-    try:
-        candidate = candidate.resolve()
-        candidate.relative_to(repo)
-        if not candidate.is_file():
-            return message
-        text = candidate.read_text(encoding="utf-8")
-    except (OSError, ValueError, UnicodeError):
+    if _safe_repo_file(repo_root, actual) is None:
+        return message
+    text = _read_safe_repo_text(repo_root, actual)
+    if text is None or not text.strip():
         return message
     sections = [str(section) for section in template.get("sections") or []]
-    missing = [section for section in sections if section not in text]
+    missing = []
+    for section in sections:
+        if section.startswith("#") and set(section) == {"#"}:
+            pattern = rf"(?m)^\s*{re.escape(section)}(?!#)\s+\S"
+            if re.search(pattern, text) is None:
+                missing.append(section)
+        elif section not in text:
+            missing.append(section)
     return None if not missing else f"{message}: missing sections {missing}"
+
+
+def _artifact_list_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:
+    if not isinstance(actual, list) or not actual:
+        return message
+    required_prefix = str(template.get("required_prefix") or "")
+    allowed_suffixes = tuple(str(item).lower() for item in template.get("allowed_suffixes") or [])
+    require_non_empty_content = bool(template.get("require_non_empty_content", True))
+    for index, item in enumerate(actual):
+        if not isinstance(item, str) or not item.strip():
+            return f"{message}: invalid artifact at index {index}"
+        candidate = _safe_repo_file(repo_root, item)
+        if candidate is None:
+            return f"{message}: invalid artifact at index {index}"
+        repo = Path(repo_root).expanduser().resolve()
+        relative_posix = candidate.relative_to(repo).as_posix()
+        if required_prefix and not relative_posix.startswith(required_prefix):
+            return f"{message}: artifact at index {index} is outside the required directory"
+        if allowed_suffixes and not relative_posix.lower().endswith(allowed_suffixes):
+            return f"{message}: artifact at index {index} has an unsupported file type"
+        if require_non_empty_content:
+            text = _read_safe_repo_text(repo_root, item)
+            if text is None or not text.strip():
+                return f"{message}: artifact at index {index} is empty or unreadable"
+    return None
+
+
+def _no_unresolved_findings_error(output: dict, template: dict, message: str) -> str | None:
+    when = template.get("when")
+    if when is not None:
+        if not isinstance(when, dict):
+            return message
+        when_key = str(when.get("output_key") or "")
+        if not condition_matches(output.get(when_key), str(when.get("operator") or ""), when.get("value")):
+            return None
+    findings = output.get(str(template.get("output_key") or ""))
+    if not isinstance(findings, list):
+        return message
+    unresolved_terms = tuple(str(item).lower() for item in template.get("unresolved_terms") or [])
+    resolved_terms = tuple(str(item).lower() for item in template.get("resolved_terms") or [])
+    for finding in findings:
+        if not isinstance(finding, str) or not finding.strip():
+            return message
+        lowered = finding.lower()
+        unresolved = any(term and re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lowered) for term in unresolved_terms)
+        resolved = any(term and re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lowered) for term in resolved_terms)
+        if unresolved and not resolved:
+            return f"{message}: unresolved findings present"
+    return None
+
+
+_MAX_SAFE_REPO_TEXT_BYTES = 512 * 1024
+
+
+def _safe_repo_path(repo_root: str, raw_path: str) -> Path | None:
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    try:
+        repo = Path(repo_root).expanduser().resolve()
+        normalized = raw_path
+        if normalized != normalized.strip() or "\\" in normalized or any(ord(char) < 32 for char in normalized) or normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
+            return None
+        parts = normalized.split("/")
+        if any(part in ("", ".", "..") for part in parts):
+            return None
+        candidate = repo.joinpath(*parts)
+        resolved = candidate.resolve(strict=False)
+        relative = resolved.relative_to(repo)
+        current = repo
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                return None
+        return resolved
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _safe_repo_file(repo_root: str, raw_path: str) -> Path | None:
+    candidate = _safe_repo_path(repo_root, raw_path)
+    if candidate is None or candidate.is_symlink() or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _read_safe_repo_text(repo_root: str, raw_path: str) -> str | None:
+    candidate = _safe_repo_file(repo_root, raw_path)
+    if candidate is None:
+        return None
+    file_descriptor = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        file_descriptor = os.open(str(candidate), flags)
+        with os.fdopen(file_descriptor, "rb") as handle:
+            file_descriptor = None
+            data = handle.read(_MAX_SAFE_REPO_TEXT_BYTES + 1)
+            if len(data) > _MAX_SAFE_REPO_TEXT_BYTES:
+                return None
+            return data.decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
+    finally:
+        if file_descriptor is not None:
+            try:
+                os.close(file_descriptor)
+            except OSError:
+                pass
 
 
 def _meaningful_entries(value) -> list[str]:

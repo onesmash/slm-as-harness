@@ -8,8 +8,12 @@ Stage Context:
 - Verification commands: {{verification_commands}}
 - Release QA verdict: {{release_qa_verdict}}
 - Release QA summary: {{release_qa_summary}}
+- Release QA executed checks: {{release_qa_executed_checks}}
 - Release QA blocked checks: {{release_qa_blocked_checks}}
+- Release QA risk next steps: {{release_qa_risk_next_steps}}
+- Release QA artifacts: {{release_qa_artifacts}}
 - Release QA target scope: {{release_qa_target_scope}}
+- Empty carry-forward fields mean that the corresponding evidence was not produced or is not applicable; do not infer completion from an empty value.
 
 Stage Boundaries:
 

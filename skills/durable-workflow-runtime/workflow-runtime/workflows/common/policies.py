@@ -56,8 +56,12 @@ def max_steps_exceeded_decision(
     *,
     current_step_id: str,
     state: dict,
+    include_repair_stages: bool = False,
 ) -> TransitionDecision | None:
-    if current_step_id in {"request_unblocking_input", "repair_and_resume"}:
+    if (
+        not include_repair_stages
+        and current_step_id in {"request_unblocking_input", "repair_and_resume"}
+    ):
         return None
 
     constraints = state.get("constraints") or {}

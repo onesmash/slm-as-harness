@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from workflows.common.contracts import VerifierResult, make_verifier_result
@@ -525,7 +526,7 @@ def _run_custom_verifier_requirements_run_spec_review(
 # custom_verifier_stage_id: run_spec_review
 # custom_verifier_requirement_id: spec_review_outputs_require_artifacts
 # template_version: 1
-# spec_fingerprint: 8b2b8e0010781fc29c4b3c23b36a1ee51c6fee3eae115a3e381d72fb82a74017
+# spec_fingerprint: 73f244478bd06614e9485361d0e5d4963337bdea520f04ffb33a7c29566340d1
 # implementation_version: none
 def _custom_verifier_requirement_run_spec_review_spec_review_outputs_require_artifacts(
     *,
@@ -540,7 +541,9 @@ Signals: spec_review_perspectives, spec_review_subagent_summaries, spec_review_a
 Implementation surfaces: verifier, tests
 Hint pseudocode:
 - Require at least three non-empty artifact paths.
-- Require each artifact path to exist under docs/superpowers/specs/ and end with .md.
+- Require each artifact path to be a relative, canonical, regular UTF-8 Markdown file under docs/superpowers/specs/; reject absolute paths, parent-directory traversal, and symlink traversal.
+- Reject empty artifact files and deduplicate by canonical path, not only by the submitted string.
+- Require each artifact's Markdown content to name the single perspective encoded by its canonical path.
 - Require the combined artifact paths to clearly cover development, design, and testing review outputs.
  - Require three non-empty subagent summaries that map one-to-one to development, design, and testing instead of duplicating one perspective.
  - Reject repeated summaries or repeated artifact paths when they are being used to fake independent review coverage.
@@ -564,21 +567,47 @@ Test intent:
     if len({artifact_path.strip().lower() for artifact_path in artifact_paths}) != len(artifact_paths):
         return "spec_review_artifact_paths must be unique across development, design, and testing reviews"
 
-    required_prefix = Path("docs/superpowers/specs")
     expected_perspectives = {"development", "design", "testing"}
-    repo_root_path = Path(repo_root)
+    try:
+        repo_root_path = Path(repo_root).expanduser().resolve(strict=True)
+        artifact_root = (repo_root_path / "docs/superpowers/specs").resolve(strict=True)
+    except (OSError, ValueError):
+        return "spec review artifact root is unavailable"
     artifact_perspectives: set[str] = set()
+    canonical_artifacts: set[Path] = set()
     for artifact_path in artifact_paths:
         artifact = Path(artifact_path)
-        if artifact.suffix != ".md":
+        if artifact.is_absolute() or ".." in artifact.parts:
+            return "spec review artifact paths must be relative and must not contain parent-directory traversal"
+        if artifact.suffix.lower() != ".md":
             return "spec review artifacts must be Markdown files"
-        if not _path_has_prefix(artifact, required_prefix):
-            return "spec review artifacts must live under docs/superpowers/specs/"
-        if not (repo_root_path / artifact).exists():
+        candidate = repo_root_path / artifact
+        if _path_contains_symlink(candidate, repo_root_path):
+            return "spec review artifacts must not traverse symlinks"
+        try:
+            canonical = candidate.resolve(strict=True)
+        except (OSError, ValueError):
             return f"spec review artifact does not exist: {artifact_path}"
-        perspective = _extract_single_review_perspective(artifact_path)
+        try:
+            canonical.relative_to(artifact_root)
+        except ValueError:
+            return "spec review artifacts must live under docs/superpowers/specs/"
+        if not canonical.is_file():
+            return f"spec review artifact is not a regular file: {artifact_path}"
+        if canonical in canonical_artifacts:
+            return "spec review artifact paths must resolve to unique files"
+        canonical_artifacts.add(canonical)
+        try:
+            artifact_text = canonical.read_text(encoding="utf-8")
+            if not artifact_text.strip():
+                return f"spec review artifact is empty: {artifact_path}"
+        except (OSError, UnicodeError):
+            return f"spec review artifact cannot be read as UTF-8 Markdown: {artifact_path}"
+        perspective = _extract_single_review_perspective(canonical.relative_to(repo_root_path).as_posix())
         if perspective is None:
             return f"spec review artifact must name exactly one review perspective: {artifact_path}"
+        if perspective not in artifact_text.lower():
+            return f"spec review artifact content must name its review perspective: {artifact_path}"
         artifact_perspectives.add(perspective)
 
     summary_perspectives: set[str] = set()
@@ -617,7 +646,7 @@ def _run_custom_verifier_requirements_write_implementation_plan(
 # custom_verifier_stage_id: write_implementation_plan
 # custom_verifier_requirement_id: planning_requires_subagent_execution_mode
 # template_version: 1
-# spec_fingerprint: 3f1ceb8518811d83b4712a9f58caf8c6bcc55c9f136516082bc82ed38893e80d
+# spec_fingerprint: 144e6bc8c2d448ab09f63e2f94efc6c87069fb3e12a03bd9a3a1054728fd040d
 # implementation_version: none
 def _custom_verifier_requirement_write_implementation_plan_planning_requires_subagent_execution_mode(
     *,
@@ -1112,6 +1141,19 @@ def _verify_structured_output_schema(
         output = {}
     if not isinstance(output, dict):
         return _fail("structured_output must be an object", run_id, step_id, state)
+    allowed_keys = set(required_schema) | set(optional_schema)
+    unexpected_keys = [
+        key for key in output
+        if not isinstance(key, str) or key not in allowed_keys
+    ]
+    if unexpected_keys:
+        unexpected = sorted(repr(key) for key in unexpected_keys)
+        return _fail(
+            f"unexpected structured_output keys: {unexpected}",
+            run_id,
+            step_id,
+            state,
+        )
     missing = [key for key in required_schema if key not in output]
     if missing:
         return _fail(f"missing required structured_output keys: {missing}", run_id, step_id, state)
@@ -1194,7 +1236,7 @@ def _schema_type_error(
             if message:
                 return message
         return None
-    return None
+    return f"{key} has unsupported schema type: {schema_type}"
 
 
 def _verifier_rule_error(rule: dict, output: dict, repo_root: str) -> str | None:
@@ -1209,10 +1251,8 @@ def _verifier_rule_error(rule: dict, output: dict, repo_root: str) -> str | None
     if operator == "path_exists":
         if not isinstance(actual, str) or not actual.strip():
             return message
-        candidate = Path(actual)
-        if not candidate.is_absolute():
-            candidate = Path(repo_root) / candidate
-        return None if candidate.exists() else message
+        text = _read_safe_repo_text(repo_root, actual)
+        return None if text is not None and text.strip() else message
     return None if condition_matches(actual, operator, expected) else message
 
 
@@ -1244,7 +1284,7 @@ def _conditional_required_error(output: dict, template: dict, message: str) -> s
     if not condition_matches(output.get(when_key), str(when.get("operator") or ""), when.get("value")):
         return None
     required_key = str(template.get("required_key") or "")
-    return None if output.get(required_key) else message
+    return None if _has_meaningful_value(output.get(required_key)) else message
 
 
 def _conditional_equals_error(actual, output: dict, template: dict, message: str) -> str | None:
@@ -1286,13 +1326,16 @@ def _required_set_members_error(actual, template: dict, message: str) -> str | N
 def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
-    repo = Path(repo_root).resolve()
-    candidate = Path(actual)
-    if not candidate.is_absolute():
-        candidate = repo / candidate
+    repo = Path(repo_root).expanduser().resolve()
+    raw_path = Path(actual)
+    if raw_path.is_absolute() or ".." in raw_path.parts:
+        return message
+    candidate = repo / raw_path
+    if _path_contains_symlink(candidate, repo):
+        return message
     try:
-        relative_path = candidate.resolve().relative_to(repo)
-    except ValueError:
+        relative_path = candidate.resolve(strict=True).relative_to(repo)
+    except (OSError, ValueError):
         return message
     relative_posix = relative_path.as_posix()
     required_prefix = str(template.get("required_prefix") or "")
@@ -1310,12 +1353,8 @@ def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str
 def _artifact_file_contains_sections_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
-    candidate = Path(actual)
-    if not candidate.is_absolute():
-        candidate = Path(repo_root) / candidate
-    try:
-        text = candidate.read_text(encoding="utf-8")
-    except OSError:
+    text = _read_safe_repo_text(repo_root, actual)
+    if text is None or not text.strip():
         return message
     sections = [str(section) for section in template.get("sections") or []]
     missing = [section for section in sections if section not in text]
@@ -1335,13 +1374,80 @@ def _meaningful_entries(value) -> list[str]:
     return entries
 
 
-def _path_has_prefix(path: Path, prefix: Path) -> bool:
+def _has_meaningful_value(value: object) -> bool:
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return any(_has_meaningful_value(item) for item in value)
+    if isinstance(value, dict):
+        return bool(value)
+    return bool(value)
+
+
+def _path_contains_symlink(path: Path, repo_root: Path) -> bool:
     try:
-        normalized_path = path.as_posix().strip("/")
-        normalized_prefix = prefix.as_posix().strip("/")
-    except Exception:
-        return False
-    return normalized_path == normalized_prefix or normalized_path.startswith(normalized_prefix + "/")
+        relative_parts = path.relative_to(repo_root).parts
+    except ValueError:
+        return True
+    current = repo_root
+    for part in relative_parts:
+        current = current / part
+        try:
+            if current.is_symlink():
+                return True
+        except (OSError, ValueError):
+            return True
+    return False
+
+
+def _safe_repo_file(repo_root: str, raw_path: str) -> Path | None:
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    try:
+        repo = Path(repo_root).expanduser().resolve()
+        normalized = raw_path
+        if (
+            normalized != normalized.strip()
+            or "\\" in normalized
+            or any(ord(char) < 32 for char in normalized)
+        ):
+            return None
+        candidate = repo / Path(normalized)
+        if candidate.is_absolute() and not str(candidate).startswith(str(repo)):
+            return None
+        if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
+            return None
+        if _path_contains_symlink(candidate, repo):
+            return None
+        resolved = candidate.resolve(strict=True)
+        resolved.relative_to(repo)
+        return resolved if resolved.is_file() else None
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
+def _read_safe_repo_text(repo_root: str, raw_path: str) -> str | None:
+    candidate = _safe_repo_file(repo_root, raw_path)
+    if candidate is None:
+        return None
+    file_descriptor = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        file_descriptor = os.open(str(candidate), flags)
+        with os.fdopen(file_descriptor, "rb") as handle:
+            file_descriptor = None
+            data = handle.read(512 * 1024 + 1)
+            if len(data) > 512 * 1024:
+                return None
+            return data.decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
+    finally:
+        if file_descriptor is not None:
+            try:
+                os.close(file_descriptor)
+            except OSError:
+                pass
 
 
 def _extract_single_review_perspective(text: str) -> str | None:

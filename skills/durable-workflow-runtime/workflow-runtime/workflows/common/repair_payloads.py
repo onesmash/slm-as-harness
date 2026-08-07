@@ -26,8 +26,15 @@ def build_default_agent_repair_payload(
     output = observation.get("structured_output") or {}
     summary = _clean_text(observation.get("summary"))
 
-    if verifier_result is not None and not verifier_result.get("passed", False):
-        verifier_message = _clean_text(verifier_result.get("message"))
+    if verifier_result is not None and (
+        not isinstance(verifier_result, dict)
+        or verifier_result.get("passed") is not True
+    ):
+        verifier_message = (
+            _clean_text(verifier_result.get("message"))
+            if isinstance(verifier_result, dict)
+            else ""
+        )
         return make_agent_repair_payload(
             category="verifier_failed",
             summary=verifier_message or f"{current_step_id} did not satisfy verifier checks.",

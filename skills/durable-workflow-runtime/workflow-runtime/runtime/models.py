@@ -4,6 +4,12 @@ from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from typing import TypeAlias
 
+from runtime.history import (
+    compact_history_payload,
+    trim_history,
+)
+from runtime.limits import json_byte_size, validate_json_limits
+
 
 JSONScalar: TypeAlias = str | int | float | bool | None
 JSONValue: TypeAlias = JSONScalar | list["JSONValue"] | dict[str, "JSONValue"]
@@ -12,6 +18,16 @@ JSONObject: TypeAlias = dict[str, JSONValue]
 OBSERVATION_STATUSES = {"succeeded", "failed", "blocked", "partial"}
 RUN_STATUSES = {"running", "waiting_for_host", "blocked", "done", "failed_terminal"}
 WORKFLOW_RESPONSE_KINDS = {"yield", "done"}
+CURRENT_RUN_STATE_VERSION = 3
+MAX_OBSERVATION_ID_LENGTH = 256
+MAX_RUNTIME_STEPS = 10_000
+MAX_ARTIFACT_REFERENCE_COUNT = 256
+MAX_OBSERVATION_REPLAYS = 64
+MAX_OBSERVATION_REPLAY_BYTES = 4 * 1024 * 1024
+MAX_OBSERVATION_REPLAY_ENTRY_BYTES = 1 * 1024 * 1024
+_ARTIFACT_SHA256_LENGTH = 64
+_MAX_ARTIFACT_REFERENCE_BYTES = 8 * 1024 * 1024
+MAX_PROMPT_BYTES = 512 * 1024
 
 
 def iso_utc_now() -> str:
@@ -25,6 +41,15 @@ def _require_non_empty_string(value: object, field_name: str) -> str:
     if not text:
         raise ValueError(f"{field_name} must be non-empty")
     return text
+
+
+def _normalize_optional_identifier(value: object, field_name: str) -> str | None:
+    if value is None:
+        return None
+    identifier = _require_non_empty_string(value, field_name)
+    if len(identifier) > MAX_OBSERVATION_ID_LENGTH:
+        raise ValueError(f"{field_name} must be at most {MAX_OBSERVATION_ID_LENGTH} characters")
+    return identifier
 
 
 def _normalize_string_list(value: object, field_name: str) -> list[str]:
@@ -51,17 +76,158 @@ def _require_object(value: object, field_name: str) -> JSONObject:
     return normalized
 
 
-def _require_top_level_fields(data: object, field_names: set[str], model_name: str) -> dict:
+def _normalize_artifact_references(value: object, field_name: str) -> list[JSONObject]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    if len(value) > MAX_ARTIFACT_REFERENCE_COUNT:
+        raise ValueError(
+            f"{field_name} cannot contain more than {MAX_ARTIFACT_REFERENCE_COUNT} entries"
+        )
+    normalized: list[JSONObject] = []
+    seen_ids: set[str] = set()
+    required_fields = {
+        "artifact_id",
+        "relative_path",
+        "size_bytes",
+        "sha256",
+        "media_type",
+        "created_at",
+        "kind",
+    }
+    for index, item in enumerate(value):
+        if not isinstance(item, dict):
+            raise ValueError(f"{field_name}[{index}] must be an object")
+        missing = sorted(required_fields - set(item))
+        if missing:
+            raise ValueError(
+                f"{field_name}[{index}] missing required fields: {', '.join(missing)}"
+            )
+        artifact_id = item["artifact_id"]
+        relative_path = item["relative_path"]
+        sha256 = item["sha256"]
+        size_bytes = item["size_bytes"]
+        if (
+            not isinstance(artifact_id, str)
+            or len(artifact_id) != _ARTIFACT_SHA256_LENGTH
+            or any(char not in "0123456789abcdef" for char in artifact_id)
+        ):
+            raise ValueError(f"{field_name}[{index}].artifact_id must be a lowercase SHA-256")
+        if (
+            not isinstance(relative_path, str)
+            or _unsafe_reference_path(relative_path)
+            or len(relative_path) > 512
+        ):
+            raise ValueError(f"{field_name}[{index}].relative_path is unsafe")
+        if not isinstance(sha256, str) or sha256 != artifact_id:
+            raise ValueError(f"{field_name}[{index}].sha256 must match artifact_id")
+        if (
+            not isinstance(size_bytes, int)
+            or isinstance(size_bytes, bool)
+            or size_bytes < 0
+            or size_bytes > _MAX_ARTIFACT_REFERENCE_BYTES
+        ):
+            raise ValueError(f"{field_name}[{index}].size_bytes must be a non-negative integer")
+        media_type = item["media_type"]
+        kind = item["kind"]
+        created_at = item["created_at"]
+        if not isinstance(media_type, str) or not media_type.strip() or len(media_type) > 128:
+            raise ValueError(f"{field_name}[{index}].media_type is invalid")
+        if not isinstance(kind, str) or not kind.strip() or len(kind) > 128:
+            raise ValueError(f"{field_name}[{index}].kind is invalid")
+        if not isinstance(created_at, str) or not created_at.strip() or len(created_at) > 128:
+            raise ValueError(f"{field_name}[{index}].created_at is invalid")
+        if artifact_id in seen_ids:
+            continue
+        normalized.append(
+            {
+                "artifact_id": artifact_id,
+                "relative_path": relative_path,
+                "size_bytes": size_bytes,
+                "sha256": sha256,
+                "media_type": media_type.strip(),
+                "created_at": created_at.strip(),
+                "kind": kind.strip(),
+            }
+        )
+        seen_ids.add(artifact_id)
+    return normalized
+
+
+def _unsafe_reference_path(value: str) -> bool:
+    """Reject absolute, traversal, or control-character reference paths."""
+
+    path = value.replace("\\", "/")
+    return (
+        path.startswith("/")
+        or (len(path) >= 2 and path[1] == ":")
+        or any(part in {"", ".", ".."} for part in path.split("/"))
+        or any(ord(char) < 0x20 for char in path)
+    )
+
+
+def _normalize_observation_replays(value: object) -> dict[str, dict]:
+    if value is None:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError("observation_replays must be an object")
+    normalized: dict[str, dict] = {}
+    for observation_id, replay in value.items():
+        identifier = _normalize_optional_identifier(observation_id, "observation_replays key")
+        if identifier is None or not isinstance(replay, dict):
+            raise ValueError("observation_replays entries must be objects")
+        fingerprint = replay.get("fingerprint")
+        if not isinstance(fingerprint, str) or not fingerprint.strip():
+            raise ValueError(f"observation_replays[{identifier}].fingerprint must be non-empty")
+        response = replay.get("response")
+        if not isinstance(response, dict):
+            raise ValueError(f"observation_replays[{identifier}].response must be an object")
+        try:
+            validate_json_limits(
+                response,
+                path=f"observation_replays[{identifier}].response",
+                max_bytes=MAX_OBSERVATION_REPLAY_ENTRY_BYTES,
+            )
+        except ValueError as exc:
+            raise ValueError(f"invalid observation replay {identifier}: {exc}") from exc
+        normalized[identifier] = {
+            "fingerprint": fingerprint.strip(),
+            "response": response,
+        }
+    _trim_observation_replays(normalized)
+    return normalized
+
+
+def _trim_observation_replays(replays: dict[str, dict]) -> None:
+    while len(replays) > MAX_OBSERVATION_REPLAYS or (
+        len(replays) > 1 and _observation_replay_bytes(replays) > MAX_OBSERVATION_REPLAY_BYTES
+    ):
+        replays.pop(next(iter(replays)))
+
+
+def _observation_replay_bytes(replays: dict[str, dict]) -> int:
+    return json_byte_size(replays)
+
+
+def _require_top_level_fields(
+    data: object,
+    field_names: set[str],
+    model_name: str,
+    *,
+    optional_fields: set[str] | None = None,
+) -> dict:
     if not isinstance(data, dict):
         raise ValueError(f"{model_name} must be an object")
     actual = set(data.keys())
     missing = sorted(field_names - actual)
     if missing:
         raise ValueError(f"{model_name} missing required fields: {', '.join(missing)}")
-    allowed = field_names | {"caller"}
+    optional_fields = optional_fields or set()
+    allowed = field_names | optional_fields | {"caller"}
     extras = sorted(actual - allowed)
     if model_name != "StartRequest":
-        allowed = field_names
+        allowed = field_names | optional_fields
         extras = sorted(actual - allowed)
     if extras:
         raise ValueError(f"{model_name} has unknown fields: {', '.join(extras)}")
@@ -113,6 +279,8 @@ class PromptEnvelope:
         self.run_id = _require_non_empty_string(self.run_id, "run_id")
         self.step_id = _require_non_empty_string(self.step_id, "step_id")
         self.prompt = _require_non_empty_string(self.prompt, "prompt")
+        if len(self.prompt.encode("utf-8")) > MAX_PROMPT_BYTES:
+            raise ValueError(f"prompt exceeds {MAX_PROMPT_BYTES} bytes")
         self.intent = _require_non_empty_string(self.intent, "intent")
         self.expected_artifact = _require_non_empty_string(
             self.expected_artifact,
@@ -221,6 +389,7 @@ class Observation:
     error: ObservationError | None = None
     tool_trace: list[ToolTraceEntry] = field(default_factory=list)
     raw_output: str = ""
+    observation_id: str | None = None
 
     @classmethod
     def from_dict(cls, data: object) -> "Observation":
@@ -231,6 +400,22 @@ class Observation:
         )
         if missing:
             raise ValueError(f"Observation missing required fields: {', '.join(missing)}")
+        allowed = {
+            "run_id",
+            "step_id",
+            "status",
+            "summary",
+            "structured_output",
+            "artifacts",
+            "error",
+            "tool_trace",
+            "raw_output",
+            "observation_id",
+            "attempt_id",
+        }
+        extras = sorted(set(data) - allowed)
+        if extras:
+            raise ValueError(f"Observation has unknown fields: {', '.join(extras)}")
         status = _require_non_empty_string(data["status"], "status")
         if status not in OBSERVATION_STATUSES:
             raise ValueError(f"unsupported observation status: {status}")
@@ -241,6 +426,18 @@ class Observation:
         if not isinstance(artifacts, list):
             raise ValueError("artifacts must be a list")
         error_payload = data.get("error")
+        if error_payload is not None and not isinstance(error_payload, dict):
+            raise ValueError("error must be an object or null")
+        raw_output = data.get("raw_output", "")
+        if not isinstance(raw_output, str):
+            raise ValueError("raw_output must be a string")
+        observation_id = _normalize_optional_identifier(
+            data.get("observation_id"),
+            "observation_id",
+        )
+        attempt_id = _normalize_optional_identifier(data.get("attempt_id"), "attempt_id")
+        if observation_id is not None and attempt_id is not None and observation_id != attempt_id:
+            raise ValueError("observation_id and attempt_id must match when both are supplied")
         return cls(
             run_id=_require_non_empty_string(data["run_id"], "run_id"),
             step_id=_require_non_empty_string(data["step_id"], "step_id"),
@@ -252,13 +449,16 @@ class Observation:
             if isinstance(error_payload, dict)
             else None,
             tool_trace=[ToolTraceEntry.from_dict(item) for item in tool_trace_payload],
-            raw_output=str(data.get("raw_output", "")),
+            raw_output=raw_output,
+            observation_id=observation_id or attempt_id,
         )
 
     def to_dict(self) -> dict:
         result = asdict(self)
         if self.error is None:
             result["error"] = None
+        if self.observation_id is None:
+            result.pop("observation_id", None)
         return result
 
 
@@ -415,6 +615,16 @@ class RunState:
     history: list[HistoryEntry] = field(default_factory=list)
     created_at: str = field(default_factory=iso_utc_now)
     updated_at: str = field(default_factory=iso_utc_now)
+    state_version: int = CURRENT_RUN_STATE_VERSION
+    revision: int = 0
+    observation_replays: dict[str, dict] = field(default_factory=dict)
+    history_degraded: bool = False
+    accepted_steps: int = 0
+    max_steps: int | None = None
+    terminal_reason: str | None = None
+    artifact_refs: list[JSONObject] = field(default_factory=list)
+    diagnostic_refs: list[JSONObject] = field(default_factory=list)
+    artifacts_degraded: bool = False
 
     @classmethod
     def from_dict(cls, data: object) -> "RunState":
@@ -432,6 +642,18 @@ class RunState:
                 "updated_at",
             },
             "RunState",
+            optional_fields={
+                "state_version",
+                "revision",
+                "observation_replays",
+                "history_degraded",
+                "accepted_steps",
+                "max_steps",
+                "terminal_reason",
+                "artifact_refs",
+                "diagnostic_refs",
+                "artifacts_degraded",
+            },
         )
         status = _require_non_empty_string(payload["status"], "status")
         if status not in RUN_STATUSES:
@@ -439,7 +661,56 @@ class RunState:
         history_payload = payload.get("history", [])
         if not isinstance(history_payload, list):
             raise ValueError("history must be a list")
-        return cls(
+        state_version = payload.get("state_version", 1)
+        if (
+            not isinstance(state_version, int)
+            or isinstance(state_version, bool)
+            or state_version < 1
+            or state_version > CURRENT_RUN_STATE_VERSION
+        ):
+            raise ValueError(f"unsupported run state version: {state_version!r}")
+        revision = payload.get("revision", 0)
+        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
+            raise ValueError("run state revision must be a non-negative integer")
+        observation_replays = _normalize_observation_replays(
+            payload.get("observation_replays", {})
+        )
+        history_degraded = payload.get("history_degraded", False)
+        if not isinstance(history_degraded, bool):
+            raise ValueError("history_degraded must be a boolean")
+        accepted_steps = payload.get("accepted_steps", 0)
+        if (
+            not isinstance(accepted_steps, int)
+            or isinstance(accepted_steps, bool)
+            or accepted_steps < 0
+        ):
+            raise ValueError("accepted_steps must be a non-negative integer")
+        max_steps = payload.get("max_steps")
+        if max_steps is not None:
+            if (
+                not isinstance(max_steps, int)
+                or isinstance(max_steps, bool)
+                or max_steps < 1
+                or max_steps > MAX_RUNTIME_STEPS
+            ):
+                raise ValueError(
+                    f"max_steps must be an integer between 1 and {MAX_RUNTIME_STEPS}"
+                )
+        terminal_reason = payload.get("terminal_reason")
+        if terminal_reason is not None:
+            terminal_reason = _require_non_empty_string(terminal_reason, "terminal_reason")
+        artifact_refs = _normalize_artifact_references(
+            payload.get("artifact_refs", []),
+            "artifact_refs",
+        )
+        diagnostic_refs = _normalize_artifact_references(
+            payload.get("diagnostic_refs", []),
+            "diagnostic_refs",
+        )
+        artifacts_degraded = payload.get("artifacts_degraded", False)
+        if not isinstance(artifacts_degraded, bool):
+            raise ValueError("artifacts_degraded must be a boolean")
+        state = cls(
             run_id=_require_non_empty_string(payload["run_id"], "run_id"),
             workflow_id=_require_non_empty_string(payload["workflow_id"], "workflow_id"),
             workflow_version=_require_non_empty_string(
@@ -452,13 +723,80 @@ class RunState:
             history=[HistoryEntry.from_dict(item) for item in history_payload],
             created_at=_require_non_empty_string(payload["created_at"], "created_at"),
             updated_at=_require_non_empty_string(payload["updated_at"], "updated_at"),
+            state_version=CURRENT_RUN_STATE_VERSION,
+            revision=revision,
+            observation_replays=observation_replays,
+            history_degraded=history_degraded,
+            accepted_steps=accepted_steps,
+            max_steps=max_steps,
+            terminal_reason=terminal_reason,
+            artifact_refs=artifact_refs,
+            diagnostic_refs=diagnostic_refs,
+            artifacts_degraded=artifacts_degraded,
         )
+        normalized_history: list[HistoryEntry] = []
+        for entry in state.history:
+            compacted_payload, degraded = compact_history_payload(entry.payload)
+            entry.payload = compacted_payload
+            state.history_degraded = state.history_degraded or degraded
+            normalized_history.append(entry)
+        state.history, retained = trim_history(normalized_history)
+        state.history_degraded = state.history_degraded or retained
+        return state
 
     def append_history(self, entry: HistoryEntry) -> None:
+        compacted_payload, degraded = compact_history_payload(entry.payload)
+        entry.payload = compacted_payload
+        self.history_degraded = self.history_degraded or degraded
         self.history.append(entry)
+        self.history, retained = trim_history(self.history)
+        self.history_degraded = self.history_degraded or retained
+        self.updated_at = iso_utc_now()
+
+    def add_artifact_reference(self, reference: JSONObject, *, diagnostic: bool = False) -> bool:
+        """Retain only routing metadata; duplicate content addresses are ignored."""
+
+        normalized = _normalize_artifact_references([reference], "artifact_ref")[0]
+        target = self.diagnostic_refs if diagnostic else self.artifact_refs
+        if any(item["artifact_id"] == normalized["artifact_id"] for item in target):
+            return False
+        if len(target) >= MAX_ARTIFACT_REFERENCE_COUNT:
+            self.artifacts_degraded = True
+            return False
+        target.append(normalized)
+        self.updated_at = iso_utc_now()
+        return True
+
+    def record_observation_replay(
+        self,
+        observation_id: str,
+        fingerprint: str,
+        response: dict,
+    ) -> None:
+        identifier = _normalize_optional_identifier(observation_id, "observation_id")
+        if identifier is None:
+            raise ValueError("observation_id must be non-empty")
+        if not isinstance(fingerprint, str) or not fingerprint.strip():
+            raise ValueError("observation replay fingerprint must be non-empty")
+        if not isinstance(response, dict):
+            raise ValueError("observation replay response must be an object")
+        try:
+            validate_json_limits(
+                response,
+                path=f"observation_replays[{identifier}].response",
+                max_bytes=MAX_OBSERVATION_REPLAY_ENTRY_BYTES,
+            )
+        except ValueError as exc:
+            raise ValueError(f"invalid observation replay {identifier}: {exc}") from exc
+        self.observation_replays[identifier] = {
+            "fingerprint": fingerprint.strip(),
+            "response": response,
+        }
+        _trim_observation_replays(self.observation_replays)
         self.updated_at = iso_utc_now()
 
     def to_dict(self) -> dict:
+        self.observation_replays = _normalize_observation_replays(self.observation_replays)
         return {
             "run_id": self.run_id,
             "workflow_id": self.workflow_id,
@@ -469,4 +807,14 @@ class RunState:
             "history": [entry.to_dict() for entry in self.history],
             "created_at": self.created_at,
             "updated_at": self.updated_at,
+            "state_version": CURRENT_RUN_STATE_VERSION,
+            "revision": self.revision,
+            "observation_replays": self.observation_replays,
+            "history_degraded": self.history_degraded,
+            "accepted_steps": self.accepted_steps,
+            "max_steps": self.max_steps,
+            "terminal_reason": self.terminal_reason,
+            "artifact_refs": self.artifact_refs,
+            "diagnostic_refs": self.diagnostic_refs,
+            "artifacts_degraded": self.artifacts_degraded,
         }

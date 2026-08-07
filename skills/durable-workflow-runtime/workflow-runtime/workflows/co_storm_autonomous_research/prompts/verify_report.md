@@ -1,4 +1,4 @@
-/content-research-writer {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, and {{coverage_map}}; independently verify section coverage, citation referential integrity, unsupported claims, duplication, and coherence, then return a structured pass or repair verdict without changing workflow routing.
+/content-research-writer {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, and {{coverage_map}}; independently verify section coverage, citation referential integrity, unsupported claims, duplication, and coherence, then return a structured pass or repair verdict.
 
 Stage Context:
 
@@ -14,9 +14,9 @@ Stage Boundaries:
 - Do not silently rewrite the report while performing verification; return concrete findings for the repair stage.
 - Treat unknown citation identifiers, missing section coverage, and unsupported substantive claims as failures.
 - A pass requires a report artifact, traceable citations, and no unresolved critical quality findings.
-- Do not choose the repair or final node; runtime policy owns the transition.
+- Return concrete findings and a pass or repair verdict without rewriting the report.
 
 Blocked Conditions:
 
-- Block when the report path, evidence registry, or report sections are unavailable.
-- Block when the report cannot be read for citation and section verification.
+- Block when the report artifact, evidence registry, or report sections are unavailable.
+- Block when the report or evidence cannot be checked for citation and section coverage.

@@ -1,5 +1,6 @@
 {
   "workflow_id": "ios_ai_assisted_development_flow",
+  "state_mode": "custom",
   "flow_description": "Run the AI-assisted development path from brainstorming-nex through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
   "start_input_schema": {
     "task_input": {
@@ -12,14 +13,25 @@
       "source_skill_url": "string?"
     },
     "constraints": {
-      "max_steps": "integer?",
-      "require_user_approval": "boolean?"
+      "max_steps": "integer?"
     }
+  },
+  "repair_policy": {
+    "max_self_repair_attempts": 3,
+    "exhausted_next_node": "request_unblocking_input",
+    "exhausted_branch_kind": "repair",
+    "exhausted_reason": "repair exhausted self-repair attempts and now requires external help before retry"
   },
   "stages": [
     {
       "step_id": "run_brainstorming",
       "stage_kind": "main",
+      "require_passing_verifier": true,
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "run_brainstorming completed without a valid verifier result; fail closed before continuing."
+      },
       "recovery_return_node": null,
       "intent": "clarify_and_prepare_design",
       "expected_artifact": "a brainstorming design package with a written design document path that is ready for subagent review authorization",
@@ -34,7 +46,9 @@
           "Latest spec review findings summary: {{spec_review_findings_summary}}",
           "Latest spec review subagent summaries: {{spec_review_subagent_summaries}}",
           "Latest spec review artifact paths: {{spec_review_artifact_paths}}",
-          "Latest open questions carried forward: {{open_questions}}"
+          "Visual specification detail summary: {{visual_spec_detail_summary}}",
+          "Latest open questions carried forward: {{open_questions}}",
+          "Optional source inputs: {{source_doc_url}}; {{source_skill_url}}. An empty value means no source was provided and is not by itself a blocker."
         ],
         "boundaries": [
           "Do not implement code in this stage.",
@@ -43,13 +57,16 @@
           "If this stage is revisiting the design after spec review, address the recorded review findings and preserve the link to the existing review artifacts.",
           "Write the brainstorming design as a Markdown document under docs/superpowers/specs/.",
           "Do not use implementation plan documents as the brainstorming design document.",
+          "Treat empty optional source inputs as unavailable context; do not invent or require them.",
           "If the requested change affects a user-visible UI surface, the spec must include implementation-ready visual detail: view hierarchy, per-element properties, typography, colors, spacing, padding, alignment, sizing, constraints, states, assets, interaction behavior, layout relationships, and measurable expectations detailed enough to support code generation and visual verification without guessing.",
           "If the requested change affects a user-visible UI surface, the spec must name the design-comparison source for visual QA, such as a Figma frame, approved mock, or reference screenshot, and describe the expected app screenshot/view scope to capture for runtime visual comparison.",
+          "If ui_surface_affected is false, leave the visual-detail and comparison fields empty rather than inventing UI evidence.",
           "Do not wait for the user to review or approve the spec in this stage.",
           "Do not launch subagent review in this stage; the workflow will ask for explicit authorization in the next stage."
         ],
         "blocked_conditions": [
           "Block if no clarification question has been asked and answered.",
+          "Block if the requested change still cannot be scoped to a concrete project objective after reviewing the request and asking the minimum clarification question(s) needed.",
           "Block if the requested change cannot be scoped to a concrete project objective.",
           "Block if a user-visible UI change lacks implementation-ready visual detail, a design-comparison source, or runtime screenshot/view scope."
         ]
@@ -137,6 +154,11 @@
           "kind": "boolean"
         },
         {
+          "state_key": "visual_spec_detail_summary",
+          "output_key": "visual_spec_detail_summary",
+          "kind": "string"
+        },
+        {
           "state_key": "design_comparison_source",
           "output_key": "design_comparison_source",
           "kind": "string"
@@ -158,11 +180,16 @@
         }
       ],
       "template_context_keys": [
+        "goal",
+        "repo_root",
+        "source_doc_url",
+        "source_skill_url",
         "clarification_questions",
         "clarification_answers_summary",
         "design_summary",
         "design_path",
         "ui_surface_affected",
+        "visual_spec_detail_summary",
         "design_comparison_source",
         "runtime_visual_comparison_scope",
         "ready_for_subagent_review",
@@ -274,6 +301,12 @@
     {
       "step_id": "approve_subagent_review",
       "stage_kind": "main",
+      "require_passing_verifier": true,
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "approve_subagent_review completed without a valid verifier result; fail closed before continuing."
+      },
       "recovery_return_node": null,
       "intent": "authorize_subagent_spec_review",
       "expected_artifact": "an explicit user authorization decision for the required subagent design review",
@@ -342,6 +375,7 @@
         }
       ],
       "template_context_keys": [
+        "repo_root",
         "design_path",
         "design_summary",
         "subagent_review_approved",
@@ -399,6 +433,12 @@
     {
       "step_id": "run_spec_review",
       "stage_kind": "main",
+      "require_passing_verifier": true,
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "run_spec_review completed without a valid verifier result; fail closed before continuing."
+      },
       "recovery_return_node": null,
       "intent": "complete_subagent_spec_review_loop",
       "expected_artifact": "a review-complete design package with concrete subagent review artifacts and implementation-planning readiness",
@@ -509,6 +549,7 @@
         }
       ],
       "template_context_keys": [
+        "repo_root",
         "design_path",
         "design_summary",
         "authorization_summary",
@@ -623,7 +664,9 @@
           ],
           "hint_pseudocode": [
             "Require at least three non-empty artifact paths.",
-            "Require each artifact path to exist under docs/superpowers/specs/ and end with .md.",
+            "Require each artifact path to be a relative, canonical, regular UTF-8 Markdown file under docs/superpowers/specs/; reject absolute paths, parent-directory traversal, and symlink traversal.",
+            "Reject empty artifact files and deduplicate by canonical path, not only by the submitted string.",
+            "Require each artifact's Markdown content to name the single perspective encoded by its canonical path.",
             "Require the combined artifact paths to clearly cover development, design, and testing review outputs.",
             "Require three non-empty subagent summaries that map one-to-one to development, design, and testing instead of duplicating one perspective.",
             "Reject repeated summaries or repeated artifact paths when they are being used to fake independent review coverage."
@@ -640,6 +683,12 @@
     {
       "step_id": "write_implementation_plan",
       "stage_kind": "main",
+      "require_passing_verifier": true,
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "write_implementation_plan completed without a valid verifier result; fail closed before continuing."
+      },
       "recovery_return_node": null,
       "intent": "create_superpowers_implementation_plan",
       "expected_artifact": "implementation plan document and recorded subagent-driven execution mode ready for implementation",
@@ -650,6 +699,9 @@
           "Design path: {{design_path}}",
           "Design summary: {{design_summary}}",
           "Repository root: {{repo_root}}",
+          "Spec review findings summary: {{spec_review_findings_summary}}",
+          "Spec review subagent summaries: {{spec_review_subagent_summaries}}",
+          "Spec review artifact paths: {{spec_review_artifact_paths}}",
           "Latest plan update summary: {{plan_update_summary}}",
           "Latest debugging summary: {{debugging_summary}}",
           "Latest open issues: {{open_issues}}"
@@ -664,6 +716,7 @@
         ],
         "blocked_conditions": [
           "Block if the design package is missing or ambiguous.",
+          "Block if the design package is missing or still ambiguous after incorporating the recorded replanning feedback.",
           "Block if the plan file has not been written yet.",
           "Block if the recorded execution mode is not subagent-driven."
         ]
@@ -750,8 +803,12 @@
         }
       ],
       "template_context_keys": [
+        "repo_root",
         "design_path",
         "design_summary",
+        "spec_review_findings_summary",
+        "spec_review_subagent_summaries",
+        "spec_review_artifact_paths",
         "plan_summary",
         "plan_path",
         "execution_mode",
@@ -854,6 +911,12 @@
     {
       "step_id": "execute_implementation",
       "stage_kind": "main",
+      "require_passing_verifier": true,
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "execute_implementation completed without a valid verifier result; fail closed before continuing."
+      },
       "recovery_return_node": null,
       "intent": "execute_superpowers_plan",
       "expected_artifact": "implemented plan tasks with verification evidence and any required planning follow-up",
@@ -1099,6 +1162,7 @@
         }
       ],
       "template_context_keys": [
+        "repo_root",
         "design_path",
         "design_summary",
         "plan_summary",
@@ -1150,9 +1214,9 @@
           "output_key": "verification_passed",
           "operator": "is_false",
           "value": null,
-          "next_node": "execute_implementation",
+          "next_node": "write_implementation_plan",
           "branch_kind": "retry",
-          "reason": "Implementation verification did not pass yet and must be resolved before release QA."
+          "reason": "Implementation verification did not pass and requires a plan/debugging update before execution can continue."
         }
       ],
       "outcome_routes": [],
@@ -1227,6 +1291,12 @@
     {
       "step_id": "run_agentic_release_qa",
       "stage_kind": "main",
+      "require_passing_verifier": true,
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "run_agentic_release_qa completed without a valid verifier result; fail closed before continuing."
+      },
       "recovery_return_node": null,
       "intent": "run_change_aware_release_qa",
       "expected_artifact": "change-aware release QA verdict with executed checks, blocked checks, and risk-based next steps",
@@ -1242,8 +1312,10 @@
           "Verification commands: {{verification_commands}}",
           "Open issues: {{open_issues}}",
           "UI surface affected: {{ui_surface_affected}}",
+          "Visual specification detail summary: {{visual_spec_detail_summary}}",
           "Design comparison source: {{design_comparison_source}}",
-          "Runtime visual comparison scope: {{runtime_visual_comparison_scope}}"
+          "Runtime visual comparison scope: {{runtime_visual_comparison_scope}}",
+          "Optional visual inputs: when UI surface affected or either comparison input is empty, report that visual comparison was not applicable or blocked; do not infer a design source or screenshot scope."
         ],
         "boundaries": [
           "Start from the actual changed files and implementation evidence instead of producing a generic release checklist.",
@@ -1254,6 +1326,7 @@
           "Do not return release_qa_verdict=ship while blocked checks or other unresolved QA issues still remain.",
           "If required QA inputs are missing, return observation.status=blocked instead of encoding blocked as a succeeded release_qa_verdict.",
           "If ui_surface_affected is true and both design_comparison_source and runtime_visual_comparison_scope are available, include an explicit visual comparison pass and report the executed or blocked visual diff evidence.",
+          "If ui_surface_affected is false, or the visual inputs are empty, do not claim visual QA was executed and do not invent visual evidence.",
           "Return the concrete QA target scope or artifact under test so later stages know exactly what was validated."
         ],
         "blocked_conditions": [
@@ -1361,11 +1434,15 @@
         }
       ],
       "template_context_keys": [
+        "preferred_change_name",
+        "goal",
+        "repo_root",
         "changed_files",
         "implementation_summary",
         "verification_commands",
         "open_issues",
         "ui_surface_affected",
+        "visual_spec_detail_summary",
         "design_comparison_source",
         "runtime_visual_comparison_scope",
         "release_qa_verdict",
@@ -1518,6 +1595,12 @@
     {
       "step_id": "request_pre_merge_code_review",
       "stage_kind": "main",
+      "require_passing_verifier": true,
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "request_pre_merge_code_review completed without a valid verifier result; fail closed before continuing."
+      },
       "recovery_return_node": null,
       "intent": "request_pre_merge_code_review",
       "expected_artifact": "pre-merge code review findings and merge-readiness decision for the current local diff",
@@ -1531,8 +1614,12 @@
           "Verification commands: {{verification_commands}}",
           "Release QA verdict: {{release_qa_verdict}}",
           "Release QA summary: {{release_qa_summary}}",
+          "Release QA executed checks: {{release_qa_executed_checks}}",
           "Release QA blocked checks: {{release_qa_blocked_checks}}",
-          "Release QA target scope: {{release_qa_target_scope}}"
+          "Release QA risk next steps: {{release_qa_risk_next_steps}}",
+          "Release QA artifacts: {{release_qa_artifacts}}",
+          "Release QA target scope: {{release_qa_target_scope}}",
+          "Empty carry-forward fields mean that the corresponding evidence was not produced or is not applicable; do not infer completion from an empty value."
         ],
         "boundaries": [
           "Prioritize findings, regressions, risky behavior changes, and missing tests.",
@@ -1649,13 +1736,17 @@
         }
       ],
       "template_context_keys": [
+        "goal",
         "plan_path",
         "implementation_summary",
         "changed_files",
         "verification_commands",
         "release_qa_verdict",
         "release_qa_summary",
+        "release_qa_executed_checks",
         "release_qa_blocked_checks",
+        "release_qa_risk_next_steps",
+        "release_qa_artifacts",
         "release_qa_target_scope",
         "review_status",
         "reviewed_snapshot",
@@ -1799,6 +1890,12 @@
     {
       "step_id": "verify_completion",
       "stage_kind": "main",
+      "require_passing_verifier": true,
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "verify_completion completed without a valid verifier result; fail closed before continuing."
+      },
       "recovery_return_node": null,
       "intent": "verify_completion_before_final_delivery",
       "expected_artifact": "fresh completion verification evidence proving the workflow is ready to claim success",
@@ -1922,6 +2019,7 @@
         }
       ],
       "template_context_keys": [
+        "goal",
         "plan_path",
         "implementation_summary",
         "changed_files",
@@ -2084,7 +2182,10 @@
           "Required external inputs or approvals:",
           "{{repair_requirements}}",
           "Relevant evidence:",
-          "{{repair_evidence}}"
+          "{{repair_evidence}}",
+          "Latest blocking reason: {{unblocking_blocking_reason}}",
+          "Latest user action needed: {{unblocking_user_action_needed}}",
+          "Suggested next input: {{unblocking_suggested_next_input}}"
         ],
         "boundaries": [
           "Do not resume the workflow until the exact missing external dependency is identified.",
@@ -2105,6 +2206,28 @@
         "user_action_needed": "string",
         "suggested_next_input": "string?"
       },
+      "state_updates": [
+        {
+          "state_key": "unblocking_blocking_reason",
+          "output_key": "blocking_reason",
+          "kind": "string"
+        },
+        {
+          "state_key": "unblocking_user_action_needed",
+          "output_key": "user_action_needed",
+          "kind": "string"
+        },
+        {
+          "state_key": "unblocking_suggested_next_input",
+          "output_key": "suggested_next_input",
+          "kind": "string"
+        }
+      ],
+      "template_context_keys": [
+        "unblocking_blocking_reason",
+        "unblocking_user_action_needed",
+        "unblocking_suggested_next_input"
+      ],
       "failure_schema": {
         "blocked_reason": "string?",
         "error_message": "string?",
@@ -2127,6 +2250,7 @@
           "{{repair_requirements}}",
           "Relevant evidence:",
           "{{repair_evidence}}",
+          "Latest unblocking input: {{unblocking_blocking_reason}}; {{unblocking_user_action_needed}}; {{unblocking_suggested_next_input}}",
           "Blocked self-repair attempts in this repair episode: {{repair_blocked_attempts}}"
         ],
         "boundaries": [
@@ -2198,7 +2322,7 @@
     }
   },
   "final_step_id": "finalize_delivery_summary",
-  "final_prompt": "/verification-before-completion finalize the AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, and {{completion_verification_passed}} as the minimum completion inputs.",
+  "final_prompt": "/verification-before-completion finalize the AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, {{reviewed_snapshot}}, {{completion_verification_passed}}, {{completion_verification_summary}}, {{completion_verification_evidence}}, {{completion_remaining_risks}}, {{subagent_review_approved}}, {{authorization_summary}}, and {{terminal_reason}} as branch-aware completion inputs. Empty fields for stages not reached are intentional and mean that evidence was not produced.\n\nStage Context:\n\n- Design summary: {{design_summary}}\n- Design path: {{design_path}}\n- Plan summary: {{plan_summary}}\n- Plan path: {{plan_path}}\n- Implementation summary: {{implementation_summary}}\n- Release QA verdict: {{release_qa_verdict}}\n- Release QA executed checks: {{release_qa_executed_checks}}\n- Release QA blocked checks: {{release_qa_blocked_checks}}\n- Release QA risk next steps: {{release_qa_risk_next_steps}}\n- Release QA artifacts: {{release_qa_artifacts}}\n- Review status: {{review_status}}\n- Reviewed snapshot: {{reviewed_snapshot}}\n- Review findings: {{review_findings}}\n- Completion verification passed: {{completion_verification_passed}}\n- Completion verification summary: {{completion_verification_summary}}\n- Completion verification evidence: {{completion_verification_evidence}}\n- Completion remaining risks: {{completion_remaining_risks}}\n- Subagent review authorization: {{subagent_review_approved}}\n- Authorization summary: {{authorization_summary}}\n- Terminal reason: {{terminal_reason}}\n- Branch input rule: a blank field means its stage was not reached or the evidence is not applicable; report it as not executed rather than inferring success.\n\nStage Boundaries:\n\n- If subagent review authorization was declined, report that the workflow closed before implementation planning; do not claim delivery completion or invent implementation evidence.\n- If terminal reason is max_steps_exceeded, label the result as a degraded terminal summary and do not claim that delivery completion was proven.\n- If a stage was not reached because authorization was declined or the budget was exhausted, summarize only the evidence available on that branch and omit normal-delivery claims.\n- For the normal delivery branch, do not claim completion unless completion verification passed, release QA ended in ship, and pre-merge review ended in approved.\n- Do not invent new implementation, QA, review, or verification facts that are not already grounded in the recorded workflow state.\n- Keep the final summary concise and evidence-based so the user can reuse it as a handoff artifact.\n\nBlocked Conditions:\n\n- Block if the final completion evidence is missing or inconsistent for a normal delivery claim.\n- Block if the workflow cannot produce a grounded final handoff summary from the recorded state.",
   "dependencies": [
     {
       "id": "brainstorming-nex",
@@ -3569,7 +3693,7 @@
       "expected_branch_kind": "retry"
     },
     {
-      "name": "completion_verifier_failure_routes_to_repair",
+      "name": "completion_verifier_failure_routes_to_execute_implementation",
       "type": "transition",
       "current_step_id": "verify_completion",
       "observation": {
@@ -3592,7 +3716,7 @@
         "checks": []
       },
       "state": null,
-      "expected_next_node": "repair_and_resume",
+      "expected_next_node": "execute_implementation",
       "expected_branch_kind": "retry"
     },
     {
@@ -3843,6 +3967,205 @@
         "passed": true,
         "checks": []
       },
+      "state": null,
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "repair"
+    },
+    {
+      "name": "brainstorming_rejects_whitespace_ui_visual_inputs",
+      "type": "verifier",
+      "step_id": "run_brainstorming",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Brainstorming used whitespace-only visual QA inputs.",
+        "structured_output": {
+          "clarification_questions": [
+            "Which screen changes?"
+          ],
+          "clarification_answers_summary": "The requested UI surface was confirmed.",
+          "design_presented": true,
+          "design_summary": "Approved UI design summary.",
+          "design_path": "docs/superpowers/specs/2026-05-30-durable-workflow-runtime-superpowers-delivery-chain-design.md",
+          "ui_surface_affected": true,
+          "visual_spec_detail_summary": "   ",
+          "design_comparison_source": "   ",
+          "runtime_visual_comparison_scope": "   ",
+          "open_questions": [],
+          "ready_for_subagent_review": true
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "run_spec_review_rejects_artifact_path_traversal",
+      "type": "verifier",
+      "step_id": "run_spec_review",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Spec review used a path that escapes the artifact directory.",
+        "structured_output": {
+          "spec_review_loop_completed": true,
+          "spec_review_perspectives": [
+            "development",
+            "design",
+            "testing"
+          ],
+          "spec_review_findings_summary": "Development, design, and testing reviews passed.",
+          "spec_review_subagent_summaries": [
+            "Development review passed.",
+            "Design review passed.",
+            "Testing review passed."
+          ],
+          "spec_review_artifact_paths": [
+            "docs/superpowers/specs/../../../skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references/flowchart.md",
+            "docs/superpowers/specs/2026-06-24-ios-change-design-review.md",
+            "docs/superpowers/specs/2026-06-24-ios-change-testing-review.md"
+          ],
+          "open_questions": [],
+          "ready_for_planning": true
+        }
+      },
+      "expected_passed": false,
+      "state": null
+    },
+    {
+      "name": "implementation_verification_failure_requires_planning_route",
+      "type": "transition",
+      "current_step_id": "execute_implementation",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Implementation verification failed and needs a plan update.",
+        "structured_output": {
+          "tasks_completed": true,
+          "implementation_summary": "Implementation needs a debugging and planning pass.",
+          "changed_files": [
+            "Zoom/Foo.swift"
+          ],
+          "completed_tasks": [
+            "Task 1"
+          ],
+          "remaining_tasks": [],
+          "verification_commands": [
+            "xcodebuild test -scheme ZoomClient"
+          ],
+          "verification_passed": false,
+          "open_issues": [
+            "The failing verification exposes a plan assumption."
+          ],
+          "plan_updates_required": false
+        }
+      },
+      "verifier_result": {
+        "passed": true,
+        "checks": []
+      },
+      "state": null,
+      "expected_next_node": "write_implementation_plan",
+      "expected_branch_kind": "retry"
+    },
+    {
+      "name": "request_unblocking_input_returns_to_repair_owner",
+      "type": "transition",
+      "current_step_id": "request_unblocking_input",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The user supplied the missing approval context.",
+        "structured_output": {
+          "blocking_reason": "Approval was missing.",
+          "user_action_needed": "Confirm the release QA exception.",
+          "suggested_next_input": "Release QA exception approved by owner."
+        }
+      },
+      "verifier_result": null,
+      "state": {
+        "return_stage_id": "verify_completion",
+        "repair_context": {
+          "source_stage_id": "repair_and_resume"
+        }
+      },
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "max_steps_exceeded_terminates_at_degraded_final",
+      "type": "transition",
+      "current_step_id": "verify_completion",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Workflow hit its step budget.",
+        "structured_output": {}
+      },
+      "verifier_result": {
+        "passed": true,
+        "checks": []
+      },
+      "state": {
+        "constraints": {
+          "max_steps": 1
+        },
+        "attempt_counts": {}
+      },
+      "expected_next_node": "finalize_delivery_summary",
+      "expected_branch_kind": "complete"
+    },
+    {
+      "name": "request_unblocking_input_rejects_missing_required_fields",
+      "type": "transition",
+      "current_step_id": "request_unblocking_input",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Unblocking output omitted its required fields.",
+        "structured_output": {}
+      },
+      "verifier_result": null,
+      "state": {
+        "return_stage_id": "verify_completion",
+        "repair_context": {
+          "source_stage_id": "repair_and_resume"
+        }
+      },
+      "expected_next_node": "request_unblocking_input",
+      "expected_branch_kind": "repair"
+    },
+    {
+      "name": "repair_and_resume_rejects_missing_required_fields",
+      "type": "transition",
+      "current_step_id": "repair_and_resume",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Repair output omitted its required fields.",
+        "structured_output": {}
+      },
+      "verifier_result": null,
+      "state": {
+        "return_stage_id": "verify_completion"
+      },
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "retry"
+    },
+    {
+      "name": "main_success_without_verifier_fails_closed_to_repair",
+      "type": "transition",
+      "current_step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA output had no verifier result.",
+        "structured_output": {
+          "release_qa_target_scope": "Meeting footer",
+          "release_qa_summary": "Checks completed.",
+          "release_qa_verdict": "ship",
+          "release_qa_executed_checks": [
+            "Smoke test"
+          ],
+          "release_qa_blocked_checks": [],
+          "release_qa_risk_next_steps": [
+            "Proceed to review."
+          ],
+          "release_qa_artifacts": []
+        }
+      },
+      "verifier_result": null,
       "state": null,
       "expected_next_node": "repair_and_resume",
       "expected_branch_kind": "repair"

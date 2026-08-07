@@ -310,6 +310,7 @@ def _template_context_from_state(state: workflow_state.IosAiAssistedDevelopmentF
         "design_summary": _format_prompt_value(state.design_summary),
         "design_path": _format_prompt_value(state.design_path),
         "ui_surface_affected": _format_prompt_value(state.ui_surface_affected),
+        "visual_spec_detail_summary": _format_prompt_value(state.visual_spec_detail_summary),
         "design_comparison_source": _format_prompt_value(state.design_comparison_source),
         "runtime_visual_comparison_scope": _format_prompt_value(state.runtime_visual_comparison_scope),
         "open_questions": _format_prompt_value(state.open_questions),
@@ -356,6 +357,10 @@ def _template_context_from_state(state: workflow_state.IosAiAssistedDevelopmentF
         "completion_remaining_risks": _format_prompt_value(state.completion_remaining_risks),
         "completion_release_qa_risks_resolved": _format_prompt_value(state.completion_release_qa_risks_resolved),
         "completion_release_qa_risk_resolution_summary": _format_prompt_value(state.completion_release_qa_risk_resolution_summary),
+        "unblocking_blocking_reason": _format_prompt_value(state.unblocking_blocking_reason),
+        "unblocking_user_action_needed": _format_prompt_value(state.unblocking_user_action_needed),
+        "unblocking_suggested_next_input": _format_prompt_value(state.unblocking_suggested_next_input),
+        "terminal_reason": _format_prompt_value(state.terminal_reason),
         "repair_category": _format_prompt_value(state.repair_category),
         "repair_summary": _format_prompt_value(state.repair_summary),
         "repair_requirements": _format_prompt_value(state.repair_requirements),
@@ -368,7 +373,6 @@ def _template_context_from_state(state: workflow_state.IosAiAssistedDevelopmentF
         "source_doc_url": _format_prompt_value(context_values.get("source_doc_url")),
         "source_skill_url": _format_prompt_value(context_values.get("source_skill_url")),
         "max_steps": _format_prompt_value(constraint_values.get("max_steps")),
-        "require_user_approval": _format_prompt_value(constraint_values.get("require_user_approval")),
         }
     )
     return context

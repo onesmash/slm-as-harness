@@ -53,35 +53,24 @@ WARM_START_SHARED_SPACE = StepContract(
 LAUNCH_EXPERT_SUBAGENTS_ROUTE_1 = SkillRoute(
     skill='research-nex',
     use_when=SkillUseWhen(
-        operations=['independent expert subagent fan-out',
- 'parallel grounded perspective collection',
- 'subagent result artifact handoff'],
+        operations=['independent expert perspective collection',
+ 'grounded result collection',
+ 'expert result artifact handoff'],
         file_patterns=[],
     ),
-    usage_notes=['Primary owner for launching and joining one isolated research subagent per expert; the host must '
- 'use its independent subagent mechanism rather than role-play all experts in one response.'],
+    usage_notes=['Primary owner for collecting one independent, grounded result for each expert; use the '
+ 'role-specific brief and shared snapshot supplied by this stage.'],
 )
 
 LAUNCH_EXPERT_SUBAGENTS = StepContract(
-    done_when=['The fan-out manifest contains one unique expert identifier and one unique subagent run '
- 'identifier for every expert.',
- 'All expert subagents completed independently in the same round and returned non-empty grounded '
- 'summaries.',
- 'Every expert subagent has a distinct repository-relative result artifact.',
- 'The fan-out round index is exactly one greater than the last completed Moderator round.',
- 'The complete subagent result set is ready for Moderator synthesis.'],
-    output_schema={'execution_mode': 'string',
- 'fanout_round_index': 'integer',
- 'subagent_expert_ids': 'string[]',
- 'subagent_run_ids': 'string[]',
- 'subagent_result_summaries': 'string[]',
- 'subagent_artifact_paths': 'string[]',
- 'subagent_binding_records': 'object[]',
- 'fanout_complete': 'boolean'},
-    failure_schema={'blocked_reason': 'string?',
- 'error_message': 'string?',
- 'missing_expert_ids': 'string[]?',
- 'failed_subagent_run_ids': 'string[]?'},
+    done_when=['expert_results contains one result for every expert in expert_roster.',
+ 'Every result has a non-empty grounded summary and a distinct artifact.',
+ 'expert_round_index is exactly one greater than the last completed Moderator round.',
+ 'The complete expert result set is ready for Moderator synthesis.'],
+    output_schema={'expert_round_index': 'integer',
+ 'expert_results': 'object[]',
+ 'expert_results_complete': 'boolean'},
+    failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_expert_ids': 'string[]?'},
     skill_routing=[LAUNCH_EXPERT_SUBAGENTS_ROUTE_1],
     verifier=StepVerifier(
         kind="python_callable",
@@ -97,8 +86,7 @@ AUTONOMOUS_ROUNDTABLE_ROUTE_1 = SkillRoute(
         operations=['moderated perspective rotation', 'grounded expert turn', 'coverage-driven follow-up research'],
         file_patterns=[],
     ),
-    usage_notes=['Primary owner for one autonomous roundtable turn; runtime policy, not the skill, owns node '
- 'routing.'],
+    usage_notes=['Primary owner for one autonomous roundtable turn; return one explicit structured decision.'],
 )
 
 AUTONOMOUS_ROUNDTABLE = StepContract(
@@ -169,7 +157,7 @@ SYNTHESIZE_REPORT_ROUTE_1 = SkillRoute(
 )
 
 SYNTHESIZE_REPORT = StepContract(
-    done_when=['A repository-accessible report file exists.',
+    done_when=['A report artifact exists.',
  'The report has a clear outline with at least two substantive sections.',
  'Inline numeric citations refer to the carried-forward evidence registry.',
  'The report is ready for an independent quality and citation gate.'],
@@ -224,11 +212,11 @@ REPAIR_REPORT_ROUTE_1 = SkillRoute(
         operations=['citation repair planning', 'section coverage repair', 'grounded report revision'],
         file_patterns=[],
     ),
-    usage_notes=['Primary owner for report-specific recovery; it returns control to synthesize_report.'],
+    usage_notes=['Primary owner for report-specific recovery; it prepares the next report pass.'],
 )
 
 REPAIR_REPORT = StepContract(
-    done_when=['The persisted audit findings are translated into concrete repair actions.',
+    done_when=['The available audit or repair context is translated into concrete repair actions.',
  'The repair handoff is ready for the report synthesis stage.',
  'No unsupported new facts are introduced during repair.'],
     output_schema={'report_repair_summary': 'string', 'repair_actions': 'string[]', 'repair_ready': 'boolean'},
@@ -244,7 +232,7 @@ REPAIR_REPORT = StepContract(
 
 REQUEST_UNBLOCKING_INPUT = StepContract(
     done_when=['Identify the blocking reason',
- 'Record a host-visible diagnostic for the missing dependency without requesting a user response'],
+ 'Record a diagnostic for the missing dependency without requesting a user response'],
     output_schema={'blocking_reason': 'string', 'host_action_needed': 'string', 'suggested_host_action': 'string?'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
 )

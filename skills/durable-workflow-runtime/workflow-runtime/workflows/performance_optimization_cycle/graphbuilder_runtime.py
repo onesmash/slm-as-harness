@@ -283,6 +283,11 @@ def build_template_context(*, step_id: str, run_state) -> dict:
             "repair_summary": str(repair_payload.get("summary") or ""),
             "repair_requirements": _format_prompt_list(repair_payload.get("requirements")),
             "repair_evidence": _format_prompt_list(repair_payload.get("evidence")),
+            "terminal_reason": str(getattr(run_state, "terminal_reason", "") or ""),
+            "degraded": str(
+                bool(getattr(run_state, "artifacts_degraded", False))
+                or str(getattr(run_state, "terminal_reason", "") or "") == "max_steps_exceeded"
+            ).lower(),
         }
     )
     return context
@@ -323,10 +328,18 @@ def _template_context_from_state(state: workflow_state.PerformanceOptimizationCy
         "review_findings": _format_prompt_value(state.review_findings),
         "knowledge_base_update_summary": _format_prompt_value(state.knowledge_base_update_summary),
         "knowledge_base_artifacts": _format_prompt_value(state.knowledge_base_artifacts),
+        "continue_optimization": _format_prompt_value(state.continue_optimization),
+        "completed_optimization_cycles": _format_prompt_value(
+            state.completed_optimization_cycles
+        ),
+        "optimization_cycles_completed": _format_prompt_value(
+            state.completed_optimization_cycles
+        ),
         "blocked_cycle_next_lead": _format_prompt_value(state.blocked_cycle_next_lead),
         "goal": _format_prompt_value(task_input_values.get("goal")),
         "baseline_cycles": _format_prompt_value(task_input_values.get("baseline_cycles")),
         "repo_root": _format_prompt_value(context_values.get("repo_root")),
+        "max_cycles": _format_prompt_value(constraint_values.get("max_cycles", 3)),
         }
     )
     return context

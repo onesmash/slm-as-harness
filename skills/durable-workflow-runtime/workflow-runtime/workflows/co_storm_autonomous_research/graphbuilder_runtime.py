@@ -74,8 +74,8 @@ NODE_DEFINITIONS = {
     "launch_expert_subagents": NodeDefinition(
         step_id="launch_expert_subagents",
         prompt_asset_path=PROMPTS_DIR / "launch_expert_subagents.md",
-        intent="launch_independent_expert_subagents",
-        expected_artifact="parallel independent expert-subagent run manifest, one grounded result per expert, and repository-relative result artifacts",
+        intent="collect_independent_expert_results",
+        expected_artifact="one grounded result and one distinct artifact for each expert",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "autonomous_roundtable": NodeDefinition(
@@ -96,7 +96,7 @@ NODE_DEFINITIONS = {
         step_id="synthesize_report",
         prompt_asset_path=PROMPTS_DIR / "synthesize_report.md",
         intent="synthesize_the_cited_report",
-        expected_artifact="structured report file with sections, inline citations, and a report summary",
+        expected_artifact="structured report artifact with sections, inline citations, and a report summary",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "verify_report": NodeDefinition(
@@ -117,7 +117,7 @@ NODE_DEFINITIONS = {
         step_id="request_unblocking_input",
         prompt_asset_path=PROMPTS_DIR / "request_unblocking_input.md",
         intent="request_unblocking_input",
-        expected_artifact='host-visible external-block diagnostic (compatibility fallback only)',
+        expected_artifact='external-block diagnostic (compatibility fallback only)',
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "repair_and_resume": NodeDefinition(
@@ -269,7 +269,8 @@ def build_template_context(*, step_id: str, run_state) -> dict:
     state = workflow_state.deserialize_state(
         run_state.graph_state if isinstance(run_state.graph_state, dict) else {}
     )
-    repair_context = state.repair_context if isinstance(state.repair_context, dict) else {}
+    repair_context_value = getattr(state, "repair_context", {})
+    repair_context = repair_context_value if isinstance(repair_context_value, dict) else {}
     repair_payload = repair_context.get("repair_payload")
     if not isinstance(repair_payload, dict):
         repair_payload = {}
@@ -277,46 +278,52 @@ def build_template_context(*, step_id: str, run_state) -> dict:
     context.update(
         {
             "current_step_id": step_id,
-            "return_stage_id": state.return_stage_id or "",
+            "return_stage_id": getattr(state, "return_stage_id", None) or "",
             "source_stage_id": str(repair_context.get("source_stage_id") or ""),
             "repair_category": str(repair_payload.get("category") or ""),
             "repair_summary": str(repair_payload.get("summary") or ""),
             "repair_requirements": _format_prompt_list(repair_payload.get("requirements")),
             "repair_evidence": _format_prompt_list(repair_payload.get("evidence")),
+            "repair_blocked_attempts": _format_prompt_value(getattr(state, "repair_blocked_attempts", 0)),
+            "terminal_reason": str(getattr(run_state, "terminal_reason", "") or ""),
+            "degraded": str(
+                bool(getattr(run_state, "artifacts_degraded", False))
+                or str(getattr(run_state, "terminal_reason", "") or "") == "max_steps_exceeded"
+            ).lower(),
         }
     )
     return context
 
 
 def _template_context_from_state(state: workflow_state.CoStormAutonomousResearchWorkflowState) -> dict:
-    task_input_values = state.task_input if isinstance(state.task_input, dict) else {}
-    context_values = state.context if isinstance(state.context, dict) else {}
-    constraint_values = state.constraints if isinstance(state.constraints, dict) else {}
+    task_input_value = getattr(state, "task_input", {})
+    context_value = getattr(state, "context", {})
+    constraints_value = getattr(state, "constraints", {})
+    task_input_values = task_input_value if isinstance(task_input_value, dict) else {}
+    context_values = context_value if isinstance(context_value, dict) else {}
+    constraint_values = constraints_value if isinstance(constraints_value, dict) else {}
     context = {
-        "workflow_goal": state.workflow_goal or "",
-        "task_input_json": json.dumps(state.task_input, ensure_ascii=False, indent=2),
-        "context_json": json.dumps(state.context, ensure_ascii=False, indent=2),
-        "constraints_json": json.dumps(state.constraints, ensure_ascii=False, indent=2),
+        "workflow_goal": getattr(state, "workflow_goal", None) or "",
+        "task_input_json": json.dumps(task_input_values, ensure_ascii=False, indent=2),
+        "context_json": json.dumps(context_values, ensure_ascii=False, indent=2),
+        "constraints_json": json.dumps(constraint_values, ensure_ascii=False, indent=2),
     }
     context.update(
         {
         "artifacts_by_stage_json": json.dumps(state.artifacts_by_stage, ensure_ascii=False, indent=2),
+        "repair_requirements": _format_prompt_value(state.repair_requirements),
+        "repair_evidence": _format_prompt_value(state.repair_evidence),
+        "repair_transition_reason": _format_prompt_value(state.repair_transition_reason),
+        "repair_blocked_attempts": _format_prompt_value(state.repair_blocked_attempts),
         "expert_roster": _format_prompt_value(state.expert_roster),
         "conversation_transcript": _format_prompt_value(state.conversation_transcript),
         "knowledge_map_summary": _format_prompt_value(state.knowledge_map_summary),
         "evidence_registry": _format_prompt_value(state.evidence_registry),
         "coverage_map": _format_prompt_value(state.coverage_map),
         "round_index": _format_prompt_value(state.round_index),
-        "fanout_round_index": _format_prompt_value(state.fanout_round_index),
-        "subagent_expert_ids": _format_prompt_value(state.subagent_expert_ids),
-        "subagent_run_ids": _format_prompt_value(state.subagent_run_ids),
-        "subagent_result_summaries": _format_prompt_value(state.subagent_result_summaries),
-        "subagent_artifact_paths": _format_prompt_value(state.subagent_artifact_paths),
-        "subagent_binding_records": _format_prompt_value(state.subagent_binding_records),
-        "subagent_run_history": _format_prompt_value(state.subagent_run_history),
-        "subagent_attempt_history": _format_prompt_value(state.subagent_attempt_history),
-        "current_fanout_attempt": _format_prompt_value(state.current_fanout_attempt),
-        "fanout_complete": _format_prompt_value(state.fanout_complete),
+        "expert_round_index": _format_prompt_value(state.expert_round_index),
+        "expert_results": _format_prompt_value(state.expert_results),
+        "expert_results_complete": _format_prompt_value(state.expert_results_complete),
         "last_turn_summary": _format_prompt_value(state.last_turn_summary),
         "round_decision": _format_prompt_value(state.round_decision),
         "coverage_sufficient": _format_prompt_value(state.coverage_sufficient),

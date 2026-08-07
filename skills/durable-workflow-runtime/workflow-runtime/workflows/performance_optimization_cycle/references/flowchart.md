@@ -12,18 +12,20 @@ flowchart TD
     research_optimization -->|success| implement_optimization[implement_optimization]
     implement_optimization -->|success| review_optimization[review_optimization]
     review_optimization -->|success| update_optimization_knowledge_base[update_optimization_knowledge_base]
-    update_optimization_knowledge_base -->|success| finalize_optimization_cycle([finalize_optimization_cycle])
+    update_optimization_knowledge_base -->|default success| finalize_optimization_cycle([finalize_optimization_cycle])
     diagnose_performance -->|blocked| capture_blocked_cycle_knowledge[capture_blocked_cycle_knowledge]
     brainstorm_optimization -->|blocked| capture_blocked_cycle_knowledge[capture_blocked_cycle_knowledge]
     research_optimization -->|blocked| capture_blocked_cycle_knowledge[capture_blocked_cycle_knowledge]
     implement_optimization -->|blocked| capture_blocked_cycle_knowledge[capture_blocked_cycle_knowledge]
     review_optimization -->|blocked| capture_blocked_cycle_knowledge[capture_blocked_cycle_knowledge]
     update_optimization_knowledge_base -->|blocked| capture_blocked_cycle_knowledge[capture_blocked_cycle_knowledge]
-    update_optimization_knowledge_base -->|continue_optimization is_true| diagnose_performance[diagnose_performance]
+    update_optimization_knowledge_base -->|continue_optimization is_true and cycle limit remains| diagnose_performance[diagnose_performance]
+    update_optimization_knowledge_base -->|continue_optimization is_true and max_cycles limit reached| finalize_optimization_cycle([finalize_optimization_cycle])
     capture_blocked_cycle_knowledge -->|blocked| diagnose_performance[diagnose_performance]
     capture_blocked_cycle_knowledge -->|partial| diagnose_performance[diagnose_performance]
     capture_blocked_cycle_knowledge -->|failed| diagnose_performance[diagnose_performance]
     capture_blocked_cycle_knowledge -->|verifier_failed| diagnose_performance[diagnose_performance]
+    capture_blocked_cycle_knowledge -->|verifier missing| diagnose_performance[diagnose_performance]
     capture_blocked_cycle_knowledge -->|recovery complete| diagnose_performance[diagnose_performance]
     unblock_loop[[request_unblocking_input]]
     repair_loop[[repair_and_resume]]
@@ -41,7 +43,7 @@ flowchart TD
     repair_loop -.->|blocked before 3 tries / partial / failed / missing return_stage_id| repair_loop
 ```
 
-Global note: if `max_steps` is exceeded, runtime policy preempts normal business routing and sends the workflow to `repair_and_resume`; that shared repair stage may escalate to `request_unblocking_input` only after 3 blocked self-repair attempts while preserving `return_stage_id`.
+Global note: if `max_steps` is exceeded, the runtime may preempt normal business routing and emit the final step with degraded metadata; the final prompt must label the result as a partial handoff and must not claim that all gates passed.
 
 ## Stage Responsibilities
 
@@ -54,7 +56,7 @@ Global note: if `max_steps` is exceeded, runtime policy preempts normal business
 | `review_optimization` | Review correctness, performance evidence, and compliance with the optimization constraints before knowledge-base maintenance. | review findings and acceptance decision for the optimized kernel | Review findings and a readiness decision are recorded. |
 | `update_optimization_knowledge_base` | Persist the evidence, implementation outcome, and review decision in the repository knowledge base, then make an explicit next-cycle decision. | updated durable knowledge-base record and next-cycle decision | The updated knowledge-base artifacts and update summary are recorded.<br>The workflow explicitly decides whether to start another optimization iteration. |
 | `capture_blocked_cycle_knowledge` | Persist the blocker and any usable evidence as a concise durable learning record, so the next optimization cycle starts without asking the user to unblock this one. | durable knowledge-base record of the blocked stage and its next-cycle learning | A concise record of the blocked stage, blocker, evidence, and next-cycle lead is written to the knowledge base.<br>The workflow is ready to begin a fresh performance diagnosis without waiting for user input. |
-| `finalize_optimization_cycle` | Summarize the completed optimization cycle, including its hypothesis, evidence, implementation verification, review result, knowledge-base artifacts, and the reason no further iteration is scheduled. | Final workflow summary or handoff artifact. | Previous business stage completed successfully. |
+| `finalize_optimization_cycle` | Summarize the optimization handoff, including its hypothesis, evidence, implementation verification, review result, knowledge-base artifacts, and why no further iteration is scheduled. If {{degraded}} is true or {{terminal_reason}} is max_steps_exceeded, explicitly label the result partial and do not claim that the optimization cycle completed or passed all gates. Include whether another iteration was requested ({{continue_optimization}}) and the configured cycle limit ({{max_cycles}}). | Final workflow summary or handoff artifact. | Previous business stage completed successfully. |
 
 ## Maintenance Notes
 

@@ -11,6 +11,7 @@ Stage Context:
 - {{repair_requirements}}
 - Relevant evidence:
 - {{repair_evidence}}
+- Latest unblocking input: {{unblocking_blocking_reason}}; {{unblocking_user_action_needed}}; {{unblocking_suggested_next_input}}
 - Blocked self-repair attempts in this repair episode: {{repair_blocked_attempts}}
 
 Stage Boundaries:
