@@ -127,7 +127,7 @@
       "scope": "either",
       "source": "skill-catalog:agent-device",
       "purpose": "Provide supporting iOS device UI exploration, accessibility snapshots, replay, and runtime evidence during release QA.",
-      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill agent-device -g -y --agent claude-code cursor codex"
+      "install_command": "npx skills add callstack/agent-device --skill agent-device -g -y --agent claude-code cursor codex"
     },
     {
       "id": "agent-device-cli",
