@@ -5,7 +5,17 @@ WORKFLOW_ID = 'ios_ai_assisted_development_flow'
 
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     task_input_schema={'goal': 'string', 'preferred_change_name': 'string?'},
-    context_schema={'repo_root': 'string', 'source_doc_url': 'string?', 'source_skill_url': 'string?'},
+    context_schema={'repo_root': 'string',
+ 'source_doc_url': 'string?',
+ 'source_skill_url': 'string?',
+ 'agent_device_mode': 'string?',
+ 'agent_device_app_id': 'string?',
+ 'agent_device_artifact_path': 'string?',
+ 'agent_device_device': 'string?',
+ 'agent_device_session': 'string?',
+ 'agent_device_replay_suite': 'string?',
+ 'agent_device_evidence_dir': 'string?',
+ 'agent_device_expected_version': 'string?'},
     constraints_schema={'max_steps': 'integer?'},
 )
 
@@ -108,6 +118,17 @@ RUN_SPEC_REVIEW_ROUTE_2 = SkillRoute(
     usage_notes=['Supporting review lens for the development-oriented portion of the independent spec review loop.'],
 )
 
+RUN_SPEC_REVIEW_ROUTE_3 = SkillRoute(
+    skill='test-nex',
+    use_when=SkillUseWhen(
+        operations=['testing perspective spec review',
+ 'regression-testability review',
+ 'verification and failure-path review'],
+        file_patterns=['docs/superpowers/specs/*.md'],
+    ),
+    usage_notes=['Supporting review lens for the testing-oriented portion of the independent spec review loop.'],
+)
+
 RUN_SPEC_REVIEW = StepContract(
     done_when=['Concrete review artifacts from the development, design, and testing subagent reviews are handed '
  'in.',
@@ -122,7 +143,7 @@ RUN_SPEC_REVIEW = StepContract(
  'open_questions': 'string[]',
  'ready_for_planning': 'boolean'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
-    skill_routing=[RUN_SPEC_REVIEW_ROUTE_1, RUN_SPEC_REVIEW_ROUTE_2],
+    skill_routing=[RUN_SPEC_REVIEW_ROUTE_1, RUN_SPEC_REVIEW_ROUTE_2, RUN_SPEC_REVIEW_ROUTE_3],
     verifier=StepVerifier(
         kind="python_callable",
         ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_run_spec_review",
@@ -304,6 +325,26 @@ RUN_AGENTIC_RELEASE_QA_ROUTE_2 = SkillRoute(
  'risks through the release QA output.'],
 )
 
+RUN_AGENTIC_RELEASE_QA_ROUTE_3 = SkillRoute(
+    skill='agent-device',
+    use_when=SkillUseWhen(
+        operations=['iOS installed-app UI exploration',
+ 'accessibility snapshot and selector/ref interaction',
+ 'device screenshot, logs, performance, and trace evidence',
+ 'deterministic .ad replay and E2E test evidence'],
+        file_patterns=['*.ad', '**/screenshots/**', '**/snapshots/**', '**/test-artifacts/**', '**/session-artifacts/**'],
+    ),
+    usage_notes=['Supporting route only; agentic-release-qa remains the primary release verdict owner.',
+ 'Use agent-device for actual installed-app/device evidence and return commands, status, session, '
+ 'and artifact paths through release QA output.',
+ 'Keep mutations in one agent-device session serial and use the latest snapshot/ref/selector for '
+ 'follow-up actions.',
+ 'Prepare the iOS runner before snapshot, replay, or test operations; use a version-matched CLI '
+ 'and do not install an unpinned latest release from the workflow.',
+ 'If device mode is off, do not claim device evidence; if required prerequisites are unavailable, '
+ 'report blocked.'],
+)
+
 RUN_AGENTIC_RELEASE_QA = StepContract(
     done_when=['The QA pass identifies the code range or artifact under test.',
  'Change-derived release risks are summarized.',
@@ -317,12 +358,22 @@ RUN_AGENTIC_RELEASE_QA = StepContract(
  'release_qa_blocked_checks': 'string[]',
  'release_qa_risk_next_steps': 'string[]',
  'release_qa_artifacts': 'string[]',
- 'release_qa_target_scope': 'string'},
+ 'release_qa_target_scope': 'string',
+ 'agent_device_status': 'string?',
+ 'agent_device_commands': 'string[]?',
+ 'agent_device_artifacts': 'string[]?',
+ 'agent_device_session': 'string?',
+ 'agent_device_replay_suite': 'string?',
+ 'agent_device_cli_version': 'string?',
+ 'agent_device_observed_device': 'string?',
+ 'agent_device_observed_app_id': 'string?',
+ 'agent_device_runner_status': 'string?',
+ 'agent_device_execution_receipt': 'string?'},
     failure_schema={'blocked_reason': 'string?',
  'error_message': 'string?',
  'missing_inputs': 'string[]?',
  'failed_commands': 'string[]?'},
-    skill_routing=[RUN_AGENTIC_RELEASE_QA_ROUTE_1, RUN_AGENTIC_RELEASE_QA_ROUTE_2],
+    skill_routing=[RUN_AGENTIC_RELEASE_QA_ROUTE_1, RUN_AGENTIC_RELEASE_QA_ROUTE_2, RUN_AGENTIC_RELEASE_QA_ROUTE_3],
     verifier=StepVerifier(
         kind="python_callable",
         ref="workflows.ios_ai_assisted_development_flow.verifiers:verify_run_agentic_release_qa",

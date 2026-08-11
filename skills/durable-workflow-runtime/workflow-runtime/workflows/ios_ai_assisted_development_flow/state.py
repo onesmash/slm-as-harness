@@ -26,6 +26,40 @@ REPAIR_STAGE_IDS = (
 FINAL_STAGE_ID = "finalize_delivery_summary"
 ALL_STAGE_IDS = set(MAIN_STAGE_IDS) | set(REPAIR_STAGE_IDS) | {FINAL_STAGE_ID}
 
+_AGENT_DEVICE_CONTEXT_KEYS = (
+    "agent_device_mode",
+    "agent_device_app_id",
+    "agent_device_artifact_path",
+    "agent_device_device",
+    "agent_device_session",
+    "agent_device_replay_suite",
+    "agent_device_evidence_dir",
+    "agent_device_expected_version",
+)
+_PERSISTED_STRING_LIST_KEYS = (
+    "clarification_questions",
+    "open_questions",
+    "spec_review_perspectives",
+    "spec_review_subagent_summaries",
+    "spec_review_artifact_paths",
+    "implementation_completed_tasks",
+    "implementation_remaining_tasks",
+    "changed_files",
+    "verification_commands",
+    "open_issues",
+    "release_qa_executed_checks",
+    "release_qa_blocked_checks",
+    "release_qa_risk_next_steps",
+    "release_qa_artifacts",
+    "agent_device_commands",
+    "agent_device_artifacts",
+    "review_findings",
+    "completion_verification_evidence",
+    "completion_remaining_risks",
+    "repair_requirements",
+    "repair_evidence",
+)
+
 
 @dataclass
 class IosAiAssistedDevelopmentFlowWorkflowState:
@@ -78,6 +112,16 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
     release_qa_risk_next_steps: list = field(default_factory=list)
     release_qa_artifacts: list = field(default_factory=list)
     release_qa_target_scope: str | None = None
+    agent_device_status: str | None = None
+    agent_device_commands: list = field(default_factory=list)
+    agent_device_artifacts: list = field(default_factory=list)
+    agent_device_session: str | None = None
+    agent_device_replay_suite: str | None = None
+    agent_device_cli_version: str | None = None
+    agent_device_observed_device: str | None = None
+    agent_device_observed_app_id: str | None = None
+    agent_device_runner_status: str | None = None
+    agent_device_execution_receipt: str | None = None
     review_status: str | None = None
     reviewed_snapshot: str | None = None
     review_findings: list = field(default_factory=list)
@@ -105,11 +149,14 @@ class IosAiAssistedDevelopmentFlowWorkflowState:
 
 def make_initial_state(request: dict) -> IosAiAssistedDevelopmentFlowWorkflowState:
     task_input = dict(request.get("task_input") or {})
+    context = dict(request.get("context") or {})
     return IosAiAssistedDevelopmentFlowWorkflowState(
         workflow_goal=_select_workflow_goal(task_input),
         task_input=task_input,
-        context=dict(request.get("context") or {}),
+        context=context,
         constraints=dict(request.get("constraints") or {}),
+        agent_device_session=_optional_text(context.get("agent_device_session")),
+        agent_device_replay_suite=_optional_text(context.get("agent_device_replay_suite")),
     )
 
 
@@ -129,6 +176,71 @@ def serialize_state(state: IosAiAssistedDevelopmentFlowWorkflowState) -> dict:
     return payload
 
 
+def _validate_persisted_state_payload(payload: dict) -> None:
+    raw_attempt_counts = payload.get("attempt_counts")
+    if raw_attempt_counts is not None:
+        if not isinstance(raw_attempt_counts, dict):
+            raise ValueError("persisted attempt_counts must be an object")
+        for stage_id, count in raw_attempt_counts.items():
+            if not isinstance(stage_id, str):
+                raise ValueError("persisted attempt_counts keys must be strings")
+            if isinstance(count, bool) or not isinstance(count, int) or count < 0:
+                raise ValueError(
+                    f"persisted attempt_counts[{stage_id!r}] must be a non-negative integer"
+                )
+
+    for key in _PERSISTED_STRING_LIST_KEYS:
+        raw_value = payload.get(key)
+        if raw_value is None:
+            continue
+        if not isinstance(raw_value, list):
+            raise ValueError(f"persisted {key} must be a list")
+        if any(not isinstance(item, str) for item in raw_value):
+            raise ValueError(f"persisted {key} must contain only strings")
+
+    raw_context = payload.get("context")
+    if isinstance(raw_context, dict):
+        for key in _AGENT_DEVICE_CONTEXT_KEYS:
+            if key in raw_context and raw_context[key] is not None and not isinstance(raw_context[key], str):
+                raise ValueError(f"persisted context.{key} must be a string")
+
+    for key in (
+        "agent_device_status",
+        "agent_device_session",
+        "agent_device_replay_suite",
+        "agent_device_cli_version",
+        "agent_device_observed_device",
+        "agent_device_observed_app_id",
+        "agent_device_runner_status",
+        "agent_device_execution_receipt",
+    ):
+        value = payload.get(key)
+        if value is not None and not isinstance(value, str):
+            raise ValueError(f"persisted {key} must be a string")
+
+    repair_blocked_attempts = payload.get("repair_blocked_attempts")
+    if repair_blocked_attempts is not None and (
+        isinstance(repair_blocked_attempts, bool)
+        or not isinstance(repair_blocked_attempts, int)
+        or repair_blocked_attempts < 0
+    ):
+        raise ValueError("persisted repair_blocked_attempts must be a non-negative integer")
+
+    raw_repair_context = payload.get("repair_context")
+    if raw_repair_context is not None and not isinstance(raw_repair_context, dict):
+        raise ValueError("persisted repair_context must be an object")
+
+    raw_artifacts = payload.get("artifacts_by_stage")
+    if raw_artifacts is not None:
+        if not isinstance(raw_artifacts, dict):
+            raise ValueError("persisted artifacts_by_stage must be an object")
+        for stage_id, entries in raw_artifacts.items():
+            if not isinstance(stage_id, str) or not isinstance(entries, list):
+                raise ValueError("persisted artifacts_by_stage has invalid entries")
+            if any(not isinstance(entry, dict) for entry in entries):
+                raise ValueError("persisted artifacts_by_stage entries must be objects")
+
+
 def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkflowState:
     if payload is None:
         payload = {}
@@ -146,6 +258,7 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         raise ValueError("persisted constraints must be an object")
     if raw_completed_stages is not None and not isinstance(raw_completed_stages, list):
         raise ValueError("persisted completed_stages must be a list")
+    _validate_persisted_state_payload(payload)
     completed_stages = list(raw_completed_stages or [])
     if any(
         not isinstance(stage_id, str)
@@ -203,6 +316,16 @@ def deserialize_state(payload: dict | None) -> IosAiAssistedDevelopmentFlowWorkf
         release_qa_risk_next_steps=list(payload.get('release_qa_risk_next_steps') or []),
         release_qa_artifacts=list(payload.get('release_qa_artifacts') or []),
         release_qa_target_scope=payload.get('release_qa_target_scope'),
+        agent_device_status=payload.get('agent_device_status'),
+        agent_device_commands=list(payload.get('agent_device_commands') or []),
+        agent_device_artifacts=list(payload.get('agent_device_artifacts') or []),
+        agent_device_session=payload.get('agent_device_session'),
+        agent_device_replay_suite=payload.get('agent_device_replay_suite'),
+        agent_device_cli_version=payload.get('agent_device_cli_version'),
+        agent_device_observed_device=payload.get('agent_device_observed_device'),
+        agent_device_observed_app_id=payload.get('agent_device_observed_app_id'),
+        agent_device_runner_status=payload.get('agent_device_runner_status'),
+        agent_device_execution_receipt=payload.get('agent_device_execution_receipt'),
         review_status=payload.get('review_status'),
         reviewed_snapshot=payload.get('reviewed_snapshot'),
         review_findings=list(payload.get('review_findings') or []),
@@ -253,24 +376,33 @@ def record_observation(
             observation=observation,
             verifier_result=verifier_result,
         )
-        if repair_payload is not None:
-            return_stage_id = determine_return_stage_id(
-                current_step_id=current_step_id,
-                existing_return_stage_id=state.return_stage_id,
-            )
-            state.return_stage_id = return_stage_id
-            state.repair_context = _build_repair_context(
-                current_step_id=current_step_id,
-                return_stage_id=return_stage_id,
-                transition_reason="verifier_failed",
-                repair_payload=repair_payload,
-            )
-            _apply_repair_payload(
-                state,
-                transition_reason="verifier_failed",
-                repair_payload=repair_payload,
-                reset_blocked_attempts=True,
-            )
+        if repair_payload is None:
+            summary = _optional_text(observation.get("summary"))
+            repair_payload = {
+                "category": "verifier_missing",
+                "summary": summary or f"{current_step_id} completed without a verifier result.",
+                "requirements": [
+                    "Restore a valid verifier result before retrying the original stage.",
+                ],
+                "evidence": [summary] if summary else [],
+            }
+        return_stage_id = determine_return_stage_id(
+            current_step_id=current_step_id,
+            existing_return_stage_id=state.return_stage_id,
+        )
+        state.return_stage_id = return_stage_id
+        state.repair_context = _build_repair_context(
+            current_step_id=current_step_id,
+            return_stage_id=return_stage_id,
+            transition_reason="verifier_failed",
+            repair_payload=repair_payload,
+        )
+        _apply_repair_payload(
+            state,
+            transition_reason="verifier_failed",
+            repair_payload=repair_payload,
+            reset_blocked_attempts=True,
+        )
         if budget_exhausted:
             _mark_max_steps_terminal(state)
         return
@@ -352,6 +484,16 @@ def record_observation(
                 state.release_qa_risk_next_steps = _list_value(structured_output.get('release_qa_risk_next_steps'))
                 state.release_qa_artifacts = _list_value(structured_output.get('release_qa_artifacts'))
                 state.release_qa_target_scope = structured_output.get('release_qa_target_scope')
+                state.agent_device_status = structured_output.get('agent_device_status')
+                state.agent_device_commands = _list_value(structured_output.get('agent_device_commands'))
+                state.agent_device_artifacts = _list_value(structured_output.get('agent_device_artifacts'))
+                state.agent_device_session = structured_output.get('agent_device_session')
+                state.agent_device_replay_suite = structured_output.get('agent_device_replay_suite')
+                state.agent_device_cli_version = structured_output.get('agent_device_cli_version')
+                state.agent_device_observed_device = structured_output.get('agent_device_observed_device')
+                state.agent_device_observed_app_id = structured_output.get('agent_device_observed_app_id')
+                state.agent_device_runner_status = structured_output.get('agent_device_runner_status')
+                state.agent_device_execution_receipt = structured_output.get('agent_device_execution_receipt')
             elif current_step_id == 'request_pre_merge_code_review':
                 state.review_status = structured_output.get('review_status')
                 state.reviewed_snapshot = structured_output.get('reviewed_snapshot')
@@ -409,6 +551,16 @@ def record_observation(
         observation=observation,
         verifier_result=verifier_result,
     )
+    if repair_payload is None and current_step_id in MAIN_STAGE_IDS:
+        summary = _optional_text(observation.get("summary"))
+        repair_payload = {
+            "category": "verifier_missing",
+            "summary": summary or f"{current_step_id} completed without a verifier result.",
+            "requirements": [
+                "Restore a valid verifier result before retrying the original stage.",
+            ],
+            "evidence": [summary] if summary else [],
+        }
     state.return_stage_id = return_stage_id
     state.repair_context = _build_repair_context(
         current_step_id=_repair_context_source_stage_id(state, current_step_id),

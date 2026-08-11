@@ -10,7 +10,15 @@
     "context": {
       "repo_root": "string",
       "source_doc_url": "string?",
-      "source_skill_url": "string?"
+      "source_skill_url": "string?",
+      "agent_device_mode": "string?",
+      "agent_device_app_id": "string?",
+      "agent_device_artifact_path": "string?",
+      "agent_device_device": "string?",
+      "agent_device_session": "string?",
+      "agent_device_replay_suite": "string?",
+      "agent_device_evidence_dir": "string?",
+      "agent_device_expected_version": "string?"
     },
     "constraints": {
       "max_steps": "integer?"
@@ -113,6 +121,24 @@
       "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill pixel-diff -g -y --agent claude-code cursor codex"
     },
     {
+      "id": "agent-device",
+      "type": "skill",
+      "required": false,
+      "scope": "either",
+      "source": "skill-catalog:agent-device",
+      "purpose": "Provide supporting iOS device UI exploration, accessibility snapshots, replay, and runtime evidence during release QA.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill agent-device -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "agent-device-cli",
+      "type": "cli",
+      "required": false,
+      "scope": "global",
+      "source": "npm:agent-device",
+      "purpose": "Preflight the optional agent-device executable; required mode performs additional version, device, runner, and artifact checks.",
+      "command": "agent-device"
+    },
+    {
       "id": "requesting-code-review",
       "type": "skill",
       "required": true,
@@ -154,6 +180,15 @@
       "source": "skill-catalog:software-design-philosophy",
       "purpose": "Evaluate development-perspective spec quality for design decisions, impact scope, and implementation readiness.",
       "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill software-design-philosophy -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "test-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:test-nex",
+      "purpose": "Evaluate testing perspective, regression coverage, and verification failure paths during the independent spec review loop.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill test-nex -g -y --agent claude-code cursor codex"
     }
   ]
 }

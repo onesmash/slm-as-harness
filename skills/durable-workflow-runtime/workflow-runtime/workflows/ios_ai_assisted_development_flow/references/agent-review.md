@@ -16,7 +16,31 @@ the right workflow.
 - `request_pre_merge_code_review`
 - `verify_completion`
 
+## State Ownership
+
+- `state_mode`: `custom`.
+- When `state_mode` is `custom`, review the existing workflow `state.py` as a
+  domain-owned implementation and verify strict persisted-state validation,
+  bounded serialization, and fail-closed verifier promotion before sign-off.
+
 ## Declared Custom Verifier Requirements
+
+### `run_brainstorming`
+
+- `ui_visual_inputs_require_meaningful_text`: When a UI surface is affected, visual QA inputs must contain meaningful non-whitespace text rather than placeholder whitespace.
+  Signals: `ui_surface_affected`, `visual_spec_detail_summary`, `design_comparison_source`, `runtime_visual_comparison_scope`
+  Implementation surfaces: `verifier`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
+  Implementation notes: Normalize each required visual-QA input with trim semantics and fail closed when UI impact is true but any input is missing or whitespace-only.
+  Hint pseudocode:
+    - If ui_surface_affected is not true, do not apply this UI-specific requirement.
+    - When ui_surface_affected is true, require visual_spec_detail_summary, design_comparison_source, and runtime_visual_comparison_scope to contain non-whitespace text.
+  Test intent:
+    - Reject UI-impacting brainstorming output whose visual-QA inputs are whitespace-only.
+    - Accept non-UI brainstorming output without visual-QA inputs.
+    - Accept UI-impacting brainstorming output with meaningful visual-QA inputs.
 
 ### `run_spec_review`
 
@@ -116,6 +140,34 @@ the right workflow.
   Test intent:
     - Reject ship outputs that still include blocked checks.
     - Accept ship outputs only when blocked checks are empty.
+- `required_agent_device_evidence`: When agent_device_mode is required, release QA must prove that agent-device ran successfully with meaningful commands and artifact evidence; off or empty mode must not create a device gate.
+  Signals: `context.agent_device_mode`, `context.agent_device_expected_version`, `context.agent_device_app_id`, `context.agent_device_artifact_path`, `context.agent_device_device`, `context.agent_device_evidence_dir`, `agent_device_status`, `agent_device_commands`, `agent_device_artifacts`, `agent_device_cli_version`, `agent_device_observed_device`, `agent_device_observed_app_id`, `agent_device_runner_status`, `agent_device_execution_receipt`, `release_qa_target_scope`, `release_qa_blocked_checks`
+  Implementation surfaces: `verifier`, `state`, `tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
+  Implementation notes: The verifier must read the persisted workflow context, fail closed only for required mode, require the declared version/app/artifact/device/evidence inputs, require structured host observations for the actual CLI version, device, app, and runner status, require a bounded JSON execution receipt tied to the current workflow run, require runner-preparation evidence before device operations, require regular build and evidence files, and reject unsafe artifact paths. It must not require the CLI or device when mode is off or empty; command execution remains a host responsibility, while the verifier validates the returned observations, receipt, and bounded files.
+  Hint pseudocode:
+    - Read context.agent_device_mode from persisted state and normalize whitespace/case.
+    - If the mode is not required, return no device-specific verifier error.
+    - When required, require context to identify the expected CLI version, app, build artifact, target device, and evidence directory.
+    - When required, require agent_device_status to equal succeeded, agent_device_commands to contain meaningful entries including runner preparation before device operations, agent_device_artifacts to contain safe relative paths under the repository, and release_qa_target_scope to identify the app/build/device target.
+    - Require agent_device_cli_version to exactly match the expected version, agent_device_observed_device to exactly match the configured target device, agent_device_observed_app_id to exactly match the configured app id, and agent_device_runner_status to equal succeeded.
+    - Require the declared build artifact and every evidence artifact to exist as regular non-symlink files under the repository and evidence directory.
+    - Require agent_device_execution_receipt to point to a regular JSON file under the evidence directory whose run_id, status, CLI version, device, app, runner status, commands, build artifact, and artifacts match the current host observations and workflow run.
+    - When session or replay suite is configured, require the reported values and corresponding receipt values to exactly match the configured values.
+    - Reject required-mode output when release_qa_blocked_checks contains meaningful unresolved device blockers.
+    - Keep actual CLI command execution in the workflow host/agent, and pass its observed version/device/app/runner results plus bounded artifact paths into the verifier.
+  Test intent:
+    - Accept release QA with agent_device_mode off and no device output.
+    - Reject required mode when agent-device status, commands, or artifacts are missing.
+    - Reject required mode when agent-device status is blocked or failed.
+    - Reject required mode when version, app, build artifact, target device, or evidence destination is missing.
+    - Reject required mode when an artifact path is absolute, traverses a parent directory, or bypasses the repository boundary.
+    - Reject required mode when observed CLI/device/app/runner evidence is missing or mismatched.
+    - Reject required mode when the declared build or evidence artifact is missing or not a regular file.
+    - Reject required mode when the execution receipt is missing, malformed, from another run, or inconsistent with the reported host evidence.
+    - Accept required mode when status, commands, artifacts, host observations, target scope, and release QA checks are meaningful.
 
 ### `request_pre_merge_code_review`
 
@@ -205,23 +257,6 @@ the right workflow.
 - `references/flowchart.md`: linear flowchart and summarized repair loop.
 - `manifest.json` and the `workflow-binding.json` entry.
 
-## Post-fix Runtime Invariants
-
-- Every main stage that has a verifier requires a valid boolean verifier result;
-  a missing or malformed result routes to `repair_and_resume`.
-- `request_unblocking_input` accepts only meaningful `blocking_reason` and
-  `user_action_needed` fields, and `repair_and_resume` accepts only meaningful
-  retry notes and at least one repair action. Unknown recovery fields are
-  rejected.
-- A failed unblocking attempt preserves `repair_and_resume` as the recovery
-  owner when it already owns the retry decision.
-- `return_stage_id` is restricted to declared main stages, and the complete
-  repair episode is cleared when `max_steps_exceeded` reaches the degraded
-  final summary.
-- Optional source and visual inputs render as unavailable/ not applicable when
-  empty; the final prompt treats unreached branch fields as absent evidence and
-  never upgrades them into a completion claim.
-
 ## Agent-Owned Review Checklist
 
 1. Before starting agent review, explicitly ask the user for permission to use
@@ -296,11 +331,12 @@ the right workflow.
 
 ## Common Generated Skeleton Gaps
 
-- Baseline verifiers check required keys and flat schema types such as
-  `boolean`, `string`, and `string[]`; stage return schemas must not use
-  `object` or `object[]` because agents would have to infer hidden structure.
-  Declared `verifier_rules` add simple deterministic checks such as enum
-  membership, path existence, and non-empty fields.
+- Baseline verifiers check required keys and schema types such as `boolean`,
+  `string`, `string[]`, and explicitly declared `object[]` records. Structured
+  records require a custom verifier or a suitable verifier template to define
+  their required fields and cross-record invariants. Declared `verifier_rules`
+  add simple deterministic checks such as enum membership, path existence, and
+  non-empty fields.
 - Output fields with stricter cross-field consistency or domain meaning should
   first be added to `spec.json` when expressible. Use `verifier_templates` for
   whitelistable flat checks such as conditional required fields, uniqueness,

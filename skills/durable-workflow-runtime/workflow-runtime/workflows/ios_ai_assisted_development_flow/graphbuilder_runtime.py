@@ -276,102 +276,142 @@ def build_template_context(*, step_id: str, run_state) -> dict:
     state = workflow_state.deserialize_state(
         run_state.graph_state if isinstance(run_state.graph_state, dict) else {}
     )
-    repair_context = state.repair_context if isinstance(state.repair_context, dict) else {}
+    repair_context_value = getattr(state, "repair_context", {})
+    repair_context = repair_context_value if isinstance(repair_context_value, dict) else {}
+    repair_payload = repair_context.get("repair_payload")
+    if not isinstance(repair_payload, dict):
+        repair_payload = {}
     context = _template_context_from_state(state)
     context.update(
         {
             "current_step_id": step_id,
-            "return_stage_id": state.return_stage_id or "",
+            "return_stage_id": getattr(state, "return_stage_id", None) or "",
             "source_stage_id": str(repair_context.get("source_stage_id") or ""),
-            "repair_category": _format_prompt_value(state.repair_category or repair_context.get("repair_category")),
-            "repair_summary": _format_prompt_value(state.repair_summary or repair_context.get("repair_summary")),
-            "repair_requirements": _format_prompt_list(state.repair_requirements or repair_context.get("repair_requirements")),
-            "repair_evidence": _format_prompt_list(state.repair_evidence or repair_context.get("repair_evidence")),
+            "repair_category": _format_prompt_value(
+                getattr(state, "repair_category", None)
+                or repair_context.get("repair_category")
+                or repair_payload.get("category")
+            ),
+            "repair_summary": _format_prompt_value(
+                getattr(state, "repair_summary", None)
+                or repair_context.get("repair_summary")
+                or repair_payload.get("summary")
+            ),
+            "repair_requirements": _format_prompt_list(
+                getattr(state, "repair_requirements", None)
+                or repair_context.get("repair_requirements")
+                or repair_payload.get("requirements")
+            ),
+            "repair_evidence": _format_prompt_list(
+                getattr(state, "repair_evidence", None)
+                or repair_context.get("repair_evidence")
+                or repair_payload.get("evidence")
+            ),
+
+            "terminal_reason": str(getattr(run_state, "terminal_reason", "") or ""),
+            "degraded": str(
+                bool(getattr(run_state, "artifacts_degraded", False))
+                or str(getattr(run_state, "terminal_reason", "") or "") == "max_steps_exceeded"
+            ).lower(),
         }
     )
     return context
 
 
 def _template_context_from_state(state: workflow_state.IosAiAssistedDevelopmentFlowWorkflowState) -> dict:
-    task_input_values = state.task_input if isinstance(state.task_input, dict) else {}
-    context_values = state.context if isinstance(state.context, dict) else {}
-    constraint_values = state.constraints if isinstance(state.constraints, dict) else {}
+    task_input_value = getattr(state, "task_input", {})
+    context_value = getattr(state, "context", {})
+    constraints_value = getattr(state, "constraints", {})
+    task_input_values = task_input_value if isinstance(task_input_value, dict) else {}
+    context_values = context_value if isinstance(context_value, dict) else {}
+    constraint_values = constraints_value if isinstance(constraints_value, dict) else {}
     context = {
-        "workflow_goal": state.workflow_goal or "",
-        "task_input_json": json.dumps(state.task_input, ensure_ascii=False, indent=2),
-        "context_json": json.dumps(state.context, ensure_ascii=False, indent=2),
-        "constraints_json": json.dumps(state.constraints, ensure_ascii=False, indent=2),
+        "workflow_goal": getattr(state, "workflow_goal", None) or "",
+        "task_input_json": json.dumps(task_input_values, ensure_ascii=False, indent=2),
+        "context_json": json.dumps(context_values, ensure_ascii=False, indent=2),
+        "constraints_json": json.dumps(constraint_values, ensure_ascii=False, indent=2),
     }
     context.update(
         {
-        "artifacts_by_stage_json": json.dumps(state.artifacts_by_stage, ensure_ascii=False, indent=2),
-        "clarification_questions": _format_prompt_value(state.clarification_questions),
-        "clarification_answers_summary": _format_prompt_value(state.clarification_answers_summary),
-        "design_summary": _format_prompt_value(state.design_summary),
-        "design_path": _format_prompt_value(state.design_path),
-        "ui_surface_affected": _format_prompt_value(state.ui_surface_affected),
-        "visual_spec_detail_summary": _format_prompt_value(state.visual_spec_detail_summary),
-        "design_comparison_source": _format_prompt_value(state.design_comparison_source),
-        "runtime_visual_comparison_scope": _format_prompt_value(state.runtime_visual_comparison_scope),
-        "open_questions": _format_prompt_value(state.open_questions),
-        "ready_for_subagent_review": _format_prompt_value(state.ready_for_subagent_review),
-        "subagent_review_approved": _format_prompt_value(state.subagent_review_approved),
-        "authorization_summary": _format_prompt_value(state.authorization_summary),
-        "ready_for_spec_review": _format_prompt_value(state.ready_for_spec_review),
-        "spec_review_perspectives": _format_prompt_value(state.spec_review_perspectives),
-        "spec_review_findings_summary": _format_prompt_value(state.spec_review_findings_summary),
-        "spec_review_subagent_summaries": _format_prompt_value(state.spec_review_subagent_summaries),
-        "spec_review_artifact_paths": _format_prompt_value(state.spec_review_artifact_paths),
-        "ready_for_planning": _format_prompt_value(state.ready_for_planning),
-        "plan_summary": _format_prompt_value(state.plan_summary),
-        "plan_path": _format_prompt_value(state.plan_path),
-        "execution_mode": _format_prompt_value(state.execution_mode),
-        "plan_revision_reason": _format_prompt_value(state.plan_revision_reason),
-        "ready_for_implementation": _format_prompt_value(state.ready_for_implementation),
-        "implementation_summary": _format_prompt_value(state.implementation_summary),
-        "implementation_completed_tasks": _format_prompt_value(state.implementation_completed_tasks),
-        "implementation_remaining_tasks": _format_prompt_value(state.implementation_remaining_tasks),
-        "tasks_completed": _format_prompt_value(state.tasks_completed),
-        "changed_files": _format_prompt_value(state.changed_files),
-        "verification_commands": _format_prompt_value(state.verification_commands),
-        "open_issues": _format_prompt_value(state.open_issues),
-        "debugging_summary": _format_prompt_value(state.debugging_summary),
-        "implementation_verification_passed": _format_prompt_value(state.implementation_verification_passed),
-        "implementation_plan_updates_required": _format_prompt_value(state.implementation_plan_updates_required),
-        "plan_update_summary": _format_prompt_value(state.plan_update_summary),
-        "release_qa_verdict": _format_prompt_value(state.release_qa_verdict),
-        "release_qa_summary": _format_prompt_value(state.release_qa_summary),
-        "release_qa_executed_checks": _format_prompt_value(state.release_qa_executed_checks),
-        "release_qa_blocked_checks": _format_prompt_value(state.release_qa_blocked_checks),
-        "release_qa_risk_next_steps": _format_prompt_value(state.release_qa_risk_next_steps),
-        "release_qa_artifacts": _format_prompt_value(state.release_qa_artifacts),
-        "release_qa_target_scope": _format_prompt_value(state.release_qa_target_scope),
-        "review_status": _format_prompt_value(state.review_status),
-        "reviewed_snapshot": _format_prompt_value(state.reviewed_snapshot),
-        "review_findings": _format_prompt_value(state.review_findings),
-        "review_summary": _format_prompt_value(state.review_summary),
-        "changes_requested": _format_prompt_value(state.changes_requested),
-        "completion_verification_passed": _format_prompt_value(state.completion_verification_passed),
-        "completion_verification_summary": _format_prompt_value(state.completion_verification_summary),
-        "completion_verification_evidence": _format_prompt_value(state.completion_verification_evidence),
-        "completion_remaining_risks": _format_prompt_value(state.completion_remaining_risks),
-        "completion_release_qa_risks_resolved": _format_prompt_value(state.completion_release_qa_risks_resolved),
-        "completion_release_qa_risk_resolution_summary": _format_prompt_value(state.completion_release_qa_risk_resolution_summary),
-        "unblocking_blocking_reason": _format_prompt_value(state.unblocking_blocking_reason),
-        "unblocking_user_action_needed": _format_prompt_value(state.unblocking_user_action_needed),
-        "unblocking_suggested_next_input": _format_prompt_value(state.unblocking_suggested_next_input),
-        "terminal_reason": _format_prompt_value(state.terminal_reason),
-        "repair_category": _format_prompt_value(state.repair_category),
-        "repair_summary": _format_prompt_value(state.repair_summary),
-        "repair_requirements": _format_prompt_value(state.repair_requirements),
-        "repair_evidence": _format_prompt_value(state.repair_evidence),
-        "repair_transition_reason": _format_prompt_value(state.repair_transition_reason),
-        "repair_blocked_attempts": _format_prompt_value(state.repair_blocked_attempts),
+        "artifacts_by_stage_json": json.dumps(getattr(state, "artifacts_by_stage", {}), ensure_ascii=False, indent=2),
+        "clarification_questions": _format_prompt_value(getattr(state, 'clarification_questions', None)),
+        "clarification_answers_summary": _format_prompt_value(getattr(state, 'clarification_answers_summary', None)),
+        "design_summary": _format_prompt_value(getattr(state, 'design_summary', None)),
+        "design_path": _format_prompt_value(getattr(state, 'design_path', None)),
+        "ui_surface_affected": _format_prompt_value(getattr(state, 'ui_surface_affected', None)),
+        "visual_spec_detail_summary": _format_prompt_value(getattr(state, 'visual_spec_detail_summary', None)),
+        "design_comparison_source": _format_prompt_value(getattr(state, 'design_comparison_source', None)),
+        "runtime_visual_comparison_scope": _format_prompt_value(getattr(state, 'runtime_visual_comparison_scope', None)),
+        "open_questions": _format_prompt_value(getattr(state, 'open_questions', None)),
+        "ready_for_subagent_review": _format_prompt_value(getattr(state, 'ready_for_subagent_review', None)),
+        "subagent_review_approved": _format_prompt_value(getattr(state, 'subagent_review_approved', None)),
+        "authorization_summary": _format_prompt_value(getattr(state, 'authorization_summary', None)),
+        "ready_for_spec_review": _format_prompt_value(getattr(state, 'ready_for_spec_review', None)),
+        "spec_review_perspectives": _format_prompt_value(getattr(state, 'spec_review_perspectives', None)),
+        "spec_review_findings_summary": _format_prompt_value(getattr(state, 'spec_review_findings_summary', None)),
+        "spec_review_subagent_summaries": _format_prompt_value(getattr(state, 'spec_review_subagent_summaries', None)),
+        "spec_review_artifact_paths": _format_prompt_value(getattr(state, 'spec_review_artifact_paths', None)),
+        "ready_for_planning": _format_prompt_value(getattr(state, 'ready_for_planning', None)),
+        "plan_summary": _format_prompt_value(getattr(state, 'plan_summary', None)),
+        "plan_path": _format_prompt_value(getattr(state, 'plan_path', None)),
+        "execution_mode": _format_prompt_value(getattr(state, 'execution_mode', None)),
+        "plan_revision_reason": _format_prompt_value(getattr(state, 'plan_revision_reason', None)),
+        "ready_for_implementation": _format_prompt_value(getattr(state, 'ready_for_implementation', None)),
+        "implementation_summary": _format_prompt_value(getattr(state, 'implementation_summary', None)),
+        "implementation_completed_tasks": _format_prompt_value(getattr(state, 'implementation_completed_tasks', None)),
+        "implementation_remaining_tasks": _format_prompt_value(getattr(state, 'implementation_remaining_tasks', None)),
+        "changed_files": _format_prompt_value(getattr(state, 'changed_files', None)),
+        "verification_commands": _format_prompt_value(getattr(state, 'verification_commands', None)),
+        "open_issues": _format_prompt_value(getattr(state, 'open_issues', None)),
+        "debugging_summary": _format_prompt_value(getattr(state, 'debugging_summary', None)),
+        "implementation_verification_passed": _format_prompt_value(getattr(state, 'implementation_verification_passed', None)),
+        "implementation_plan_updates_required": _format_prompt_value(getattr(state, 'implementation_plan_updates_required', None)),
+        "plan_update_summary": _format_prompt_value(getattr(state, 'plan_update_summary', None)),
+        "tasks_completed": _format_prompt_value(getattr(state, 'tasks_completed', None)),
+        "release_qa_verdict": _format_prompt_value(getattr(state, 'release_qa_verdict', None)),
+        "release_qa_summary": _format_prompt_value(getattr(state, 'release_qa_summary', None)),
+        "release_qa_executed_checks": _format_prompt_value(getattr(state, 'release_qa_executed_checks', None)),
+        "release_qa_blocked_checks": _format_prompt_value(getattr(state, 'release_qa_blocked_checks', None)),
+        "release_qa_risk_next_steps": _format_prompt_value(getattr(state, 'release_qa_risk_next_steps', None)),
+        "release_qa_artifacts": _format_prompt_value(getattr(state, 'release_qa_artifacts', None)),
+        "release_qa_target_scope": _format_prompt_value(getattr(state, 'release_qa_target_scope', None)),
+        "agent_device_status": _format_prompt_value(getattr(state, 'agent_device_status', None)),
+        "agent_device_commands": _format_prompt_value(getattr(state, 'agent_device_commands', None)),
+        "agent_device_artifacts": _format_prompt_value(getattr(state, 'agent_device_artifacts', None)),
+        "agent_device_session": _format_prompt_value(getattr(state, 'agent_device_session', None)),
+        "agent_device_replay_suite": _format_prompt_value(getattr(state, 'agent_device_replay_suite', None)),
+        "agent_device_cli_version": _format_prompt_value(getattr(state, 'agent_device_cli_version', None)),
+        "agent_device_observed_device": _format_prompt_value(getattr(state, 'agent_device_observed_device', None)),
+        "agent_device_observed_app_id": _format_prompt_value(getattr(state, 'agent_device_observed_app_id', None)),
+        "agent_device_runner_status": _format_prompt_value(getattr(state, 'agent_device_runner_status', None)),
+        "agent_device_execution_receipt": _format_prompt_value(getattr(state, 'agent_device_execution_receipt', None)),
+        "review_status": _format_prompt_value(getattr(state, 'review_status', None)),
+        "reviewed_snapshot": _format_prompt_value(getattr(state, 'reviewed_snapshot', None)),
+        "review_findings": _format_prompt_value(getattr(state, 'review_findings', None)),
+        "review_summary": _format_prompt_value(getattr(state, 'review_summary', None)),
+        "changes_requested": _format_prompt_value(getattr(state, 'changes_requested', None)),
+        "completion_verification_passed": _format_prompt_value(getattr(state, 'completion_verification_passed', None)),
+        "completion_verification_summary": _format_prompt_value(getattr(state, 'completion_verification_summary', None)),
+        "completion_verification_evidence": _format_prompt_value(getattr(state, 'completion_verification_evidence', None)),
+        "completion_remaining_risks": _format_prompt_value(getattr(state, 'completion_remaining_risks', None)),
+        "completion_release_qa_risks_resolved": _format_prompt_value(getattr(state, 'completion_release_qa_risks_resolved', None)),
+        "completion_release_qa_risk_resolution_summary": _format_prompt_value(getattr(state, 'completion_release_qa_risk_resolution_summary', None)),
+        "terminal_reason": _format_prompt_value(getattr(state, 'terminal_reason', None)),
+        "unblocking_blocking_reason": _format_prompt_value(getattr(state, 'unblocking_blocking_reason', None)),
+        "unblocking_user_action_needed": _format_prompt_value(getattr(state, 'unblocking_user_action_needed', None)),
+        "unblocking_suggested_next_input": _format_prompt_value(getattr(state, 'unblocking_suggested_next_input', None)),
+        "repair_blocked_attempts": _format_prompt_value(getattr(state, 'repair_blocked_attempts', None)),
         "goal": _format_prompt_value(task_input_values.get("goal")),
         "preferred_change_name": _format_prompt_value(task_input_values.get("preferred_change_name")),
         "repo_root": _format_prompt_value(context_values.get("repo_root")),
         "source_doc_url": _format_prompt_value(context_values.get("source_doc_url")),
         "source_skill_url": _format_prompt_value(context_values.get("source_skill_url")),
+        "agent_device_mode": _format_prompt_value(context_values.get("agent_device_mode")),
+        "agent_device_app_id": _format_prompt_value(context_values.get("agent_device_app_id")),
+        "agent_device_artifact_path": _format_prompt_value(context_values.get("agent_device_artifact_path")),
+        "agent_device_device": _format_prompt_value(context_values.get("agent_device_device")),
+        "agent_device_evidence_dir": _format_prompt_value(context_values.get("agent_device_evidence_dir")),
+        "agent_device_expected_version": _format_prompt_value(context_values.get("agent_device_expected_version")),
         "max_steps": _format_prompt_value(constraint_values.get("max_steps")),
         }
     )

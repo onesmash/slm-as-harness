@@ -1,6 +1,5 @@
 {
   "workflow_id": "ios_ai_assisted_development_flow",
-  "state_mode": "custom",
   "flow_description": "Run the AI-assisted development path from brainstorming-nex through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
   "start_input_schema": {
     "task_input": {
@@ -10,28 +9,35 @@
     "context": {
       "repo_root": "string",
       "source_doc_url": "string?",
-      "source_skill_url": "string?"
+      "source_skill_url": "string?",
+      "agent_device_mode": "string?",
+      "agent_device_app_id": "string?",
+      "agent_device_artifact_path": "string?",
+      "agent_device_device": "string?",
+      "agent_device_session": "string?",
+      "agent_device_replay_suite": "string?",
+      "agent_device_evidence_dir": "string?",
+      "agent_device_expected_version": "string?"
     },
     "constraints": {
       "max_steps": "integer?"
     }
   },
+  "runtime_defaults": {},
   "repair_policy": {
     "max_self_repair_attempts": 3,
     "exhausted_next_node": "request_unblocking_input",
     "exhausted_branch_kind": "repair",
     "exhausted_reason": "repair exhausted self-repair attempts and now requires external help before retry"
   },
+  "state_mode": "custom",
   "stages": [
     {
       "step_id": "run_brainstorming",
       "stage_kind": "main",
       "require_passing_verifier": true,
-      "missing_verifier_route": {
-        "next_node": "repair_and_resume",
-        "branch_kind": "repair",
-        "reason": "run_brainstorming completed without a valid verifier result; fail closed before continuing."
-      },
+      "cycle_limit": null,
+      "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "clarify_and_prepare_design",
       "expected_artifact": "a brainstorming design package with a written design document path that is ready for subagent review authorization",
@@ -209,6 +215,11 @@
           "reason": "Brainstorming clarification and design-package readiness gates must pass before implementation planning."
         }
       ],
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "run_brainstorming completed without a valid verifier result; fail closed before continuing."
+      },
       "verifier_rules": [
         {
           "output_key": "clarification_questions",
@@ -296,17 +307,40 @@
           "required_suffix": ".md"
         }
       ],
-      "custom_verifier_requirements": []
+      "custom_verifier_requirements": [
+        {
+          "id": "ui_visual_inputs_require_meaningful_text",
+          "description": "When a UI surface is affected, visual QA inputs must contain meaningful non-whitespace text rather than placeholder whitespace.",
+          "signals": [
+            "ui_surface_affected",
+            "visual_spec_detail_summary",
+            "design_comparison_source",
+            "runtime_visual_comparison_scope"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "tests"
+          ],
+          "implementation_notes": "Normalize each required visual-QA input with trim semantics and fail closed when UI impact is true but any input is missing or whitespace-only.",
+          "hint_pseudocode": [
+            "If ui_surface_affected is not true, do not apply this UI-specific requirement.",
+            "When ui_surface_affected is true, require visual_spec_detail_summary, design_comparison_source, and runtime_visual_comparison_scope to contain non-whitespace text."
+          ],
+          "test_intent": [
+            "Reject UI-impacting brainstorming output whose visual-QA inputs are whitespace-only.",
+            "Accept non-UI brainstorming output without visual-QA inputs.",
+            "Accept UI-impacting brainstorming output with meaningful visual-QA inputs."
+          ],
+          "implementation_version": 1
+        }
+      ]
     },
     {
       "step_id": "approve_subagent_review",
       "stage_kind": "main",
       "require_passing_verifier": true,
-      "missing_verifier_route": {
-        "next_node": "repair_and_resume",
-        "branch_kind": "repair",
-        "reason": "approve_subagent_review completed without a valid verifier result; fail closed before continuing."
-      },
+      "cycle_limit": null,
+      "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "authorize_subagent_spec_review",
       "expected_artifact": "an explicit user authorization decision for the required subagent design review",
@@ -394,6 +428,11 @@
         }
       ],
       "outcome_routes": [],
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "approve_subagent_review completed without a valid verifier result; fail closed before continuing."
+      },
       "verifier_rules": [
         {
           "output_key": "authorization_summary",
@@ -434,11 +473,8 @@
       "step_id": "run_spec_review",
       "stage_kind": "main",
       "require_passing_verifier": true,
-      "missing_verifier_route": {
-        "next_node": "repair_and_resume",
-        "branch_kind": "repair",
-        "reason": "run_spec_review completed without a valid verifier result; fail closed before continuing."
-      },
+      "cycle_limit": null,
+      "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "complete_subagent_spec_review_loop",
       "expected_artifact": "a review-complete design package with concrete subagent review artifacts and implementation-planning readiness",
@@ -514,6 +550,20 @@
           "usage_notes": [
             "Supporting review lens for the development-oriented portion of the independent spec review loop."
           ]
+        },
+        {
+          "skill": "test-nex",
+          "operations": [
+            "testing perspective spec review",
+            "regression-testability review",
+            "verification and failure-path review"
+          ],
+          "file_patterns": [
+            "docs/superpowers/specs/*.md"
+          ],
+          "usage_notes": [
+            "Supporting review lens for the testing-oriented portion of the independent spec review loop."
+          ]
         }
       ],
       "state_updates": [
@@ -582,6 +632,11 @@
           "reason": "The subagent review loop must complete with concrete artifacts and readiness before implementation planning."
         }
       ],
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "run_spec_review completed without a valid verifier result; fail closed before continuing."
+      },
       "verifier_rules": [
         {
           "output_key": "spec_review_loop_completed",
@@ -684,11 +739,8 @@
       "step_id": "write_implementation_plan",
       "stage_kind": "main",
       "require_passing_verifier": true,
-      "missing_verifier_route": {
-        "next_node": "repair_and_resume",
-        "branch_kind": "repair",
-        "reason": "write_implementation_plan completed without a valid verifier result; fail closed before continuing."
-      },
+      "cycle_limit": null,
+      "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "create_superpowers_implementation_plan",
       "expected_artifact": "implementation plan document and recorded subagent-driven execution mode ready for implementation",
@@ -831,6 +883,11 @@
         }
       ],
       "outcome_routes": [],
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "write_implementation_plan completed without a valid verifier result; fail closed before continuing."
+      },
       "verifier_rules": [
         {
           "output_key": "plan_summary",
@@ -912,11 +969,8 @@
       "step_id": "execute_implementation",
       "stage_kind": "main",
       "require_passing_verifier": true,
-      "missing_verifier_route": {
-        "next_node": "repair_and_resume",
-        "branch_kind": "repair",
-        "reason": "execute_implementation completed without a valid verifier result; fail closed before continuing."
-      },
+      "cycle_limit": null,
+      "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "execute_superpowers_plan",
       "expected_artifact": "implemented plan tasks with verification evidence and any required planning follow-up",
@@ -1220,6 +1274,11 @@
         }
       ],
       "outcome_routes": [],
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "execute_implementation completed without a valid verifier result; fail closed before continuing."
+      },
       "verifier_rules": [
         {
           "output_key": "changed_files",
@@ -1292,15 +1351,12 @@
       "step_id": "run_agentic_release_qa",
       "stage_kind": "main",
       "require_passing_verifier": true,
-      "missing_verifier_route": {
-        "next_node": "repair_and_resume",
-        "branch_kind": "repair",
-        "reason": "run_agentic_release_qa completed without a valid verifier result; fail closed before continuing."
-      },
+      "cycle_limit": null,
+      "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "run_change_aware_release_qa",
       "expected_artifact": "change-aware release QA verdict with executed checks, blocked checks, and risk-based next steps",
-      "prompt": "/agentic-release-qa run a change-aware release QA pass for {{preferred_change_name}} in {{repo_root}} using changed files {{changed_files}}, implementation evidence {{implementation_summary}}, and verification commands {{verification_commands}}.",
+      "prompt": "/agentic-release-qa run a change-aware release QA pass for {{preferred_change_name}} in {{repo_root}} using changed files {{changed_files}}, implementation evidence {{implementation_summary}}, verification commands {{verification_commands}}, and device-QA mode {{agent_device_mode}} for app {{agent_device_app_id}} and artifact {{agent_device_artifact_path}}.",
       "prompt_sections": {
         "stage_goal": "Run a release QA pass after implementation verification and before pre-merge code review so regressions are caught before delivery closes.",
         "context": [
@@ -1315,6 +1371,24 @@
           "Visual specification detail summary: {{visual_spec_detail_summary}}",
           "Design comparison source: {{design_comparison_source}}",
           "Runtime visual comparison scope: {{runtime_visual_comparison_scope}}",
+          "Agent-device mode: {{agent_device_mode}}",
+          "Agent-device app id: {{agent_device_app_id}}",
+          "Agent-device artifact path: {{agent_device_artifact_path}}",
+          "Agent-device target device: {{agent_device_device}}",
+          "Agent-device session: {{agent_device_session}}",
+          "Agent-device replay suite: {{agent_device_replay_suite}}",
+          "Agent-device evidence directory: {{agent_device_evidence_dir}}",
+          "Expected agent-device version: {{agent_device_expected_version}}",
+          "Agent-device last status: {{agent_device_status}}",
+          "Agent-device last commands: {{agent_device_commands}}",
+          "Agent-device last artifacts: {{agent_device_artifacts}}",
+          "Agent-device last session: {{agent_device_session}}",
+          "Agent-device last replay suite: {{agent_device_replay_suite}}",
+          "Agent-device observed CLI version: {{agent_device_cli_version}}",
+          "Agent-device observed device: {{agent_device_observed_device}}",
+          "Agent-device observed app id: {{agent_device_observed_app_id}}",
+          "Agent-device runner status: {{agent_device_runner_status}}",
+          "Agent-device execution receipt: {{agent_device_execution_receipt}}",
           "Optional visual inputs: when UI surface affected or either comparison input is empty, report that visual comparison was not applicable or blocked; do not infer a design source or screenshot scope."
         ],
         "boundaries": [
@@ -1327,11 +1401,19 @@
           "If required QA inputs are missing, return observation.status=blocked instead of encoding blocked as a succeeded release_qa_verdict.",
           "If ui_surface_affected is true and both design_comparison_source and runtime_visual_comparison_scope are available, include an explicit visual comparison pass and report the executed or blocked visual diff evidence.",
           "If ui_surface_affected is false, or the visual inputs are empty, do not claim visual QA was executed and do not invent visual evidence.",
+          "Keep agentic-release-qa as the primary release verdict owner; use agent-device only as a supporting device and runtime-evidence route.",
+          "When agent_device_mode is off or empty, report that device QA was not requested and do not imply device evidence was executed.",
+          "When agent_device_mode is required, record only actually executed agent-device commands and artifacts; missing version, device, app, runner, signing, or artifact inputs must be blocked.",
+          "When agent_device_mode is required, write a bounded JSON execution receipt under the evidence directory with the current workflow run id, observed CLI/device/app/runner results, executed commands, build artifact, and evidence artifacts; return its path as agent_device_execution_receipt.",
+          "For required device QA, allow the agent-device open handshake first, then validate the version-matched CLI and target preflight and prepare the iOS runner before snapshot, replay, test, or other device operations.",
+          "Keep device mutations serial within one session and use the latest accessibility snapshot/ref/selector for follow-up actions.",
+          "Use the evidence lifecycle open -> snapshot -i -> act with settle -> wait/get/is -> screenshot/logs/perf/trace -> replay or test -> close, recording only commands that actually ran.",
           "Return the concrete QA target scope or artifact under test so later stages know exactly what was validated."
         ],
         "blocked_conditions": [
           "Block if required QA environment, device, credentials, build artifact, or baseline data is missing and the missing input cannot be safely inferred.",
-          "Block if the QA pass cannot identify the code range or artifact under test."
+          "Block if the QA pass cannot identify the code range or artifact under test.",
+          "Block when agent_device_mode is required but the version-matched CLI, target device, installed app, runner preparation, signing, or evidence destination is unavailable."
         ]
       },
       "done_when": [
@@ -1349,7 +1431,17 @@
         "release_qa_blocked_checks": "string[]",
         "release_qa_risk_next_steps": "string[]",
         "release_qa_artifacts": "string[]",
-        "release_qa_target_scope": "string"
+        "release_qa_target_scope": "string",
+        "agent_device_status": "string?",
+        "agent_device_commands": "string[]?",
+        "agent_device_artifacts": "string[]?",
+        "agent_device_session": "string?",
+        "agent_device_replay_suite": "string?",
+        "agent_device_cli_version": "string?",
+        "agent_device_observed_device": "string?",
+        "agent_device_observed_app_id": "string?",
+        "agent_device_runner_status": "string?",
+        "agent_device_execution_receipt": "string?"
       },
       "failure_schema": {
         "blocked_reason": "string?",
@@ -1394,6 +1486,29 @@
             "Compare the approved design, reference screenshot, or baseline image against the runtime app screenshot.",
             "Report executed visual checks, blocked visual checks, diff artifacts, and visual regression risks through the release QA output."
           ]
+        },
+        {
+          "skill": "agent-device",
+          "operations": [
+            "iOS installed-app UI exploration",
+            "accessibility snapshot and selector/ref interaction",
+            "device screenshot, logs, performance, and trace evidence",
+            "deterministic .ad replay and E2E test evidence"
+          ],
+          "file_patterns": [
+            "*.ad",
+            "**/screenshots/**",
+            "**/snapshots/**",
+            "**/test-artifacts/**",
+            "**/session-artifacts/**"
+          ],
+          "usage_notes": [
+            "Supporting route only; agentic-release-qa remains the primary release verdict owner.",
+            "Use agent-device for actual installed-app/device evidence and return commands, status, session, and artifact paths through release QA output.",
+            "Keep mutations in one agent-device session serial and use the latest snapshot/ref/selector for follow-up actions.",
+            "Prepare the iOS runner before snapshot, replay, or test operations; use a version-matched CLI and do not install an unpinned latest release from the workflow.",
+            "If device mode is off, do not claim device evidence; if required prerequisites are unavailable, report blocked."
+          ]
         }
       ],
       "state_updates": [
@@ -1431,6 +1546,56 @@
           "state_key": "release_qa_target_scope",
           "output_key": "release_qa_target_scope",
           "kind": "string"
+        },
+        {
+          "state_key": "agent_device_status",
+          "output_key": "agent_device_status",
+          "kind": "string"
+        },
+        {
+          "state_key": "agent_device_commands",
+          "output_key": "agent_device_commands",
+          "kind": "list"
+        },
+        {
+          "state_key": "agent_device_artifacts",
+          "output_key": "agent_device_artifacts",
+          "kind": "list"
+        },
+        {
+          "state_key": "agent_device_session",
+          "output_key": "agent_device_session",
+          "kind": "string"
+        },
+        {
+          "state_key": "agent_device_replay_suite",
+          "output_key": "agent_device_replay_suite",
+          "kind": "string"
+        },
+        {
+          "state_key": "agent_device_cli_version",
+          "output_key": "agent_device_cli_version",
+          "kind": "string"
+        },
+        {
+          "state_key": "agent_device_observed_device",
+          "output_key": "agent_device_observed_device",
+          "kind": "string"
+        },
+        {
+          "state_key": "agent_device_observed_app_id",
+          "output_key": "agent_device_observed_app_id",
+          "kind": "string"
+        },
+        {
+          "state_key": "agent_device_runner_status",
+          "output_key": "agent_device_runner_status",
+          "kind": "string"
+        },
+        {
+          "state_key": "agent_device_execution_receipt",
+          "output_key": "agent_device_execution_receipt",
+          "kind": "string"
         }
       ],
       "template_context_keys": [
@@ -1445,13 +1610,31 @@
         "visual_spec_detail_summary",
         "design_comparison_source",
         "runtime_visual_comparison_scope",
+        "agent_device_mode",
+        "agent_device_app_id",
+        "agent_device_artifact_path",
+        "agent_device_device",
+        "agent_device_session",
+        "agent_device_replay_suite",
+        "agent_device_evidence_dir",
+        "agent_device_expected_version",
         "release_qa_verdict",
         "release_qa_summary",
         "release_qa_executed_checks",
         "release_qa_blocked_checks",
         "release_qa_risk_next_steps",
         "release_qa_artifacts",
-        "release_qa_target_scope"
+        "release_qa_target_scope",
+        "agent_device_status",
+        "agent_device_commands",
+        "agent_device_artifacts",
+        "agent_device_session",
+        "agent_device_replay_suite",
+        "agent_device_cli_version",
+        "agent_device_observed_device",
+        "agent_device_observed_app_id",
+        "agent_device_runner_status",
+        "agent_device_execution_receipt"
       ],
       "repair_conditions": [],
       "transitions": [
@@ -1465,6 +1648,11 @@
         }
       ],
       "outcome_routes": [],
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "run_agentic_release_qa completed without a valid verifier result; fail closed before continuing."
+      },
       "verifier_rules": [
         {
           "output_key": "release_qa_verdict",
@@ -1544,7 +1732,8 @@
           "test_intent": [
             "Reject UI-impacting release QA output that omits all visual comparison evidence despite having comparison inputs.",
             "Accept UI-impacting release QA output when visual comparison evidence appears in executed checks, blocked checks, or artifacts."
-          ]
+          ],
+          "implementation_version": 1
         },
         {
           "id": "release_qa_lists_require_meaningful_entries",
@@ -1568,7 +1757,8 @@
           "test_intent": [
             "Reject ship outputs with whitespace-only executed checks or next steps.",
             "Reject outputs with whitespace-only blocked checks."
-          ]
+          ],
+          "implementation_version": 1
         },
         {
           "id": "ship_verdict_requires_no_blocked_checks",
@@ -1588,7 +1778,60 @@
           "test_intent": [
             "Reject ship outputs that still include blocked checks.",
             "Accept ship outputs only when blocked checks are empty."
-          ]
+          ],
+          "implementation_version": 1
+        },
+        {
+          "id": "required_agent_device_evidence",
+          "description": "When agent_device_mode is required, release QA must prove that agent-device ran successfully with meaningful commands and artifact evidence; off or empty mode must not create a device gate.",
+          "signals": [
+            "context.agent_device_mode",
+            "context.agent_device_expected_version",
+            "context.agent_device_app_id",
+            "context.agent_device_artifact_path",
+            "context.agent_device_device",
+            "context.agent_device_evidence_dir",
+            "agent_device_status",
+            "agent_device_commands",
+            "agent_device_artifacts",
+            "agent_device_cli_version",
+            "agent_device_observed_device",
+            "agent_device_observed_app_id",
+            "agent_device_runner_status",
+            "agent_device_execution_receipt",
+            "release_qa_target_scope",
+            "release_qa_blocked_checks"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "state",
+            "tests"
+          ],
+          "implementation_notes": "The verifier must read the persisted workflow context, fail closed only for required mode, require the declared version/app/artifact/device/evidence inputs, require structured host observations for the actual CLI version, device, app, and runner status, require a bounded JSON execution receipt tied to the current workflow run, require runner-preparation evidence before device operations, require regular build and evidence files, and reject unsafe artifact paths. It must not require the CLI or device when mode is off or empty; command execution remains a host responsibility, while the verifier validates the returned observations, receipt, and bounded files.",
+          "hint_pseudocode": [
+            "Read context.agent_device_mode from persisted state and normalize whitespace/case.",
+            "If the mode is not required, return no device-specific verifier error.",
+            "When required, require context to identify the expected CLI version, app, build artifact, target device, and evidence directory.",
+            "When required, require agent_device_status to equal succeeded, agent_device_commands to contain meaningful entries including runner preparation before device operations, agent_device_artifacts to contain safe relative paths under the repository, and release_qa_target_scope to identify the app/build/device target.",
+            "Require agent_device_cli_version to exactly match the expected version, agent_device_observed_device to exactly match the configured target device, agent_device_observed_app_id to exactly match the configured app id, and agent_device_runner_status to equal succeeded.",
+            "Require the declared build artifact and every evidence artifact to exist as regular non-symlink files under the repository and evidence directory.",
+            "Require agent_device_execution_receipt to point to a regular JSON file under the evidence directory whose run_id, status, CLI version, device, app, runner status, commands, build artifact, and artifacts match the current host observations and workflow run.",
+            "When session or replay suite is configured, require the reported values and corresponding receipt values to exactly match the configured values.",
+            "Reject required-mode output when release_qa_blocked_checks contains meaningful unresolved device blockers.",
+            "Keep actual CLI command execution in the workflow host/agent, and pass its observed version/device/app/runner results plus bounded artifact paths into the verifier."
+          ],
+          "test_intent": [
+            "Accept release QA with agent_device_mode off and no device output.",
+            "Reject required mode when agent-device status, commands, or artifacts are missing.",
+            "Reject required mode when agent-device status is blocked or failed.",
+            "Reject required mode when version, app, build artifact, target device, or evidence destination is missing.",
+            "Reject required mode when an artifact path is absolute, traverses a parent directory, or bypasses the repository boundary.",
+            "Reject required mode when observed CLI/device/app/runner evidence is missing or mismatched.",
+            "Reject required mode when the declared build or evidence artifact is missing or not a regular file.",
+            "Reject required mode when the execution receipt is missing, malformed, from another run, or inconsistent with the reported host evidence.",
+            "Accept required mode when status, commands, artifacts, host observations, target scope, and release QA checks are meaningful."
+          ],
+          "implementation_version": 1
         }
       ]
     },
@@ -1596,11 +1839,8 @@
       "step_id": "request_pre_merge_code_review",
       "stage_kind": "main",
       "require_passing_verifier": true,
-      "missing_verifier_route": {
-        "next_node": "repair_and_resume",
-        "branch_kind": "repair",
-        "reason": "request_pre_merge_code_review completed without a valid verifier result; fail closed before continuing."
-      },
+      "cycle_limit": null,
+      "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "request_pre_merge_code_review",
       "expected_artifact": "pre-merge code review findings and merge-readiness decision for the current local diff",
@@ -1766,6 +2006,11 @@
         }
       ],
       "outcome_routes": [],
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "request_pre_merge_code_review completed without a valid verifier result; fail closed before continuing."
+      },
       "verifier_rules": [
         {
           "output_key": "review_status",
@@ -1891,11 +2136,8 @@
       "step_id": "verify_completion",
       "stage_kind": "main",
       "require_passing_verifier": true,
-      "missing_verifier_route": {
-        "next_node": "repair_and_resume",
-        "branch_kind": "repair",
-        "reason": "verify_completion completed without a valid verifier result; fail closed before continuing."
-      },
+      "cycle_limit": null,
+      "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "verify_completion_before_final_delivery",
       "expected_artifact": "fresh completion verification evidence proving the workflow is ready to claim success",
@@ -2016,6 +2258,12 @@
           "state_key": "completion_release_qa_risk_resolution_summary",
           "output_key": "release_qa_risk_resolution_summary",
           "kind": "string"
+        },
+        {
+          "state_key": "terminal_reason",
+          "output_key": "terminal_reason",
+          "kind": "string",
+          "runtime_owned": true
         }
       ],
       "template_context_keys": [
@@ -2037,7 +2285,8 @@
         "review_findings",
         "open_issues",
         "completion_verification_summary",
-        "completion_release_qa_risk_resolution_summary"
+        "completion_release_qa_risk_resolution_summary",
+        "terminal_reason"
       ],
       "repair_conditions": [],
       "transitions": [
@@ -2058,6 +2307,11 @@
           "reason": "Final completion verification did not pass and the workflow must re-enter implementation to clear remaining issues or evidence gaps."
         }
       ],
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "verify_completion completed without a valid verifier result; fail closed before continuing."
+      },
       "verifier_rules": [
         {
           "output_key": "verification_summary",
@@ -2206,6 +2460,11 @@
         "user_action_needed": "string",
         "suggested_next_input": "string?"
       },
+      "failure_schema": {
+        "blocked_reason": "string?",
+        "error_message": "string?",
+        "missing_inputs": "string[]?"
+      },
       "state_updates": [
         {
           "state_key": "unblocking_blocking_reason",
@@ -2227,12 +2486,7 @@
         "unblocking_blocking_reason",
         "unblocking_user_action_needed",
         "unblocking_suggested_next_input"
-      ],
-      "failure_schema": {
-        "blocked_reason": "string?",
-        "error_message": "string?",
-        "missing_inputs": "string[]?"
-      }
+      ]
     },
     "repair_and_resume": {
       "intent": "repair_and_resume",
@@ -2250,6 +2504,22 @@
           "{{repair_requirements}}",
           "Relevant evidence:",
           "{{repair_evidence}}",
+          "Agent-device mode: {{agent_device_mode}}",
+          "Agent-device expected version: {{agent_device_expected_version}}",
+          "Agent-device app id: {{agent_device_app_id}}",
+          "Agent-device build artifact: {{agent_device_artifact_path}}",
+          "Agent-device target device: {{agent_device_device}}",
+          "Agent-device evidence directory: {{agent_device_evidence_dir}}",
+          "Agent-device last status: {{agent_device_status}}",
+          "Agent-device last commands: {{agent_device_commands}}",
+          "Agent-device last artifacts: {{agent_device_artifacts}}",
+          "Agent-device last session: {{agent_device_session}}",
+          "Agent-device last replay suite: {{agent_device_replay_suite}}",
+          "Agent-device observed CLI version: {{agent_device_cli_version}}",
+          "Agent-device observed device: {{agent_device_observed_device}}",
+          "Agent-device observed app id: {{agent_device_observed_app_id}}",
+          "Agent-device runner status: {{agent_device_runner_status}}",
+          "Agent-device execution receipt: {{agent_device_execution_receipt}}",
           "Latest unblocking input: {{unblocking_blocking_reason}}; {{unblocking_user_action_needed}}; {{unblocking_suggested_next_input}}",
           "Blocked self-repair attempts in this repair episode: {{repair_blocked_attempts}}"
         ],
@@ -2318,11 +2588,38 @@
         "blocked_reason": "string?",
         "error_message": "string?",
         "missing_inputs": "string[]?"
-      }
+      },
+      "state_updates": [
+        {
+          "state_key": "repair_blocked_attempts",
+          "output_key": "repair_blocked_attempts",
+          "kind": "integer",
+          "runtime_owned": true
+        }
+      ],
+      "template_context_keys": [
+        "repair_blocked_attempts",
+        "agent_device_mode",
+        "agent_device_expected_version",
+        "agent_device_app_id",
+        "agent_device_artifact_path",
+        "agent_device_device",
+        "agent_device_evidence_dir",
+        "agent_device_status",
+        "agent_device_commands",
+        "agent_device_artifacts",
+        "agent_device_session",
+        "agent_device_replay_suite",
+        "agent_device_cli_version",
+        "agent_device_observed_device",
+        "agent_device_observed_app_id",
+        "agent_device_runner_status",
+        "agent_device_execution_receipt"
+      ]
     }
   },
   "final_step_id": "finalize_delivery_summary",
-  "final_prompt": "/verification-before-completion finalize the AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, {{reviewed_snapshot}}, {{completion_verification_passed}}, {{completion_verification_summary}}, {{completion_verification_evidence}}, {{completion_remaining_risks}}, {{subagent_review_approved}}, {{authorization_summary}}, and {{terminal_reason}} as branch-aware completion inputs. Empty fields for stages not reached are intentional and mean that evidence was not produced.\n\nStage Context:\n\n- Design summary: {{design_summary}}\n- Design path: {{design_path}}\n- Plan summary: {{plan_summary}}\n- Plan path: {{plan_path}}\n- Implementation summary: {{implementation_summary}}\n- Release QA verdict: {{release_qa_verdict}}\n- Release QA executed checks: {{release_qa_executed_checks}}\n- Release QA blocked checks: {{release_qa_blocked_checks}}\n- Release QA risk next steps: {{release_qa_risk_next_steps}}\n- Release QA artifacts: {{release_qa_artifacts}}\n- Review status: {{review_status}}\n- Reviewed snapshot: {{reviewed_snapshot}}\n- Review findings: {{review_findings}}\n- Completion verification passed: {{completion_verification_passed}}\n- Completion verification summary: {{completion_verification_summary}}\n- Completion verification evidence: {{completion_verification_evidence}}\n- Completion remaining risks: {{completion_remaining_risks}}\n- Subagent review authorization: {{subagent_review_approved}}\n- Authorization summary: {{authorization_summary}}\n- Terminal reason: {{terminal_reason}}\n- Branch input rule: a blank field means its stage was not reached or the evidence is not applicable; report it as not executed rather than inferring success.\n\nStage Boundaries:\n\n- If subagent review authorization was declined, report that the workflow closed before implementation planning; do not claim delivery completion or invent implementation evidence.\n- If terminal reason is max_steps_exceeded, label the result as a degraded terminal summary and do not claim that delivery completion was proven.\n- If a stage was not reached because authorization was declined or the budget was exhausted, summarize only the evidence available on that branch and omit normal-delivery claims.\n- For the normal delivery branch, do not claim completion unless completion verification passed, release QA ended in ship, and pre-merge review ended in approved.\n- Do not invent new implementation, QA, review, or verification facts that are not already grounded in the recorded workflow state.\n- Keep the final summary concise and evidence-based so the user can reuse it as a handoff artifact.\n\nBlocked Conditions:\n\n- Block if the final completion evidence is missing or inconsistent for a normal delivery claim.\n- Block if the workflow cannot produce a grounded final handoff summary from the recorded state.",
+  "final_prompt": "/verification-before-completion finalize the AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{agent_device_status}}, {{agent_device_commands}}, {{agent_device_artifacts}}, {{agent_device_session}}, {{agent_device_replay_suite}}, {{agent_device_cli_version}}, {{agent_device_observed_device}}, {{agent_device_observed_app_id}}, {{agent_device_runner_status}}, {{agent_device_execution_receipt}}, {{review_status}}, {{reviewed_snapshot}}, {{completion_verification_passed}}, {{completion_verification_summary}}, {{completion_verification_evidence}}, {{completion_remaining_risks}}, {{subagent_review_approved}}, {{authorization_summary}}, and {{terminal_reason}} as branch-aware completion inputs. Empty fields for stages not reached are intentional and mean that evidence was not produced.\n\nStage Context:\n\n- Design summary: {{design_summary}}\n- Design path: {{design_path}}\n- Plan summary: {{plan_summary}}\n- Plan path: {{plan_path}}\n- Implementation summary: {{implementation_summary}}\n- Release QA verdict: {{release_qa_verdict}}\n- Release QA executed checks: {{release_qa_executed_checks}}\n- Release QA blocked checks: {{release_qa_blocked_checks}}\n- Release QA risk next steps: {{release_qa_risk_next_steps}}\n- Release QA artifacts: {{release_qa_artifacts}}\n- Agent-device status: {{agent_device_status}}\n- Agent-device commands: {{agent_device_commands}}\n- Agent-device artifacts: {{agent_device_artifacts}}\n- Agent-device session: {{agent_device_session}}\n- Agent-device replay suite: {{agent_device_replay_suite}}\n- Agent-device observed CLI version: {{agent_device_cli_version}}\n- Agent-device observed device: {{agent_device_observed_device}}\n- Agent-device observed app id: {{agent_device_observed_app_id}}\n- Agent-device runner status: {{agent_device_runner_status}}\n- Agent-device execution receipt: {{agent_device_execution_receipt}}\n- Review status: {{review_status}}\n- Reviewed snapshot: {{reviewed_snapshot}}\n- Review findings: {{review_findings}}\n- Completion verification passed: {{completion_verification_passed}}\n- Completion verification summary: {{completion_verification_summary}}\n- Completion verification evidence: {{completion_verification_evidence}}\n- Completion remaining risks: {{completion_remaining_risks}}\n- Subagent review authorization: {{subagent_review_approved}}\n- Authorization summary: {{authorization_summary}}\n- Terminal reason: {{terminal_reason}}\n- Branch input rule: a blank field means its stage was not reached or the evidence is not applicable; report it as not executed rather than inferring success.\n\nStage Boundaries:\n\n- If subagent review authorization was declined, report that the workflow closed before implementation planning; do not claim delivery completion or invent implementation evidence.\n- If terminal reason is max_steps_exceeded, label the result as a degraded terminal summary and do not claim that delivery completion was proven.\n- If a stage was not reached because authorization was declined or the budget was exhausted, summarize only the evidence available on that branch and omit normal-delivery claims.\n- For the normal delivery branch, do not claim completion unless completion verification passed, release QA ended in ship, and pre-merge review ended in approved.\n- Do not claim agent-device success from a configured mode alone; summarize only the recorded status, commands, session/replay identifiers, observed version/device/app/runner evidence, execution receipt, and artifact paths.\n- Do not invent new implementation, QA, review, or verification facts that are not already grounded in the recorded workflow state.\n- Keep the final summary concise and evidence-based so the user can reuse it as a handoff artifact.\n\nBlocked Conditions:\n\n- Block if the final completion evidence is missing or inconsistent for a normal delivery claim.\n- Block if the workflow cannot produce a grounded final handoff summary from the recorded state.",
   "dependencies": [
     {
       "id": "brainstorming-nex",
@@ -2420,6 +2717,24 @@
       "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill pixel-diff -g -y --agent claude-code cursor codex"
     },
     {
+      "id": "agent-device",
+      "type": "skill",
+      "required": false,
+      "scope": "either",
+      "source": "skill-catalog:agent-device",
+      "purpose": "Provide supporting iOS device UI exploration, accessibility snapshots, replay, and runtime evidence during release QA.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill agent-device -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "agent-device-cli",
+      "type": "cli",
+      "required": false,
+      "scope": "global",
+      "source": "npm:agent-device",
+      "purpose": "Preflight the optional agent-device executable; required mode performs additional version, device, runner, and artifact checks.",
+      "command": "agent-device"
+    },
+    {
       "id": "requesting-code-review",
       "type": "skill",
       "required": true,
@@ -2461,6 +2776,15 @@
       "source": "skill-catalog:software-design-philosophy",
       "purpose": "Evaluate development-perspective spec quality for design decisions, impact scope, and implementation readiness.",
       "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill software-design-philosophy -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "test-nex",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "skill-catalog:test-nex",
+      "purpose": "Evaluate testing perspective, regression coverage, and verification failure paths during the independent spec review loop.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill test-nex -g -y --agent claude-code cursor codex"
     }
   ],
   "installed": [
@@ -2553,6 +2877,14 @@
       "recorded_by": "workflow-creator"
     },
     {
+      "id": "agent-device",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:agent-device",
+      "recorded_at": "2026-08-11T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
       "id": "requesting-code-review",
       "type": "skill",
       "scope": "either",
@@ -2590,6 +2922,14 @@
       "scope": "either",
       "source": "skill-catalog:software-design-philosophy",
       "recorded_at": "2026-06-24T00:00:00Z",
+      "recorded_by": "workflow-creator"
+    },
+    {
+      "id": "test-nex",
+      "type": "skill",
+      "scope": "either",
+      "source": "skill-catalog:test-nex",
+      "recorded_at": "2026-08-11T00:00:00Z",
       "recorded_by": "workflow-creator"
     }
   ],
@@ -4169,6 +4509,432 @@
       "state": null,
       "expected_next_node": "repair_and_resume",
       "expected_branch_kind": "repair"
+    },
+    {
+      "name": "release_qa_accepts_agent_device_off_mode_without_device_output",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA completed without requesting device QA.",
+        "structured_output": {
+          "release_qa_verdict": "ship",
+          "release_qa_summary": "Static and implementation checks passed.",
+          "release_qa_executed_checks": [
+            "Unit test suite"
+          ],
+          "release_qa_blocked_checks": [],
+          "release_qa_risk_next_steps": [
+            "Proceed to pre-merge review."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "Changed Swift sources",
+          "agent_device_status": null,
+          "agent_device_commands": null,
+          "agent_device_artifacts": null
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "context": {
+          "agent_device_mode": "off"
+        }
+      }
+    },
+    {
+      "name": "release_qa_rejects_required_agent_device_without_evidence",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA omitted required device evidence.",
+        "structured_output": {
+          "release_qa_verdict": "do_not_ship",
+          "release_qa_summary": "Device evidence is missing.",
+          "release_qa_executed_checks": [
+            "Unit test suite"
+          ],
+          "release_qa_blocked_checks": [
+            "Required device evidence missing"
+          ],
+          "release_qa_risk_next_steps": [
+            "Run the required agent-device smoke flow."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "Changed Swift sources"
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "context": {
+          "agent_device_mode": "required",
+          "agent_device_expected_version": "0.4.0",
+          "agent_device_app_id": "com.zoom.Zoom",
+          "agent_device_artifact_path": "artifacts/build/Zoom.ipa",
+          "agent_device_device": "iPhone 15"
+        }
+      }
+    },
+    {
+      "name": "release_qa_rejects_failed_required_agent_device",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Required device runner failed.",
+        "structured_output": {
+          "release_qa_verdict": "do_not_ship",
+          "release_qa_summary": "The device runner could not be prepared.",
+          "release_qa_executed_checks": [
+            "Unit test suite"
+          ],
+          "release_qa_blocked_checks": [
+            "agent-device runner unavailable"
+          ],
+          "release_qa_risk_next_steps": [
+            "Repair the device runner and rerun QA."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "Zoom iOS app",
+          "agent_device_status": "blocked",
+          "agent_device_commands": [],
+          "agent_device_artifacts": []
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "context": {
+          "agent_device_mode": "required",
+          "agent_device_expected_version": "0.4.0",
+          "agent_device_app_id": "com.zoom.Zoom",
+          "agent_device_artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/spec.json",
+          "agent_device_device": "iPhone 15",
+          "agent_device_evidence_dir": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references"
+        }
+      }
+    },
+    {
+      "name": "release_qa_accepts_successful_required_agent_device",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA completed with device evidence.",
+        "structured_output": {
+          "release_qa_verdict": "ship",
+          "release_qa_summary": "Implementation and device smoke checks passed.",
+          "release_qa_executed_checks": [
+            "Unit test suite",
+            "agent-device snapshot and replay smoke"
+          ],
+          "release_qa_blocked_checks": [],
+          "release_qa_risk_next_steps": [
+            "Proceed to pre-merge review."
+          ],
+          "release_qa_artifacts": [
+            "artifacts/release-qa/agent-device/session.json"
+          ],
+          "release_qa_target_scope": "com.zoom.Zoom on iPhone 15, build 123",
+          "agent_device_status": "succeeded",
+          "agent_device_commands": [
+            "agent-device prepare ios-runner --platform ios",
+            "agent-device replay smoke.ad"
+          ],
+          "agent_device_artifacts": [
+            "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references/flowchart.md",
+            "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references/agent-review.md"
+          ],
+          "agent_device_session": "qa-session-123",
+          "agent_device_replay_suite": "smoke.ad",
+          "agent_device_cli_version": "0.4.0",
+          "agent_device_observed_device": "iPhone 15",
+          "agent_device_observed_app_id": "com.zoom.Zoom",
+          "agent_device_runner_status": "succeeded",
+          "agent_device_execution_receipt": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references/agent-device-receipt.json"
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "context": {
+          "agent_device_mode": "required",
+          "agent_device_expected_version": "0.4.0",
+          "agent_device_app_id": "com.zoom.Zoom",
+          "agent_device_artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/spec.json",
+          "agent_device_device": "iPhone 15",
+          "agent_device_evidence_dir": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references"
+        }
+      }
+    },
+    {
+      "name": "release_qa_rejects_agent_device_artifact_escape",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Required device QA attempted to report an artifact outside its evidence root.",
+        "structured_output": {
+          "release_qa_verdict": "do_not_ship",
+          "release_qa_summary": "The device artifact path is unsafe.",
+          "release_qa_executed_checks": [
+            "agent-device prepare ios-runner",
+            "agent-device snapshot"
+          ],
+          "release_qa_blocked_checks": [
+            "Unsafe agent-device artifact path"
+          ],
+          "release_qa_risk_next_steps": [
+            "Use the configured evidence directory and rerun device QA."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "com.zoom.Zoom on iPhone 15, build 123",
+          "agent_device_status": "succeeded",
+          "agent_device_commands": [
+            "agent-device prepare ios-runner --platform ios",
+            "agent-device snapshot"
+          ],
+          "agent_device_artifacts": [
+            "../outside-evidence/report.json"
+          ],
+          "agent_device_cli_version": "0.4.0",
+          "agent_device_observed_device": "iPhone 15",
+          "agent_device_observed_app_id": "com.zoom.Zoom",
+          "agent_device_runner_status": "succeeded"
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "context": {
+          "agent_device_mode": "required",
+          "agent_device_expected_version": "0.4.0",
+          "agent_device_app_id": "com.zoom.Zoom",
+          "agent_device_artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/spec.json",
+          "agent_device_device": "iPhone 15",
+          "agent_device_evidence_dir": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references"
+        }
+      }
+    },
+    {
+      "name": "release_qa_accepts_empty_agent_device_mode_without_device_output",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA completed without requesting device QA.",
+        "structured_output": {
+          "release_qa_verdict": "ship",
+          "release_qa_summary": "Static checks passed.",
+          "release_qa_executed_checks": [
+            "Unit test suite"
+          ],
+          "release_qa_blocked_checks": [],
+          "release_qa_risk_next_steps": [
+            "Proceed to review."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "Changed Swift sources",
+          "agent_device_status": null,
+          "agent_device_commands": null,
+          "agent_device_artifacts": null
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "context": {}
+      }
+    },
+    {
+      "name": "release_qa_rejects_unknown_agent_device_mode",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA supplied an unsupported device mode.",
+        "structured_output": {
+          "release_qa_verdict": "do_not_ship",
+          "release_qa_summary": "The device mode is invalid.",
+          "release_qa_executed_checks": [
+            "Unit test suite"
+          ],
+          "release_qa_blocked_checks": [
+            "Unsupported agent-device mode"
+          ],
+          "release_qa_risk_next_steps": [
+            "Choose off or required and rerun QA."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "Changed Swift sources"
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "context": {
+          "agent_device_mode": "maybe"
+        }
+      }
+    },
+    {
+      "name": "release_qa_rejects_required_agent_device_without_output_evidence",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA omitted required device execution evidence.",
+        "structured_output": {
+          "release_qa_verdict": "do_not_ship",
+          "release_qa_summary": "The required device evidence is missing.",
+          "release_qa_executed_checks": [
+            "Unit test suite"
+          ],
+          "release_qa_blocked_checks": [
+            "Required device evidence missing"
+          ],
+          "release_qa_risk_next_steps": [
+            "Run the required agent-device smoke flow."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "com.zoom.Zoom on iPhone 15"
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "context": {
+          "agent_device_mode": "required",
+          "agent_device_expected_version": "0.4.0",
+          "agent_device_app_id": "com.zoom.Zoom",
+          "agent_device_artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/spec.json",
+          "agent_device_device": "iPhone 15",
+          "agent_device_evidence_dir": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references"
+        }
+      }
+    },
+    {
+      "name": "release_qa_rejects_device_operations_before_runner_prepare",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA recorded device operations before runner preparation.",
+        "structured_output": {
+          "release_qa_verdict": "do_not_ship",
+          "release_qa_summary": "Runner preparation order is invalid.",
+          "release_qa_executed_checks": [
+            "agent-device snapshot"
+          ],
+          "release_qa_blocked_checks": [
+            "Runner was prepared after a device operation"
+          ],
+          "release_qa_risk_next_steps": [
+            "Prepare the runner and rerun the device flow."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "com.zoom.Zoom on iPhone 15",
+          "agent_device_status": "succeeded",
+          "agent_device_commands": [
+            "agent-device snapshot -i",
+            "agent-device prepare ios-runner --platform ios"
+          ],
+          "agent_device_artifacts": [
+            "artifacts/release-qa/agent-device/screenshot.png"
+          ],
+          "agent_device_cli_version": "0.4.0",
+          "agent_device_observed_device": "iPhone 15",
+          "agent_device_observed_app_id": "com.zoom.Zoom",
+          "agent_device_runner_status": "succeeded"
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "context": {
+          "agent_device_mode": "required",
+          "agent_device_expected_version": "0.4.0",
+          "agent_device_app_id": "com.zoom.Zoom",
+          "agent_device_artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/spec.json",
+          "agent_device_device": "iPhone 15",
+          "agent_device_evidence_dir": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references"
+        }
+      }
+    },
+    {
+      "name": "release_qa_rejects_absolute_agent_device_artifact_path",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA attempted to record an absolute device artifact path.",
+        "structured_output": {
+          "release_qa_verdict": "do_not_ship",
+          "release_qa_summary": "The device artifact path is unsafe.",
+          "release_qa_executed_checks": [
+            "agent-device snapshot"
+          ],
+          "release_qa_blocked_checks": [
+            "Unsafe agent-device artifact path"
+          ],
+          "release_qa_risk_next_steps": [
+            "Use the configured evidence directory and rerun QA."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "com.zoom.Zoom on iPhone 15",
+          "agent_device_status": "succeeded",
+          "agent_device_commands": [
+            "agent-device prepare ios-runner --platform ios",
+            "agent-device snapshot"
+          ],
+          "agent_device_artifacts": [
+            "/tmp/outside-evidence/report.json"
+          ],
+          "agent_device_cli_version": "0.4.0",
+          "agent_device_observed_device": "iPhone 15",
+          "agent_device_observed_app_id": "com.zoom.Zoom",
+          "agent_device_runner_status": "succeeded"
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "context": {
+          "agent_device_mode": "required",
+          "agent_device_expected_version": "0.4.0",
+          "agent_device_app_id": "com.zoom.Zoom",
+          "agent_device_artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/spec.json",
+          "agent_device_device": "iPhone 15",
+          "agent_device_evidence_dir": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references"
+        }
+      }
+    },
+    {
+      "name": "release_qa_rejects_non_string_agent_device_context",
+      "type": "verifier",
+      "step_id": "run_agentic_release_qa",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Release QA received malformed device configuration.",
+        "structured_output": {
+          "release_qa_verdict": "do_not_ship",
+          "release_qa_summary": "The device configuration is malformed.",
+          "release_qa_executed_checks": [
+            "Unit test suite"
+          ],
+          "release_qa_blocked_checks": [
+            "Malformed device configuration"
+          ],
+          "release_qa_risk_next_steps": [
+            "Fix the device configuration and rerun QA."
+          ],
+          "release_qa_artifacts": [],
+          "release_qa_target_scope": "Changed Swift sources"
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "context": {
+          "agent_device_mode": "required",
+          "agent_device_expected_version": "0.4.0",
+          "agent_device_app_id": {},
+          "agent_device_artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/spec.json",
+          "agent_device_device": "iPhone 15",
+          "agent_device_evidence_dir": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references"
+        }
+      }
     }
   ]
 }

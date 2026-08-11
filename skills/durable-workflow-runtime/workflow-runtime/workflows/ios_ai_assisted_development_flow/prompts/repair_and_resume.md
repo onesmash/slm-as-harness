@@ -11,6 +11,22 @@ Stage Context:
 - {{repair_requirements}}
 - Relevant evidence:
 - {{repair_evidence}}
+- Agent-device mode: {{agent_device_mode}}
+- Agent-device expected version: {{agent_device_expected_version}}
+- Agent-device app id: {{agent_device_app_id}}
+- Agent-device build artifact: {{agent_device_artifact_path}}
+- Agent-device target device: {{agent_device_device}}
+- Agent-device evidence directory: {{agent_device_evidence_dir}}
+- Agent-device last status: {{agent_device_status}}
+- Agent-device last commands: {{agent_device_commands}}
+- Agent-device last artifacts: {{agent_device_artifacts}}
+- Agent-device last session: {{agent_device_session}}
+- Agent-device last replay suite: {{agent_device_replay_suite}}
+- Agent-device observed CLI version: {{agent_device_cli_version}}
+- Agent-device observed device: {{agent_device_observed_device}}
+- Agent-device observed app id: {{agent_device_observed_app_id}}
+- Agent-device runner status: {{agent_device_runner_status}}
+- Agent-device execution receipt: {{agent_device_execution_receipt}}
 - Latest unblocking input: {{unblocking_blocking_reason}}; {{unblocking_user_action_needed}}; {{unblocking_suggested_next_input}}
 - Blocked self-repair attempts in this repair episode: {{repair_blocked_attempts}}
 

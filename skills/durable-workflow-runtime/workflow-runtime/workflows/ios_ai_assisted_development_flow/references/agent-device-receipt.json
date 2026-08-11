@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "run_id": "generated-test-run",
+  "status": "succeeded",
+  "cli_version": "0.4.0",
+  "device": "iPhone 15",
+  "app_id": "com.zoom.Zoom",
+  "runner_status": "succeeded",
+  "session": "qa-session-123",
+  "replay_suite": "smoke.ad",
+  "commands": [
+    "agent-device prepare ios-runner --platform ios",
+    "agent-device replay smoke.ad"
+  ],
+  "build_artifact": "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/spec.json",
+  "artifacts": [
+    "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references/flowchart.md",
+    "skills/durable-workflow-runtime/workflow-runtime/workflows/ios_ai_assisted_development_flow/references/agent-review.md"
+  ]
+}

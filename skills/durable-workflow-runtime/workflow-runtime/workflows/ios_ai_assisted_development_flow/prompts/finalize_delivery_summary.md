@@ -1,4 +1,4 @@
-/verification-before-completion finalize the AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{review_status}}, {{reviewed_snapshot}}, {{completion_verification_passed}}, {{completion_verification_summary}}, {{completion_verification_evidence}}, {{completion_remaining_risks}}, {{subagent_review_approved}}, {{authorization_summary}}, and {{terminal_reason}} as branch-aware completion inputs. Empty fields for stages not reached are intentional and mean that evidence was not produced.
+/verification-before-completion finalize the AI-assisted development delivery summary using {{design_summary}}, {{design_path}}, {{plan_summary}}, {{plan_path}}, {{implementation_summary}}, {{release_qa_verdict}}, {{agent_device_status}}, {{agent_device_commands}}, {{agent_device_artifacts}}, {{agent_device_session}}, {{agent_device_replay_suite}}, {{agent_device_cli_version}}, {{agent_device_observed_device}}, {{agent_device_observed_app_id}}, {{agent_device_runner_status}}, {{agent_device_execution_receipt}}, {{review_status}}, {{reviewed_snapshot}}, {{completion_verification_passed}}, {{completion_verification_summary}}, {{completion_verification_evidence}}, {{completion_remaining_risks}}, {{subagent_review_approved}}, {{authorization_summary}}, and {{terminal_reason}} as branch-aware completion inputs. Empty fields for stages not reached are intentional and mean that evidence was not produced.
 
 Stage Context:
 
@@ -12,6 +12,16 @@ Stage Context:
 - Release QA blocked checks: {{release_qa_blocked_checks}}
 - Release QA risk next steps: {{release_qa_risk_next_steps}}
 - Release QA artifacts: {{release_qa_artifacts}}
+- Agent-device status: {{agent_device_status}}
+- Agent-device commands: {{agent_device_commands}}
+- Agent-device artifacts: {{agent_device_artifacts}}
+- Agent-device session: {{agent_device_session}}
+- Agent-device replay suite: {{agent_device_replay_suite}}
+- Agent-device observed CLI version: {{agent_device_cli_version}}
+- Agent-device observed device: {{agent_device_observed_device}}
+- Agent-device observed app id: {{agent_device_observed_app_id}}
+- Agent-device runner status: {{agent_device_runner_status}}
+- Agent-device execution receipt: {{agent_device_execution_receipt}}
 - Review status: {{review_status}}
 - Reviewed snapshot: {{reviewed_snapshot}}
 - Review findings: {{review_findings}}
@@ -30,6 +40,7 @@ Stage Boundaries:
 - If terminal reason is max_steps_exceeded, label the result as a degraded terminal summary and do not claim that delivery completion was proven.
 - If a stage was not reached because authorization was declined or the budget was exhausted, summarize only the evidence available on that branch and omit normal-delivery claims.
 - For the normal delivery branch, do not claim completion unless completion verification passed, release QA ended in ship, and pre-merge review ended in approved.
+- Do not claim agent-device success from a configured mode alone; summarize only the recorded status, commands, session/replay identifiers, observed version/device/app/runner evidence, execution receipt, and artifact paths.
 - Do not invent new implementation, QA, review, or verification facts that are not already grounded in the recorded workflow state.
 - Keep the final summary concise and evidence-based so the user can reuse it as a handoff artifact.
 

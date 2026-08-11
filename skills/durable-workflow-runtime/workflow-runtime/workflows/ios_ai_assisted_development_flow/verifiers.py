@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import re
+import json
+
 from pathlib import Path
 
 from workflows.common.contracts import VerifierResult, make_verifier_result
@@ -74,8 +77,8 @@ def verify_run_brainstorming(
  {'id': 'design_path_repo_policy',
   'template': 'repo_path_policy',
   'output_key': 'design_path',
-  'message': 'design_path must point to a Markdown document under docs/superpowers/specs/ '
-             'and must not point at docs/superpowers/plans/ artifacts.',
+  'message': 'design_path must point to a Markdown document under docs/superpowers/specs/ and must '
+             'not point at docs/superpowers/plans/ artifacts.',
   'required_prefix': 'docs/superpowers/specs/',
   'forbidden_prefixes': ['docs/superpowers/plans/'],
   'required_suffix': '.md'}],
@@ -85,6 +88,14 @@ def verify_run_brainstorming(
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_run_brainstorming(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
 
 def verify_approve_subagent_review(
@@ -341,7 +352,16 @@ def verify_run_agentic_release_qa(
  'release_qa_risk_next_steps': 'string[]',
  'release_qa_artifacts': 'string[]',
  'release_qa_target_scope': 'string'},
-        optional_schema={},
+        optional_schema={'agent_device_status': 'string',
+ 'agent_device_commands': 'string[]',
+ 'agent_device_artifacts': 'string[]',
+ 'agent_device_session': 'string',
+ 'agent_device_replay_suite': 'string',
+ 'agent_device_cli_version': 'string',
+ 'agent_device_observed_device': 'string',
+ 'agent_device_observed_app_id': 'string',
+ 'agent_device_runner_status': 'string',
+ 'agent_device_execution_receipt': 'string'},
         verifier_rules=[{'output_key': 'release_qa_verdict',
   'operator': 'one_of',
   'value': ['ship', 'do_not_ship'],
@@ -383,6 +403,7 @@ def verify_run_agentic_release_qa(
         output=output,
         state=state,
         repo_root=repo_root,
+        run_id=run_id,
     )
     if custom_error is not None:
         return _fail(custom_error, run_id, step_id, state)
@@ -507,6 +528,62 @@ def verify_verify_completion(
         return _fail(custom_error, run_id, step_id, state)
     return result
 
+def _run_custom_verifier_requirements_run_brainstorming(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_run_brainstorming_ui_visual_inputs_require_meaningful_text(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+# custom_verifier_stage_id: run_brainstorming
+# custom_verifier_requirement_id: ui_visual_inputs_require_meaningful_text
+# template_version: 1
+# spec_fingerprint: 9ee6a2178cfe77bdaa5f514d3381840d9015ab3babb4891a8f37398a1de7d037
+# implementation_version: 1
+def _custom_verifier_requirement_run_brainstorming_ui_visual_inputs_require_meaningful_text(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
+
+Requirement: When a UI surface is affected, visual QA inputs must contain meaningful non-whitespace text rather than placeholder whitespace.
+Signals: ui_surface_affected, visual_spec_detail_summary, design_comparison_source, runtime_visual_comparison_scope
+Implementation surfaces: verifier, tests
+Implementation notes: Normalize each required visual-QA input with trim semantics and fail closed when UI impact is true but any input is missing or whitespace-only.
+Hint pseudocode:
+- If ui_surface_affected is not true, do not apply this UI-specific requirement.
+- When ui_surface_affected is true, require visual_spec_detail_summary, design_comparison_source, and runtime_visual_comparison_scope to contain non-whitespace text.
+Test intent:
+- Reject UI-impacting brainstorming output whose visual-QA inputs are whitespace-only.
+- Accept non-UI brainstorming output without visual-QA inputs.
+- Accept UI-impacting brainstorming output with meaningful visual-QA inputs."""
+    _ = state, repo_root
+    if output.get("ui_surface_affected") is not True:
+        return None
+    required_inputs = (
+        ("visual_spec_detail_summary", "visual_spec_detail_summary"),
+        ("design_comparison_source", "design_comparison_source"),
+        ("runtime_visual_comparison_scope", "runtime_visual_comparison_scope"),
+    )
+    for key, label in required_inputs:
+        if not str(output.get(key) or "").strip():
+            return f"UI-impacting brainstorming requires meaningful {label}"
+    return None
+
 def _run_custom_verifier_requirements_run_spec_review(
     *,
     output: dict,
@@ -577,13 +654,16 @@ Test intent:
     canonical_artifacts: set[Path] = set()
     for artifact_path in artifact_paths:
         artifact = Path(artifact_path)
-        if artifact.is_absolute() or ".." in artifact.parts:
+        if artifact.is_absolute() or any(part in ("", ".", "..") for part in artifact.parts):
             return "spec review artifact paths must be relative and must not contain parent-directory traversal"
         if artifact.suffix.lower() != ".md":
             return "spec review artifacts must be Markdown files"
         candidate = repo_root_path / artifact
-        if _path_contains_symlink(candidate, repo_root_path):
-            return "spec review artifacts must not traverse symlinks"
+        current_path = repo_root_path
+        for part in artifact.parts:
+            current_path = current_path / part
+            if current_path.is_symlink():
+                return "spec review artifacts must not traverse symlinks"
         try:
             canonical = candidate.resolve(strict=True)
         except (OSError, ValueError):
@@ -597,12 +677,11 @@ Test intent:
         if canonical in canonical_artifacts:
             return "spec review artifact paths must resolve to unique files"
         canonical_artifacts.add(canonical)
-        try:
-            artifact_text = canonical.read_text(encoding="utf-8")
-            if not artifact_text.strip():
-                return f"spec review artifact is empty: {artifact_path}"
-        except (OSError, UnicodeError):
+        artifact_text = _read_safe_repo_text(repo_root, artifact_path)
+        if artifact_text is None:
             return f"spec review artifact cannot be read as UTF-8 Markdown: {artifact_path}"
+        if not artifact_text.strip():
+            return f"spec review artifact is empty: {artifact_path}"
         perspective = _extract_single_review_perspective(canonical.relative_to(repo_root_path).as_posix())
         if perspective is None:
             return f"spec review artifact must name exactly one review perspective: {artifact_path}"
@@ -735,6 +814,11 @@ Test intent:
     plan_updates_required = bool(output.get("plan_updates_required"))
     verification_passed = bool(output.get("verification_passed"))
     remaining_tasks = _meaningful_entries(output.get("remaining_tasks"))
+    raw_open_issues = output.get("open_issues")
+    if isinstance(raw_open_issues, list) and any(
+        not isinstance(item, str) or not item.strip() for item in raw_open_issues
+    ):
+        return "open_issues must contain only meaningful entries"
     if tasks_completed and remaining_tasks:
         return "tasks_completed cannot be true when remaining_tasks is non-empty"
     if not tasks_completed and not plan_updates_required and not remaining_tasks:
@@ -748,6 +832,7 @@ def _run_custom_verifier_requirements_run_agentic_release_qa(
     output: dict,
     state: dict | None,
     repo_root: str,
+    run_id: str,
 ) -> str | None:
     errors: list[str] = []
     message = _custom_verifier_requirement_run_agentic_release_qa_ui_visual_qa_evidence(
@@ -771,13 +856,21 @@ def _run_custom_verifier_requirements_run_agentic_release_qa(
     )
     if message:
         errors.append(message)
+    message = _custom_verifier_requirement_run_agentic_release_qa_required_agent_device_evidence(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+        run_id=run_id,
+    )
+    if message:
+        errors.append(message)
     return "; ".join(errors) if errors else None
 
 # custom_verifier_stage_id: run_agentic_release_qa
 # custom_verifier_requirement_id: ui_visual_qa_evidence
 # template_version: 1
-# spec_fingerprint: 4606d7538ed7f40b00173c64b06dad404a354f81d3ec170579fe313678109cbf
-# implementation_version: none
+# spec_fingerprint: 3bb809aee6fd54a3cdc789f8d6bf76bf1743c04a65df2a69cdeb955e6b6bbf1d
+# implementation_version: 1
 def _custom_verifier_requirement_run_agentic_release_qa_ui_visual_qa_evidence(
     *,
     output: dict,
@@ -785,6 +878,9 @@ def _custom_verifier_requirement_run_agentic_release_qa_ui_visual_qa_evidence(
     repo_root: str,
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: When the workflow state says a UI surface changed and visual comparison inputs are available, release QA must report executed or blocked visual comparison evidence explicitly.
 Signals: state.ui_surface_affected, state.design_comparison_source, state.runtime_visual_comparison_scope, release_qa_executed_checks, release_qa_blocked_checks, release_qa_artifacts
@@ -796,29 +892,38 @@ Hint pseudocode:
 Test intent:
 - Reject UI-impacting release QA output that omits all visual comparison evidence despite having comparison inputs.
 - Accept UI-impacting release QA output when visual comparison evidence appears in executed checks, blocked checks, or artifacts."""
-    state = state or {}
-    should_require_visual_evidence = bool(
-        state.get("ui_surface_affected")
-        and str(state.get("design_comparison_source") or "").strip()
-        and str(state.get("runtime_visual_comparison_scope") or "").strip()
-    )
-    if not should_require_visual_evidence:
+    _ = repo_root
+    persisted = state if isinstance(state, dict) else {}
+    if persisted.get("ui_surface_affected") is not True:
         return None
-
-    evidence_items = (
-        _meaningful_entries(output.get("release_qa_executed_checks"))
-        + _meaningful_entries(output.get("release_qa_blocked_checks"))
-        + _meaningful_entries(output.get("release_qa_artifacts"))
+    if not all(
+        isinstance(persisted.get(key), str) and persisted[key].strip()
+        for key in ("design_comparison_source", "runtime_visual_comparison_scope")
+    ):
+        return None
+    evidence = _meaningful_entries(output.get("release_qa_executed_checks"))
+    evidence += _meaningful_entries(output.get("release_qa_blocked_checks"))
+    evidence += _meaningful_entries(output.get("release_qa_artifacts"))
+    visual_markers = (
+        "visual",
+        "pixel",
+        "screenshot",
+        "design comparison",
+        "visual diff",
+        "snapshot diff",
     )
-    if not any(_looks_like_visual_evidence(item) for item in evidence_items):
-        return "UI-impacting release QA must report explicit visual comparison evidence"
+    if not any(
+        any(marker in entry.lower() for marker in visual_markers)
+        for entry in evidence
+    ):
+        return "UI-impacting release QA must report executed or blocked visual comparison evidence"
     return None
 
 # custom_verifier_stage_id: run_agentic_release_qa
 # custom_verifier_requirement_id: release_qa_lists_require_meaningful_entries
 # template_version: 1
-# spec_fingerprint: 40cb637d49a39e4f1f564a44c5966d5411e9a8a45c2963617671dfcb6a8926f2
-# implementation_version: none
+# spec_fingerprint: 78384d14f12d4eea4433aaa5e8d734ff7e90f28f4c458a096aa46a0a89fdd95d
+# implementation_version: 1
 def _custom_verifier_requirement_run_agentic_release_qa_release_qa_lists_require_meaningful_entries(
     *,
     output: dict,
@@ -826,6 +931,9 @@ def _custom_verifier_requirement_run_agentic_release_qa_release_qa_lists_require
     repo_root: str,
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: Release QA evidence lists must contain meaningful non-empty entries, not whitespace-only placeholders.
 Signals: release_qa_verdict, release_qa_executed_checks, release_qa_blocked_checks, release_qa_risk_next_steps
@@ -838,23 +946,29 @@ Hint pseudocode:
 Test intent:
 - Reject ship outputs with whitespace-only executed checks or next steps.
 - Reject outputs with whitespace-only blocked checks."""
+    _ = state, repo_root
     verdict = str(output.get("release_qa_verdict") or "").strip().lower()
-    executed_checks_raw = output.get("release_qa_executed_checks") or []
-    blocked_checks_raw = output.get("release_qa_blocked_checks") or []
-    next_steps_raw = output.get("release_qa_risk_next_steps") or []
-    if verdict == "ship" and not _meaningful_entries(executed_checks_raw):
-        return "ship release QA output must include meaningful executed checks"
-    if not _meaningful_entries(next_steps_raw):
-        return "release QA must include meaningful risk next steps"
-    if isinstance(blocked_checks_raw, list) and blocked_checks_raw and not _meaningful_entries(blocked_checks_raw):
-        return "release QA blocked checks cannot be blank placeholders"
+    for key, label in (
+        ("release_qa_executed_checks", "executed checks"),
+        ("release_qa_risk_next_steps", "risk next steps"),
+    ):
+        raw_value = output.get(key)
+        if not isinstance(raw_value, list) or not _meaningful_entries(raw_value):
+            return f"release QA {label} must contain meaningful entries"
+    raw_blocked = output.get("release_qa_blocked_checks")
+    if not isinstance(raw_blocked, list):
+        return "release QA blocked checks must be a list"
+    if any(not isinstance(item, str) or not item.strip() for item in raw_blocked):
+        return "release QA blocked checks must contain only meaningful entries"
+    if verdict not in {"ship", "do_not_ship"}:
+        return "release QA verdict must be ship or do_not_ship"
     return None
 
 # custom_verifier_stage_id: run_agentic_release_qa
 # custom_verifier_requirement_id: ship_verdict_requires_no_blocked_checks
 # template_version: 1
-# spec_fingerprint: cf8db0e1aa278387c8d5babe7cdf068f696b6b54a4655efe44f3a45046e79691
-# implementation_version: none
+# spec_fingerprint: 51a4ebc03a2f99b5f9b570111733a55e752bf3bec6ac9721bae16a70b88a242f
+# implementation_version: 1
 def _custom_verifier_requirement_run_agentic_release_qa_ship_verdict_requires_no_blocked_checks(
     *,
     output: dict,
@@ -862,6 +976,9 @@ def _custom_verifier_requirement_run_agentic_release_qa_ship_verdict_requires_no
     repo_root: str,
 ) -> str | None:
     """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: A ship verdict must not carry unresolved blocked checks or other outstanding QA issues forward.
 Signals: release_qa_verdict, release_qa_blocked_checks
@@ -872,10 +989,250 @@ Hint pseudocode:
 Test intent:
 - Reject ship outputs that still include blocked checks.
 - Accept ship outputs only when blocked checks are empty."""
+    _ = state, repo_root
     verdict = str(output.get("release_qa_verdict") or "").strip().lower()
     blocked_checks = _meaningful_entries(output.get("release_qa_blocked_checks"))
     if verdict == "ship" and blocked_checks:
         return "release QA cannot return ship while blocked checks remain"
+    return None
+
+# custom_verifier_stage_id: run_agentic_release_qa
+# custom_verifier_requirement_id: required_agent_device_evidence
+# template_version: 1
+# spec_fingerprint: bfdeacb7bb30ca732748c59b337aa65dd0a07e055fce98d915bf61526cc768d3
+# implementation_version: 1
+def _custom_verifier_requirement_run_agentic_release_qa_required_agent_device_evidence(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+    run_id: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
+
+Requirement: When agent_device_mode is required, release QA must prove that agent-device ran successfully with meaningful commands and artifact evidence; off or empty mode must not create a device gate.
+Signals: context.agent_device_mode, context.agent_device_expected_version, context.agent_device_app_id, context.agent_device_artifact_path, context.agent_device_device, context.agent_device_evidence_dir, agent_device_status, agent_device_commands, agent_device_artifacts, agent_device_cli_version, agent_device_observed_device, agent_device_observed_app_id, agent_device_runner_status, agent_device_execution_receipt, release_qa_target_scope, release_qa_blocked_checks
+Implementation surfaces: verifier, state, tests
+Implementation notes: The verifier must read the persisted workflow context, fail closed only for required mode, require the declared version/app/artifact/device/evidence inputs, require structured host observations for the actual CLI version, device, app, and runner status, require a bounded JSON execution receipt tied to the current workflow run, require runner-preparation evidence before device operations, require regular build and evidence files, and reject unsafe artifact paths. It must not require the CLI or device when mode is off or empty; command execution remains a host responsibility, while the verifier validates the returned observations, receipt, and bounded files.
+Hint pseudocode:
+- Read context.agent_device_mode from persisted state and normalize whitespace/case.
+- If the mode is not required, return no device-specific verifier error.
+- When required, require context to identify the expected CLI version, app, build artifact, target device, and evidence directory.
+- When required, require agent_device_status to equal succeeded, agent_device_commands to contain meaningful entries including runner preparation before device operations, agent_device_artifacts to contain safe relative paths under the repository, and release_qa_target_scope to identify the app/build/device target.
+- Require agent_device_cli_version to exactly match the expected version, agent_device_observed_device to exactly match the configured target device, agent_device_observed_app_id to exactly match the configured app id, and agent_device_runner_status to equal succeeded.
+- Require the declared build artifact and every evidence artifact to exist as regular non-symlink files under the repository and evidence directory.
+- Require agent_device_execution_receipt to point to a regular JSON file under the evidence directory whose run_id, status, CLI version, device, app, runner status, commands, build artifact, and artifacts match the current host observations and workflow run.
+- When session or replay suite is configured, require the reported values and corresponding receipt values to exactly match the configured values.
+- Reject required-mode output when release_qa_blocked_checks contains meaningful unresolved device blockers.
+- Keep actual CLI command execution in the workflow host/agent, and pass its observed version/device/app/runner results plus bounded artifact paths into the verifier.
+Test intent:
+- Accept release QA with agent_device_mode off and no device output.
+- Reject required mode when agent-device status, commands, or artifacts are missing.
+- Reject required mode when agent-device status is blocked or failed.
+- Reject required mode when version, app, build artifact, target device, or evidence destination is missing.
+- Reject required mode when an artifact path is absolute, traverses a parent directory, or bypasses the repository boundary.
+- Reject required mode when observed CLI/device/app/runner evidence is missing or mismatched.
+- Reject required mode when the declared build or evidence artifact is missing or not a regular file.
+- Reject required mode when the execution receipt is missing, malformed, from another run, or inconsistent with the reported host evidence.
+- Accept required mode when status, commands, artifacts, host observations, target scope, and release QA checks are meaningful."""
+    context = state.get("context") if isinstance(state, dict) else {}
+    context = context if isinstance(context, dict) else {}
+    raw_mode = context.get("agent_device_mode")
+    if raw_mode is not None and not isinstance(raw_mode, str):
+        return "agent_device_mode must be a string when provided"
+    mode = (raw_mode or "").strip().lower()
+    if mode in {"", "off"}:
+        return None
+    if mode != "required":
+        return "agent_device_mode must be off, required, or empty"
+
+    required_context = (
+        ("agent_device_expected_version", "expected CLI version"),
+        ("agent_device_app_id", "app id"),
+        ("agent_device_artifact_path", "build artifact"),
+        ("agent_device_device", "target device"),
+        ("agent_device_evidence_dir", "evidence directory"),
+    )
+    missing_context = []
+    for key, label in required_context:
+        value = context.get(key)
+        if not isinstance(value, str) or not value.strip():
+            missing_context.append(label)
+    if missing_context:
+        return "required agent-device QA is missing " + ", ".join(missing_context)
+
+    def safe_device_path(raw_path: object) -> Path | None:
+        if not isinstance(raw_path, str) or not raw_path.strip():
+            return None
+        normalized = raw_path
+        if (
+            normalized != normalized.strip()
+            or "\\" in normalized
+            or any(ord(char) < 32 for char in normalized)
+            or normalized.startswith("/")
+            or re.match(r"^[A-Za-z]:/", normalized)
+        ):
+            return None
+        parts = normalized.split("/")
+        if any(part in ("", ".", "..") for part in parts):
+            return None
+        try:
+            repo = Path(repo_root).expanduser().resolve(strict=True)
+            current = repo
+            for part in parts:
+                current = current / part
+                if current.is_symlink():
+                    return None
+            resolved = repo.joinpath(*parts).resolve(strict=False)
+            resolved.relative_to(repo)
+            return resolved
+        except (OSError, RuntimeError, ValueError):
+            return None
+
+    build_artifact_input = context["agent_device_artifact_path"].strip()
+    build_artifact = safe_device_path(build_artifact_input)
+    if build_artifact is None:
+        return "required agent-device build artifact must be a safe relative repository path"
+    if not build_artifact.is_file() or build_artifact.is_symlink():
+        return "required agent-device build artifact must be an existing regular file"
+
+    status = output.get("agent_device_status")
+    if not isinstance(status, str) or status.strip().lower() != "succeeded":
+        return "required agent-device QA must report agent_device_status=succeeded"
+
+    observed_pairs = (
+        ("agent_device_cli_version", "agent_device_expected_version", "CLI version"),
+        ("agent_device_observed_device", "agent_device_device", "target device"),
+        ("agent_device_observed_app_id", "agent_device_app_id", "app id"),
+    )
+    for output_key, context_key, label in observed_pairs:
+        observed = output.get(output_key)
+        expected = context.get(context_key)
+        if not isinstance(observed, str) or not observed.strip():
+            return f"required agent-device QA must report observed {label}"
+        if observed.strip() != expected.strip():
+            return f"observed {label} does not match the configured target"
+    runner_status = output.get("agent_device_runner_status")
+    if not isinstance(runner_status, str) or runner_status.strip().lower() != "succeeded":
+        return "required agent-device QA must report agent_device_runner_status=succeeded"
+
+    commands = _meaningful_entries(output.get("agent_device_commands"))
+    if not commands:
+        return "required agent-device QA must report meaningful executed commands"
+    command_indexes = [command.lower() for command in commands]
+    preparation_index = next(
+        (
+            index
+            for index, command in enumerate(command_indexes)
+            if re.search(r"\bprepare\b", command)
+            and re.search(r"\brunner\b", command)
+        ),
+        None,
+    )
+    operation_pattern = re.compile(
+        r"\b(snapshot|act|press|click|fill|scroll|swipe|type|tap|long-press|back|alert|batch|wait|get|is|screenshot|logs?|perf|trace|replay|test|close)\b"
+    )
+    operation_indexes = [
+        index
+        for index, command in enumerate(command_indexes)
+        if operation_pattern.search(command)
+    ]
+    if operation_indexes and preparation_index is None:
+        return "required agent-device QA must prepare the iOS runner before device operations"
+    if operation_indexes and preparation_index is not None and any(
+        index < preparation_index for index in operation_indexes
+    ):
+        return "required agent-device QA must prepare the iOS runner before device operations"
+
+    artifacts = _meaningful_entries(output.get("agent_device_artifacts"))
+    if not artifacts:
+        return "required agent-device QA must report meaningful artifact paths"
+    evidence_root = safe_device_path(context["agent_device_evidence_dir"].strip())
+    if evidence_root is None or not evidence_root.is_dir() or evidence_root.is_symlink():
+        return "required agent-device QA evidence directory must be an existing directory"
+    for artifact_path in artifacts:
+        safe_artifact = safe_device_path(artifact_path)
+        if safe_artifact is None:
+            return "required agent-device artifact paths must be safe relative repository paths"
+        try:
+            safe_artifact.relative_to(evidence_root)
+        except ValueError:
+            return "required agent-device artifacts must remain under the evidence directory"
+        if not safe_artifact.is_file() or safe_artifact.is_symlink():
+            return "required agent-device artifacts must be existing regular files"
+
+    receipt_raw = output.get("agent_device_execution_receipt")
+    receipt_path = safe_device_path(receipt_raw)
+    if receipt_path is None or receipt_path.suffix.lower() != ".json":
+        return "required agent-device execution receipt must be a safe relative JSON path"
+    try:
+        receipt_path.relative_to(evidence_root)
+    except ValueError:
+        return "required agent-device execution receipt must remain under the evidence directory"
+    receipt_text = _read_safe_repo_text(repo_root, receipt_raw)
+    if receipt_text is None:
+        return "required agent-device execution receipt must be an existing bounded UTF-8 JSON file"
+    try:
+        receipt = json.loads(receipt_text)
+    except (TypeError, ValueError):
+        return "required agent-device execution receipt must contain valid JSON"
+    if not isinstance(receipt, dict):
+        return "required agent-device execution receipt must contain a JSON object"
+    if receipt.get("schema_version") != 1:
+        return "required agent-device execution receipt has an unsupported schema version"
+    if receipt.get("run_id") != run_id:
+        return "required agent-device execution receipt must belong to the current workflow run"
+    if receipt.get("status") != "succeeded":
+        return "required agent-device execution receipt must report succeeded status"
+    receipt_pairs = (
+        ("cli_version", output["agent_device_cli_version"].strip()),
+        ("device", output["agent_device_observed_device"].strip()),
+        ("app_id", output["agent_device_observed_app_id"].strip()),
+        ("runner_status", "succeeded"),
+        ("build_artifact", build_artifact_input),
+    )
+    for receipt_key, expected in receipt_pairs:
+        if receipt.get(receipt_key) != expected:
+            return f"agent-device execution receipt {receipt_key} does not match the observed evidence"
+    if receipt.get("commands") != commands:
+        return "agent-device execution receipt commands do not match the reported commands"
+    if receipt.get("artifacts") != artifacts:
+        return "agent-device execution receipt artifacts do not match the reported artifacts"
+
+    for output_key, context_key, receipt_key, label in (
+        ("agent_device_session", "agent_device_session", "session", "session"),
+        ("agent_device_replay_suite", "agent_device_replay_suite", "replay_suite", "replay suite"),
+    ):
+        configured = context.get(context_key)
+        reported = output.get(output_key)
+        if isinstance(configured, str) and configured.strip():
+            if not isinstance(reported, str) or reported.strip() != configured.strip():
+                return f"required agent-device QA must report the configured {label} exactly"
+        if isinstance(reported, str) and reported.strip():
+            if receipt.get(receipt_key) != reported.strip():
+                return f"agent-device execution receipt {label} does not match the reported evidence"
+
+    target_scope = output.get("release_qa_target_scope")
+    if not isinstance(target_scope, str) or not target_scope.strip():
+        return "required agent-device QA must identify the app, build, or device target"
+
+    blocked_checks = _meaningful_entries(output.get("release_qa_blocked_checks"))
+    device_blocker_markers = (
+        "agent-device",
+        "agent device",
+        "device qa",
+        "runner",
+        "signing",
+        "replay divergence",
+    )
+    if any(
+        any(marker in check.lower() for marker in device_blocker_markers)
+        for check in blocked_checks
+    ):
+        return "required agent-device QA cannot report succeeded while device blockers remain"
     return None
 
 def _run_custom_verifier_requirements_request_pre_merge_code_review(
@@ -1112,6 +1469,13 @@ Test intent:
         return "completion cannot pass before release QA reaches ship"
     if str(state.get("review_status") or "").strip().lower() != "approved":
         return "completion cannot pass before pre-merge review reaches approved"
+    for state_key in ("open_issues", "release_qa_blocked_checks"):
+        raw_entries = state.get(state_key)
+        if raw_entries is not None and (
+            not isinstance(raw_entries, list)
+            or any(not isinstance(item, str) or not item.strip() for item in raw_entries)
+        ):
+            return f"{state_key} must contain only meaningful entries"
     if _meaningful_entries(state.get("open_issues")):
         return "completion cannot pass while open_issues remain in state"
 
@@ -1148,12 +1512,7 @@ def _verify_structured_output_schema(
     ]
     if unexpected_keys:
         unexpected = sorted(repr(key) for key in unexpected_keys)
-        return _fail(
-            f"unexpected structured_output keys: {unexpected}",
-            run_id,
-            step_id,
-            state,
-        )
+        return _fail(f"unexpected structured_output keys: {unexpected}", run_id, step_id, state)
     missing = [key for key in required_schema if key not in output]
     if missing:
         return _fail(f"missing required structured_output keys: {missing}", run_id, step_id, state)
@@ -1178,7 +1537,7 @@ def _verify_structured_output_schema(
         return _fail("; ".join(rule_errors), run_id, step_id, state)
     template_errors = []
     for template in verifier_templates:
-        message = _verifier_template_error(template, output, repo_root)
+        message = _verifier_template_error(template, output, repo_root, state)
         if message:
             template_errors.append(message)
     if template_errors:
@@ -1256,7 +1615,7 @@ def _verifier_rule_error(rule: dict, output: dict, repo_root: str) -> str | None
     return None if condition_matches(actual, operator, expected) else message
 
 
-def _verifier_template_error(template: dict, output: dict, repo_root: str) -> str | None:
+def _verifier_template_error(template: dict, output: dict, repo_root: str, state: dict | None) -> str | None:
     template_name = str(template.get("template") or "")
     message = str(template.get("message") or f"{template.get('id') or template_name} failed")
     key = str(template.get("output_key") or "")
@@ -1267,8 +1626,14 @@ def _verifier_template_error(template: dict, output: dict, repo_root: str) -> st
         return _conditional_required_error(output, template, message)
     if template_name == "min_count":
         return _min_count_error(actual, template, message)
+    if template_name == "min_count_from_constraint":
+        return _min_count_from_constraint_error(actual, template, state, message)
     if template_name == "required_set_members":
         return _required_set_members_error(actual, template, message)
+    if template_name == "artifact_list_policy":
+        return _artifact_list_policy_error(actual, template, repo_root, message)
+    if template_name == "no_unresolved_findings":
+        return _no_unresolved_findings_error(output, template, message)
     if template_name == "repo_path_policy":
         return _repo_path_policy_error(actual, template, repo_root, message)
     if template_name == "artifact_file_contains_sections":
@@ -1284,7 +1649,7 @@ def _conditional_required_error(output: dict, template: dict, message: str) -> s
     if not condition_matches(output.get(when_key), str(when.get("operator") or ""), when.get("value")):
         return None
     required_key = str(template.get("required_key") or "")
-    return None if _has_meaningful_value(output.get(required_key)) else message
+    return None if output.get(required_key) else message
 
 
 def _conditional_equals_error(actual, output: dict, template: dict, message: str) -> str | None:
@@ -1303,7 +1668,28 @@ def _min_count_error(actual, template: dict, message: str) -> str | None:
     min_count = template.get("min_count")
     if not isinstance(min_count, int) or isinstance(min_count, bool):
         return message
-    return None if len(actual) >= min_count else message
+    if len(actual) < min_count:
+        return message
+    if any(isinstance(item, str) and not item.strip() for item in actual):
+        return message
+    return None
+
+
+def _min_count_from_constraint_error(actual, template: dict, state: dict | None, message: str) -> str | None:
+    if not isinstance(actual, list):
+        return message
+    constraints = state.get("constraints") if isinstance(state, dict) else {}
+    constraint_key = str(template.get("constraint_key") or "")
+    raw_min_count = constraints.get(constraint_key) if isinstance(constraints, dict) else None
+    default_min_count = template.get("default_min_count")
+    min_count = raw_min_count if isinstance(raw_min_count, int) and not isinstance(raw_min_count, bool) and raw_min_count >= 0 else default_min_count
+    if not isinstance(min_count, int) or isinstance(min_count, bool) or min_count < 0:
+        return message
+    if len(actual) < min_count:
+        return message
+    if any(isinstance(item, str) and not item.strip() for item in actual):
+        return message
+    return None
 
 
 def _required_set_members_error(actual, template: dict, message: str) -> str | None:
@@ -1326,17 +1712,11 @@ def _required_set_members_error(actual, template: dict, message: str) -> str | N
 def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
+    candidate = _safe_repo_path(repo_root, actual)
+    if candidate is None:
+        return message
     repo = Path(repo_root).expanduser().resolve()
-    raw_path = Path(actual)
-    if raw_path.is_absolute() or ".." in raw_path.parts:
-        return message
-    candidate = repo / raw_path
-    if _path_contains_symlink(candidate, repo):
-        return message
-    try:
-        relative_path = candidate.resolve(strict=True).relative_to(repo)
-    except (OSError, ValueError):
-        return message
+    relative_path = candidate.relative_to(repo)
     relative_posix = relative_path.as_posix()
     required_prefix = str(template.get("required_prefix") or "")
     if required_prefix and not relative_posix.startswith(required_prefix):
@@ -1353,12 +1733,128 @@ def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str
 def _artifact_file_contains_sections_error(actual, template: dict, repo_root: str, message: str) -> str | None:
     if not isinstance(actual, str) or not actual.strip():
         return message
+    if _safe_repo_file(repo_root, actual) is None:
+        return message
     text = _read_safe_repo_text(repo_root, actual)
     if text is None or not text.strip():
         return message
     sections = [str(section) for section in template.get("sections") or []]
-    missing = [section for section in sections if section not in text]
+    missing = []
+    for section in sections:
+        if section.startswith("#") and set(section) == {"#"}:
+            pattern = rf"(?m)^\s*{re.escape(section)}(?!#)\s+\S"
+            if re.search(pattern, text) is None:
+                missing.append(section)
+        elif section not in text:
+            missing.append(section)
     return None if not missing else f"{message}: missing sections {missing}"
+
+
+def _artifact_list_policy_error(actual, template: dict, repo_root: str, message: str) -> str | None:
+    if not isinstance(actual, list) or not actual:
+        return message
+    required_prefix = str(template.get("required_prefix") or "")
+    allowed_suffixes = tuple(str(item).lower() for item in template.get("allowed_suffixes") or [])
+    require_non_empty_content = bool(template.get("require_non_empty_content", True))
+    for index, item in enumerate(actual):
+        if not isinstance(item, str) or not item.strip():
+            return f"{message}: invalid artifact at index {index}"
+        candidate = _safe_repo_file(repo_root, item)
+        if candidate is None:
+            return f"{message}: invalid artifact at index {index}"
+        repo = Path(repo_root).expanduser().resolve()
+        relative_posix = candidate.relative_to(repo).as_posix()
+        if required_prefix and not relative_posix.startswith(required_prefix):
+            return f"{message}: artifact at index {index} is outside the required directory"
+        if allowed_suffixes and not relative_posix.lower().endswith(allowed_suffixes):
+            return f"{message}: artifact at index {index} has an unsupported file type"
+        if require_non_empty_content:
+            text = _read_safe_repo_text(repo_root, item)
+            if text is None or not text.strip():
+                return f"{message}: artifact at index {index} is empty or unreadable"
+    return None
+
+
+def _no_unresolved_findings_error(output: dict, template: dict, message: str) -> str | None:
+    when = template.get("when")
+    if when is not None:
+        if not isinstance(when, dict):
+            return message
+        when_key = str(when.get("output_key") or "")
+        if not condition_matches(output.get(when_key), str(when.get("operator") or ""), when.get("value")):
+            return None
+    findings = output.get(str(template.get("output_key") or ""))
+    if not isinstance(findings, list):
+        return message
+    unresolved_terms = tuple(str(item).lower() for item in template.get("unresolved_terms") or [])
+    resolved_terms = tuple(str(item).lower() for item in template.get("resolved_terms") or [])
+    for finding in findings:
+        if not isinstance(finding, str) or not finding.strip():
+            return message
+        lowered = finding.lower()
+        unresolved = any(term and re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lowered) for term in unresolved_terms)
+        resolved = any(term and re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lowered) for term in resolved_terms)
+        if unresolved and not resolved:
+            return f"{message}: unresolved findings present"
+    return None
+
+
+_MAX_SAFE_REPO_TEXT_BYTES = 512 * 1024
+
+
+def _safe_repo_path(repo_root: str, raw_path: str) -> Path | None:
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        return None
+    try:
+        repo = Path(repo_root).expanduser().resolve()
+        normalized = raw_path
+        if normalized != normalized.strip() or "\\" in normalized or any(ord(char) < 32 for char in normalized) or normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
+            return None
+        parts = normalized.split("/")
+        if any(part in ("", ".", "..") for part in parts):
+            return None
+        candidate = repo.joinpath(*parts)
+        resolved = candidate.resolve(strict=False)
+        relative = resolved.relative_to(repo)
+        current = repo
+        for part in relative.parts:
+            current = current / part
+            if current.is_symlink():
+                return None
+        return resolved
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _safe_repo_file(repo_root: str, raw_path: str) -> Path | None:
+    candidate = _safe_repo_path(repo_root, raw_path)
+    if candidate is None or candidate.is_symlink() or not candidate.is_file():
+        return None
+    return candidate
+
+
+def _read_safe_repo_text(repo_root: str, raw_path: str) -> str | None:
+    candidate = _safe_repo_file(repo_root, raw_path)
+    if candidate is None:
+        return None
+    file_descriptor = None
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        file_descriptor = os.open(str(candidate), flags)
+        with os.fdopen(file_descriptor, "rb") as handle:
+            file_descriptor = None
+            data = handle.read(_MAX_SAFE_REPO_TEXT_BYTES + 1)
+            if len(data) > _MAX_SAFE_REPO_TEXT_BYTES:
+                return None
+            return data.decode("utf-8")
+    except (OSError, UnicodeError):
+        return None
+    finally:
+        if file_descriptor is not None:
+            try:
+                os.close(file_descriptor)
+            except OSError:
+                pass
 
 
 def _meaningful_entries(value) -> list[str]:
@@ -1374,80 +1870,13 @@ def _meaningful_entries(value) -> list[str]:
     return entries
 
 
-def _has_meaningful_value(value: object) -> bool:
-    if isinstance(value, str):
-        return bool(value.strip())
-    if isinstance(value, list):
-        return any(_has_meaningful_value(item) for item in value)
-    if isinstance(value, dict):
-        return bool(value)
-    return bool(value)
-
-
-def _path_contains_symlink(path: Path, repo_root: Path) -> bool:
+def _path_has_prefix(path: Path, prefix: Path) -> bool:
     try:
-        relative_parts = path.relative_to(repo_root).parts
-    except ValueError:
-        return True
-    current = repo_root
-    for part in relative_parts:
-        current = current / part
-        try:
-            if current.is_symlink():
-                return True
-        except (OSError, ValueError):
-            return True
-    return False
-
-
-def _safe_repo_file(repo_root: str, raw_path: str) -> Path | None:
-    if not isinstance(raw_path, str) or not raw_path.strip():
-        return None
-    try:
-        repo = Path(repo_root).expanduser().resolve()
-        normalized = raw_path
-        if (
-            normalized != normalized.strip()
-            or "\\" in normalized
-            or any(ord(char) < 32 for char in normalized)
-        ):
-            return None
-        candidate = repo / Path(normalized)
-        if candidate.is_absolute() and not str(candidate).startswith(str(repo)):
-            return None
-        if Path(normalized).is_absolute() or ".." in Path(normalized).parts:
-            return None
-        if _path_contains_symlink(candidate, repo):
-            return None
-        resolved = candidate.resolve(strict=True)
-        resolved.relative_to(repo)
-        return resolved if resolved.is_file() else None
-    except (OSError, ValueError, RuntimeError):
-        return None
-
-
-def _read_safe_repo_text(repo_root: str, raw_path: str) -> str | None:
-    candidate = _safe_repo_file(repo_root, raw_path)
-    if candidate is None:
-        return None
-    file_descriptor = None
-    try:
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
-        file_descriptor = os.open(str(candidate), flags)
-        with os.fdopen(file_descriptor, "rb") as handle:
-            file_descriptor = None
-            data = handle.read(512 * 1024 + 1)
-            if len(data) > 512 * 1024:
-                return None
-            return data.decode("utf-8")
-    except (OSError, UnicodeError):
-        return None
-    finally:
-        if file_descriptor is not None:
-            try:
-                os.close(file_descriptor)
-            except OSError:
-                pass
+        normalized_path = path.as_posix().strip("/")
+        normalized_prefix = prefix.as_posix().strip("/")
+    except Exception:
+        return False
+    return normalized_path == normalized_prefix or normalized_path.startswith(normalized_prefix + "/")
 
 
 def _extract_single_review_perspective(text: str) -> str | None:
