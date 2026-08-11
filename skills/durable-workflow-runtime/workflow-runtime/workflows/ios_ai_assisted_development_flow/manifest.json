@@ -136,6 +136,7 @@
       "scope": "global",
       "source": "npm:agent-device",
       "purpose": "Preflight the optional agent-device executable; required mode performs additional version, device, runner, and artifact checks.",
+      "install_command": "npm install -g agent-device@latest",
       "command": "agent-device"
     },
     {
