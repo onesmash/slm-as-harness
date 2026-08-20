@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "workflow_id": "earnings_reviewer",
+  "installed": [
+    {
+      "id": "earnings-reviewer",
+      "type": "skill",
+      "scope": "either",
+      "source": "https://github.com/anthropics/financial-services",
+      "recorded_at": "2026-08-20T08:00:00Z",
+      "recorded_by": "workflow-creator"
+    }
+  ]
+}

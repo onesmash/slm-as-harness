@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "workflow_id": "earnings_reviewer",
+  "description": "Process a covered name's earnings event: pull the print, transcript, and filings; analyze the call; update and audit the coverage model; then stage a post-earnings note draft for senior-analyst review without publishing.",
+  "start_input_schema": {
+    "task_input": {
+      "ticker": "string?",
+      "reporting_period": "string?",
+      "goal": "string?",
+      "skip_note": "boolean?"
+    },
+    "context": {
+      "repo_root": "string",
+      "coverage_model_path": "string?",
+      "transcript_path": "string?",
+      "filings_path": "string?"
+    },
+    "constraints": {
+      "max_steps": "integer?"
+    }
+  },
+  "dependencies": [
+    {
+      "id": "earnings-reviewer",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/anthropics/financial-services",
+      "purpose": "Route packet intake, call analysis, model update, Excel audit, and morning-note stages through the earnings-reviewer plugin",
+      "install_command": "npx skills add https://github.com/anthropics/financial-services --skill earnings-analysis model-update audit-xls morning-note xlsx-author -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "factset",
+      "type": "mcp",
+      "required": false,
+      "scope": "either",
+      "source": "https://mcp.factset.com/mcp",
+      "purpose": "Pull reported actuals, consensus, and filings when a live FactSet connector is available",
+      "server": "factset"
+    },
+    {
+      "id": "daloopa",
+      "type": "mcp",
+      "required": false,
+      "scope": "either",
+      "source": "https://mcp.daloopa.com/server/mcp",
+      "purpose": "Pull standardized actuals when a live Daloopa connector is available",
+      "server": "daloopa"
+    }
+  ]
+}

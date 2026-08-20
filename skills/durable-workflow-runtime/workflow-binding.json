@@ -111,6 +111,27 @@
           "max_reorganizations": "integer?"
         }
       }
+    },
+    {
+      "workflow_id": "earnings_reviewer",
+      "flow_description": "Process a covered name's earnings event: pull the print, transcript, and filings; analyze the call; update and audit the coverage model; then stage a post-earnings note draft for senior-analyst review without publishing.",
+      "start_input_schema": {
+        "task_input": {
+          "ticker": "string?",
+          "reporting_period": "string?",
+          "goal": "string?",
+          "skip_note": "boolean?"
+        },
+        "context": {
+          "repo_root": "string",
+          "coverage_model_path": "string?",
+          "transcript_path": "string?",
+          "filings_path": "string?"
+        },
+        "constraints": {
+          "max_steps": "integer?"
+        }
+      }
     }
   ]
 }
