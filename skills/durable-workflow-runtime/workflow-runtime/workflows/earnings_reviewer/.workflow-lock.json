@@ -3,12 +3,36 @@
   "workflow_id": "earnings_reviewer",
   "installed": [
     {
-      "id": "earnings-reviewer",
+      "id": "earnings-analysis",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "https://github.com/anthropics/financial-services",
-      "recorded_at": "2026-08-20T08:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-08-20T11:50:09Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "model-update",
+      "type": "skill",
+      "scope": "global",
+      "source": "https://github.com/anthropics/financial-services",
+      "recorded_at": "2026-08-20T11:50:09Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "audit-xls",
+      "type": "skill",
+      "scope": "global",
+      "source": "https://github.com/anthropics/financial-services",
+      "recorded_at": "2026-08-20T11:50:09Z",
+      "recorded_by": "bridge.py preflight"
+    },
+    {
+      "id": "morning-note",
+      "type": "skill",
+      "scope": "global",
+      "source": "https://github.com/anthropics/financial-services",
+      "recorded_at": "2026-08-20T11:50:09Z",
+      "recorded_by": "bridge.py preflight"
     }
   ]
 }

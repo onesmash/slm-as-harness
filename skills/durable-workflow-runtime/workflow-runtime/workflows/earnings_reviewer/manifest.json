@@ -21,12 +21,48 @@
   },
   "dependencies": [
     {
-      "id": "earnings-reviewer",
+      "id": "earnings-analysis",
       "type": "skill",
       "required": true,
       "scope": "either",
       "source": "https://github.com/anthropics/financial-services",
-      "purpose": "Route packet intake, call analysis, model update, Excel audit, and morning-note stages through the earnings-reviewer plugin",
+      "purpose": "Own earnings-call analysis after the packet is assembled.",
+      "install_command": "npx skills add https://github.com/anthropics/financial-services --skill earnings-analysis -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "model-update",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/anthropics/financial-services",
+      "purpose": "Plug reported actuals into the coverage model.",
+      "install_command": "npx skills add https://github.com/anthropics/financial-services --skill model-update -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "audit-xls",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/anthropics/financial-services",
+      "purpose": "Audit the updated coverage-model workbook.",
+      "install_command": "npx skills add https://github.com/anthropics/financial-services --skill audit-xls -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "morning-note",
+      "type": "skill",
+      "required": true,
+      "scope": "either",
+      "source": "https://github.com/anthropics/financial-services",
+      "purpose": "Draft the post-earnings note for senior-analyst review without publishing.",
+      "install_command": "npx skills add https://github.com/anthropics/financial-services --skill morning-note -g -y --agent claude-code cursor codex"
+    },
+    {
+      "id": "earnings-reviewer",
+      "type": "skill",
+      "required": false,
+      "scope": "either",
+      "source": "https://github.com/anthropics/financial-services",
+      "purpose": "Optional plugin umbrella for packet intake; individual financial-services skills are the required routing targets.",
       "install_command": "npx skills add https://github.com/anthropics/financial-services --skill earnings-analysis model-update audit-xls morning-note xlsx-author -g -y --agent claude-code cursor codex"
     },
     {
@@ -35,8 +71,7 @@
       "required": false,
       "scope": "either",
       "source": "https://mcp.factset.com/mcp",
-      "purpose": "Pull reported actuals, consensus, and filings when a live FactSet connector is available",
-      "server": "factset"
+      "purpose": "Pull reported actuals, consensus, and filings when a live FactSet connector is available"
     },
     {
       "id": "daloopa",
@@ -44,8 +79,7 @@
       "required": false,
       "scope": "either",
       "source": "https://mcp.daloopa.com/server/mcp",
-      "purpose": "Pull standardized actuals when a live Daloopa connector is available",
-      "server": "daloopa"
+      "purpose": "Pull standardized actuals when a live Daloopa connector is available"
     }
   ]
 }
