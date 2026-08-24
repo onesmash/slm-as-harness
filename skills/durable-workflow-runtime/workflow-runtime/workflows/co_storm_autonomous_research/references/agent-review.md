@@ -26,9 +26,10 @@ the right workflow.
 
 ### `launch_expert_subagents`
 
-- `expert_results_match_roster`: The expert-result stage must return exactly one evidence-grounded result for every persisted expert and a safe, distinct artifact for each result.
+- `expert_results_match_roster`: The expert-result stage must return exactly one evidence-grounded result for every persisted expert, merge unnumbered new_evidence onto evidence_registry as an append-only prefix-preserving list, and keep a safe, distinct artifact for each result.
   Signals: `expert_roster`, `round_index`, `expert_round_index`, `expert_results`, `expert_results_complete`, `evidence_registry`
   Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
+  Python imports: `re`, `pathlib`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
   same-file helper dependencies as a blocking review issue.
@@ -36,21 +37,25 @@ the right workflow.
     - Require expert_results_complete to be true.
     - Require persisted expert_roster to contain unique records with exactly non-empty id, role, and brief string fields, and use those ids as the exact expected result order.
     - Require expert_round_index to be a positive integer equal to persisted state.round_index + 1 and no greater than constraints.max_rounds.
-    - Require expert_results to have exactly one object per roster id; each object must contain exactly expert_id, summary, and artifact_path, with non-empty strings and unique expert ids and paths.
-    - Require expert_results expert_id values to equal the persisted roster ids in order.
-    - Parse numeric citation identifiers from persisted evidence_registry, require every evidence detail to be non-empty, and reject any citation identifier in a summary or artifact that is not registered.
+    - Require expert_results to have exactly one object per roster id; each object must contain exactly expert_id, summary, artifact_path, and new_evidence, with unique expert ids and paths.
+    - Require each new_evidence item to be an unnumbered non-empty string with exactly one ' — ' separator, a non-empty locator, and a non-empty claim; reject entries that contain [n] citation markers.
+    - Treat returned evidence_registry as the exact persisted list (same strings and order) plus newly numbered entries; do not normalize whitespace in the persisted prefix.
+    - Merge new_evidence in roster order, skip locators already present in the persisted prefix or earlier experts, and require new citation ids to start at max(persisted id)+1 with no gaps.
+    - Reject a rewritten persisted prefix, duplicate locators, more than three unused new_evidence items per expert, or a merged registry longer than 128 entries.
+    - Require every citation identifier in a summary or artifact to exist in the merged registry, and require the union of each expert's summary and artifact citations to include at least one merged registry identifier.
     - Resolve each artifact_path beneath repo_root and reject absolute paths, traversal, symlinks, missing or non-regular files, empty files, and invalid UTF-8.
     - Read each artifact through a bounded UTF-8 check so an oversized artifact cannot exhaust verifier memory.
-    - Keep the result contract limited to the expert identity, grounded summary, and artifact path.
   Test intent:
-    - Accept two roster-matching results with distinct readable artifacts that cite registered evidence.
+    - Accept two roster-matching results with distinct readable artifacts that cite only persisted evidence and return the persisted registry unchanged.
+    - Accept a merge that preserves the persisted prefix and appends contiguous new citation ids from unnumbered new_evidence.
     - Reject an unknown, missing, duplicate, or out-of-order expert id.
-    - Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, or an unsafe or missing artifact.
+    - Reject a rewritten persisted registry prefix, a skipped citation id, a duplicated locator, more than three unused retrieved items for one expert, or a new_evidence item that is not locator — claim.
+    - Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, an unknown citation, or an unsafe or missing artifact.
 
 ### `autonomous_roundtable`
 
-- `roundtable_flags_match_decision`: The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, and require a completed expert-result package.
-  Signals: `round_decision`, `continue_roundtable`, `should_reorganize`, `ready_for_report`, `expert_results`, `expert_results_complete`
+- `roundtable_flags_match_decision`: The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, require a completed expert-result package, and provide a deterministic topic-level semantic coverage assessment.
+  Signals: `round_decision`, `continue_roundtable`, `should_reorganize`, `ready_for_report`, `coverage_assessment`, `coverage_decision_rationale`, `next_round_validation_plan`, `report_scope_status`, `expert_results`, `expert_results_complete`
   Implementation surfaces: `verifiers.py`, `policy.py`, `workflow-specific regression tests`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
@@ -62,17 +67,41 @@ the right workflow.
     - Require persisted expert_results_complete to be true and persisted expert_results to be non-empty before the Moderator can accept a round.
     - Require the Moderator to carry forward the persisted structured expert roster exactly.
     - Reject round_index values below one, reject values above constraints.max_rounds, and reject continue or reorganize once max_rounds has been reached.
-    - When coverage_threshold is supplied, require coverage_map to contain at least that many distinct non-empty topics.
+    - Require coverage_assessment records to have exactly topic_id, status, evidence_refs, open_gaps, and next_validation_metrics; topic ids must be non-empty and unique, statuses must be covered, bounded_gap, or missing, and evidence refs must resolve to evidence_registry ids.
+    - Require all persisted coverage_map topics to appear verbatim as assessed topic ids on the first round, and preserve all topic ids from persisted coverage_assessment on later rounds.
+    - Treat coverage_threshold only as a minimum number of assessed topics. Reject coverage_sufficient=true unless no topic is missing, covered topics have evidence and no gaps or metrics, and bounded gaps have evidence, explicit gaps, and metrics; allow the Moderator to keep coverage_sufficient=false for material bounded gaps.
+    - When coverage_sufficient is false, require next_round_validation_plan to equal the complete set of `topic_id — metric` strings for every missing topic and every bounded_gap topic the Moderator keeps unresolved.
+    - Require continue to carry a missing or materially unresolved bounded_gap topic; require complete report to have sufficient coverage and no pending plan.
+    - At max_rounds, allow insufficient coverage only as a partial report with a non-empty next_round_validation_plan; never mark forced stopping as complete.
   Test intent:
     - Accept a continue decision with only continue_roundtable true, a strictly incremented round, and one appended transcript turn.
     - Reject ambiguous decisions with two true flags.
-    - Reject a report decision before coverage_sufficient is true unless max_rounds has been reached.
+    - Reject a report decision before semantic coverage is sufficient unless max_rounds has been reached and the report is explicitly partial.
+    - Reject coverage_sufficient when threshold-sized topic counts still include a missing topic.
+    - Accept a Moderator continuation when a structurally valid bounded gap is judged material and its metrics are carried into the plan.
+    - Reject a covered topic that still contains gaps or validation metrics.
+    - Reject a first-round assessment that replaces a warm-start coverage topic.
+    - Reject a validation plan that is unrelated to or omits an unresolved topic metric.
+    - Reject missing, malformed, or unresolvable evidence references in the semantic assessment.
     - Reject a skipped round or a rewritten transcript prefix.
     - Reject a Moderator turn that has no completed expert-result package.
+- `merged_evidence_registry_is_preserved`: The Moderator must carry forward the merged evidence_registry exactly; new numbered evidence is produced only by launch_expert_subagents.
+  Signals: `evidence_registry`
+  Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
+  Hint pseudocode:
+    - Require persisted evidence_registry to be a non-empty list of strings.
+    - Require output.evidence_registry to equal the persisted list exactly (same strings and order).
+    - Reject dropped, rewritten, reordered, or newly numbered registry rows.
+  Test intent:
+    - Accept a Moderator turn that returns the persisted merged registry unchanged.
+    - Reject a Moderator turn that drops a merged citation or rewrites a persisted row.
 
 ### `reorganize_knowledge_space`
 
-- `reorganization_budget_is_respected`: Knowledge-space reorganization must advance the counter exactly once, preserve grounded evidence entries, and respect the autonomous reorganization budget.
+- `reorganization_budget_is_respected`: Knowledge-space reorganization must advance the counter exactly once, preserve the evidence registry exactly, and respect the autonomous reorganization budget.
   Signals: `reorganization_count`, `reorganized`
   Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
@@ -81,16 +110,17 @@ the right workflow.
   Hint pseudocode:
     - Require reorganization_count to be an integer greater than zero and exactly one greater than persisted state.reorganization_count.
     - Read constraints.max_reorganizations from persisted state and reject counts above that value or a reorganization after the budget is exhausted.
-    - Reject empty evidence entries and preserve the citation identifiers carried by the prior state.
+    - Require output.evidence_registry to equal persisted state.evidence_registry exactly, including strings and order; reject additions, rewrites, reordering, and deletion.
   Test intent:
     - Accept the first reorganization when the configured budget is two.
     - Reject a reorganization count above the configured budget.
     - Reject a reorganization that skips a counter value.
+    - Reject a reorganization that adds, rewrites, reorders, or deletes any evidence registry row.
 
 ### `verify_report`
 
-- `report_citation_integrity`: Every numeric inline citation in the report must resolve to a non-empty grounded evidence entry carried in state; repair verdicts must explicitly fail the gate and pass verdicts must satisfy the final quality conditions.
-  Signals: `report_path`, `verified_report_path`, `evidence_registry`, `report_ready`, `quality_verdict`, `quality_findings`, `coverage_map`
+- `report_citation_integrity`: Every numeric inline citation must resolve to grounded evidence, and the report must deterministically preserve the Moderator's complete-or-partial scope decision and all unresolved validation work before a pass can finalize.
+  Signals: `report_path`, `verified_report_path`, `evidence_registry`, `report_ready`, `quality_verdict`, `quality_findings`, `coverage_map`, `coverage_assessment`, `coverage_sufficient`, `next_round_validation_plan`, `report_scope_status`
   Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
@@ -100,12 +130,17 @@ the right workflow.
     - Extract numeric markers such as [1] from the report and parse numeric identifiers from evidence_registry entries.
     - Reject unknown markers, missing or empty evidence entries, or a pass verdict with no citation markers.
     - Require verified_report_path to resolve to the same repository-relative regular file as report_path.
+    - Require `Report scope: complete` only when state.report_scope_status is complete, coverage_sufficient is true, and next_round_validation_plan is empty.
+    - Require `Report scope: partial` when state.report_scope_status is partial and require the report to contain every unresolved topic_id, open_gap, next_validation_metric, and top-level next_round_validation_plan item verbatim.
     - Reject unresolved critical or blocker findings when quality_verdict is pass, and make a repair verdict fail this verifier so policy enters repair_report.
   Test intent:
     - Accept a report whose [1] and [2] markers exist in the evidence registry.
     - Reject a report containing an unknown [99] marker.
     - Reject a pass verdict for an uncited report.
     - Reject a pass verdict with an unresolved critical finding.
+    - Accept a partial report that explicitly discloses every unresolved topic, gap, metric, and plan item.
+    - Reject a partial report that omits its marker or any unresolved validation item.
+    - Reject a complete report when coverage_sufficient is false or validation work remains.
     - Reject a repair verdict as a verifier failure so the repair route is taken.
 
 

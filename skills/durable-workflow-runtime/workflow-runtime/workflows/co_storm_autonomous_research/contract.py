@@ -32,7 +32,7 @@ WARM_START_SHARED_SPACE = StepContract(
  'The warm-start transcript contains grounded research turns.',
  'The knowledge-map summary and coverage baseline are non-empty.',
  'The evidence registry contains stable citation identifiers and source locators.',
- 'The shared space is ready for autonomous roundtable rotation.'],
+ 'The shared space is ready for independent expert result collection.'],
     output_schema={'expert_roster': 'object[]',
  'conversation_transcript': 'string[]',
  'knowledge_map_summary': 'string',
@@ -55,23 +55,37 @@ LAUNCH_EXPERT_SUBAGENTS_ROUTE_1 = SkillRoute(
     use_when=SkillUseWhen(
         operations=['independent expert perspective collection',
  'grounded result collection',
+ 'expert retrieval and evidence merge',
  'expert result artifact handoff'],
         file_patterns=[],
     ),
-    usage_notes=['Primary owner for collecting one independent, grounded result for each expert; use the '
- 'role-specific brief and shared snapshot supplied by this stage.'],
+    usage_notes=['Primary owner for collecting one independent, grounded result for each expert; subagents may '
+ 'retrieve, but this stage owns global citation numbering.'],
+)
+
+LAUNCH_EXPERT_SUBAGENTS_ROUTE_2 = SkillRoute(
+    skill='search-nex',
+    use_when=SkillUseWhen(
+        operations=['source discovery for expert retrieval'],
+        file_patterns=[],
+    ),
+    usage_notes=['Auxiliary retrieval support for expert subagents; do not let subagents assign global citation '
+ 'numbers.'],
 )
 
 LAUNCH_EXPERT_SUBAGENTS = StepContract(
     done_when=['expert_results contains one result for every expert in expert_roster.',
- 'Every result has a non-empty grounded summary and a distinct artifact.',
+ 'Every result has a non-empty grounded summary, a distinct artifact, and a new_evidence list.',
+ 'evidence_registry preserves the persisted prefix and appends any newly retrieved entries with '
+ 'contiguous citation numbers.',
  'expert_round_index is exactly one greater than the last completed Moderator round.',
  'The complete expert result set is ready for Moderator synthesis.'],
     output_schema={'expert_round_index': 'integer',
  'expert_results': 'object[]',
- 'expert_results_complete': 'boolean'},
+ 'expert_results_complete': 'boolean',
+ 'evidence_registry': 'string[]'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_expert_ids': 'string[]?'},
-    skill_routing=[LAUNCH_EXPERT_SUBAGENTS_ROUTE_1],
+    skill_routing=[LAUNCH_EXPERT_SUBAGENTS_ROUTE_1, LAUNCH_EXPERT_SUBAGENTS_ROUTE_2],
     verifier=StepVerifier(
         kind="python_callable",
         ref="workflows.co_storm_autonomous_research.verifiers:verify_launch_expert_subagents",
@@ -91,14 +105,20 @@ AUTONOMOUS_ROUNDTABLE_ROUTE_1 = SkillRoute(
 
 AUTONOMOUS_ROUNDTABLE = StepContract(
     done_when=['Exactly one new grounded turn is added to the transcript.',
- 'The evidence registry and coverage map are carried forward or expanded.',
+ 'The merged evidence registry is carried forward unchanged and topic-level semantic coverage is '
+ 'updated without dropping prior topic ids.',
  'round_index increases by one and remains within the configured autonomous budget.',
- 'round_decision and its boolean routing flags are mutually consistent.',
+ 'round_decision, report_scope_status, coverage_sufficient, and the boolean routing flags are '
+ 'mutually consistent.',
  'The turn is ready for a continue, reorganize, or report transition.'],
     output_schema={'last_turn_summary': 'string',
  'conversation_transcript': 'string[]',
  'evidence_registry': 'string[]',
  'coverage_map': 'string[]',
+ 'coverage_assessment': 'object[]',
+ 'coverage_decision_rationale': 'string',
+ 'next_round_validation_plan': 'string[]',
+ 'report_scope_status': 'string',
  'knowledge_map_summary': 'string',
  'expert_roster': 'object[]',
  'round_index': 'integer',
@@ -128,7 +148,8 @@ REORGANIZE_KNOWLEDGE_SPACE_ROUTE_1 = SkillRoute(
 
 REORGANIZE_KNOWLEDGE_SPACE = StepContract(
     done_when=['The knowledge-map summary is materially updated or explicitly confirmed coherent.',
- 'Evidence provenance is preserved while redundant or unsupported branches are cleaned.',
+ 'Evidence citation identifiers are preserved while redundant or unsupported map branches are '
+ 'cleaned.',
  'Coverage gaps remain visible for the next roundtable turn.',
  'reorganization_count increases by one.'],
     output_schema={'knowledge_map_summary': 'string',
@@ -160,6 +181,8 @@ SYNTHESIZE_REPORT = StepContract(
     done_when=['A report artifact exists.',
  'The report has a clear outline with at least two substantive sections.',
  'Inline numeric citations refer to the carried-forward evidence registry.',
+ "The report faithfully communicates the Moderator's complete or partial scope decision and "
+ 'unresolved validation work.',
  'The report is ready for an independent quality and citation gate.'],
     output_schema={'outline': 'string',
  'report_path': 'string',
@@ -189,6 +212,8 @@ VERIFY_REPORT_ROUTE_1 = SkillRoute(
 VERIFY_REPORT = StepContract(
     done_when=['The report is read and checked against the evidence registry and coverage map.',
  'quality_verdict is pass only when citation and section gates are satisfied.',
+ 'The audit confirms that complete reports have sufficient semantic coverage and partial reports '
+ 'disclose all unresolved coverage work.',
  'Quality findings and the citation coverage summary are recorded.',
  'The report is explicitly marked ready for finalization or repair.'],
     output_schema={'quality_verdict': 'string',
@@ -233,7 +258,7 @@ REPAIR_REPORT = StepContract(
 REQUEST_UNBLOCKING_INPUT = StepContract(
     done_when=['Identify the blocking reason',
  'Record a diagnostic for the missing dependency without requesting a user response'],
-    output_schema={'blocking_reason': 'string', 'host_action_needed': 'string', 'suggested_host_action': 'string?'},
+    output_schema={'blocking_reason': 'string', 'user_action_needed': 'string', 'suggested_next_input': 'string?'},
     failure_schema={'blocked_reason': 'string?', 'error_message': 'string?', 'missing_inputs': 'string[]?'},
 )
 

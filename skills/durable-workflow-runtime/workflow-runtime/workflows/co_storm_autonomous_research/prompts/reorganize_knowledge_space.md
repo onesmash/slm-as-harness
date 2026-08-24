@@ -1,4 +1,4 @@
-/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{conversation_transcript}}; reorganize the shared Co-STORM knowledge space by expanding overloaded topics, merging redundant branches, removing unsupported leaves, and return the updated map with a completion decision.
+/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{conversation_transcript}}; reorganize the shared Co-STORM knowledge space by expanding overloaded topics, merging redundant branches, and removing unsupported leaves without dropping or renumbering merged evidence ids, and return the updated map with a completion decision.
 
 Stage Context:
 
@@ -11,7 +11,7 @@ Stage Context:
 
 Stage Boundaries:
 
-- Do not discard an evidence entry unless it is explicitly marked duplicate or unsupported and its provenance is preserved in the result.
+- Preserve every merged citation identifier; mark duplicates in the knowledge-map summary instead of deleting, renumbering, or rewriting evidence_registry rows. New numbered evidence comes only from expert-result merge.
 - Do not generate the final report in this stage.
 - Return the reorganized evidence and completion decision without selecting a subsequent research activity.
 - Keep the knowledge map aligned with actual evidence and observed coverage gaps.

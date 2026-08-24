@@ -60,18 +60,22 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
                     'role': 'systems analyst',
                     'brief': 'Trace mechanisms and trade-offs.'}],
  'round_index': 0,
- 'constraints': {'max_rounds': 8}}),
+ 'constraints': {'max_rounds': 8},
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}),
             current_step_id='launch_expert_subagents',
             observation={'status': 'succeeded',
  'summary': 'All expert results completed.',
  'structured_output': {'expert_round_index': 1,
                        'expert_results': [{'expert_id': 'historian',
                                            'summary': 'Historian perspective completed.',
-                                           'artifact_path': 'reports/experts/1/historian.md'},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md',
+                                           'new_evidence': []},
                                           {'expert_id': 'systems_analyst',
                                            'summary': 'Systems analyst perspective completed.',
-                                           'artifact_path': 'reports/experts/1/systems_analyst.md'}],
-                       'expert_results_complete': True}},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
             verifier_result={'passed': True, 'message': 'expert-result contract passed', 'details': {}},
         )
         self.assertEqual(result.step_id, 'autonomous_roundtable')
@@ -291,6 +295,24 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
                        'conversation_transcript': ['prior turn', 'new turn'],
                        'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
                        'coverage_map': ['history', 'mechanism'],
+                       'coverage_assessment': [{'topic_id': 'history',
+                                                'status': 'covered',
+                                                'evidence_refs': ['[1]'],
+                                                'open_gaps': [],
+                                                'next_validation_metrics': []},
+                                               {'topic_id': 'mechanism',
+                                                'status': 'missing',
+                                                'evidence_refs': [],
+                                                'open_gaps': ['Causal mechanism is not yet '
+                                                              'corroborated.'],
+                                                'next_validation_metrics': ['Find two independent '
+                                                                            'sources that support '
+                                                                            'the causal chain.']}],
+                       'coverage_decision_rationale': 'History is grounded, but the mechanism '
+                                                      'still needs independent corroboration.',
+                       'next_round_validation_plan': ['mechanism — Find two independent sources '
+                                                      'that support the causal chain.'],
+                       'report_scope_status': 'in_progress',
                        'knowledge_map_summary': 'supported map',
                        'expert_roster': [{'id': 'historian',
                                           'role': 'historian',
@@ -417,6 +439,24 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
                        'conversation_transcript': ['prior turn', 'new analyst turn'],
                        'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
                        'coverage_map': ['history', 'mechanism'],
+                       'coverage_assessment': [{'topic_id': 'history',
+                                                'status': 'covered',
+                                                'evidence_refs': ['[1]'],
+                                                'open_gaps': [],
+                                                'next_validation_metrics': []},
+                                               {'topic_id': 'mechanism',
+                                                'status': 'missing',
+                                                'evidence_refs': [],
+                                                'open_gaps': ['Causal mechanism is not yet '
+                                                              'corroborated.'],
+                                                'next_validation_metrics': ['Find two independent '
+                                                                            'sources that support '
+                                                                            'the causal chain.']}],
+                       'coverage_decision_rationale': 'History is grounded, but the mechanism '
+                                                      'still needs independent corroboration.',
+                       'next_round_validation_plan': ['mechanism — Find two independent sources '
+                                                      'that support the causal chain.'],
+                       'report_scope_status': 'in_progress',
                        'knowledge_map_summary': 'supported map',
                        'expert_roster': [{'id': 'historian',
                                           'role': 'historian',
@@ -445,7 +485,8 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
                      'artifact_path': 'reports/experts/1/historian.md'},
                     {'expert_id': 'systems_analyst',
                      'summary': 'Systems analyst perspective completed.',
-                     'artifact_path': 'reports/experts/1/systems_analyst.md'}]},
+                     'artifact_path': 'reports/experts/1/systems_analyst.md'}],
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
         )
         self.assertIs(result['passed'], True)
 
@@ -505,7 +546,8 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
                        'reorganization_summary': 'Merged duplicate mechanism nodes.',
                        'reorganization_count': 1,
                        'reorganized': True}},
-            state={'constraints': {'max_reorganizations': 2}},
+            state={'constraints': {'max_reorganizations': 2},
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
         )
         self.assertIs(result['passed'], True)
 
@@ -519,11 +561,14 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'structured_output': {'expert_round_index': 1,
                        'expert_results': [{'expert_id': 'historian',
                                            'summary': 'Historian perspective completed.',
-                                           'artifact_path': 'reports/experts/1/historian.md'},
+                                           'artifact_path': 'reports/experts/1/historian.md',
+                                           'new_evidence': []},
                                           {'expert_id': 'systems_analyst',
                                            'summary': 'Systems analyst perspective completed.',
-                                           'artifact_path': 'reports/experts/1/systems_analyst.md'}],
-                       'expert_results_complete': False}},
+                                           'artifact_path': 'reports/experts/1/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': False,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -538,8 +583,10 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'structured_output': {'expert_round_index': 1,
                        'expert_results': [{'expert_id': 'historian',
                                            'summary': 'Historian perspective completed.',
-                                           'artifact_path': 'reports/experts/1/historian.md'}],
-                       'expert_results_complete': True}},
+                                           'artifact_path': 'reports/experts/1/historian.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
             state={},
         )
         self.assertIs(result['passed'], False)
@@ -555,12 +602,15 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
                        'expert_results': [{'expert_id': 'historian',
                                            'summary': 'Historian perspective completed with '
                                                       'evidence [1].',
-                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md'},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md',
+                                           'new_evidence': []},
                                           {'expert_id': 'systems_analyst',
                                            'summary': 'Systems analyst perspective completed with '
                                                       'evidence [2].',
-                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md'}],
-                       'expert_results_complete': True}},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
             state={'expert_roster': [{'id': 'historian',
                     'role': 'historian',
                     'brief': 'Trace origins and chronology.'},
@@ -583,11 +633,14 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'structured_output': {'expert_round_index': 1,
                        'expert_results': [{'expert_id': 'historian',
                                            'summary': 'Historian perspective completed.',
-                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json'},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json',
+                                           'new_evidence': []},
                                           {'expert_id': 'unknown',
                                            'summary': 'Unknown perspective completed.',
-                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/manifest.json'}],
-                       'expert_results_complete': True}},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/manifest.json',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
             state={'expert_roster': [{'id': 'historian',
                     'role': 'historian',
                     'brief': 'Trace origins and chronology.'},
@@ -609,11 +662,14 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'structured_output': {'expert_round_index': 1,
                        'expert_results': [{'expert_id': 'historian',
                                            'summary': 'Historian perspective completed.',
-                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json'},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json',
+                                           'new_evidence': []},
                                           {'expert_id': 'systems_analyst',
                                            'summary': 'Systems analyst perspective completed.',
-                                           'artifact_path': 'missing/systems_analyst.md'}],
-                       'expert_results_complete': True}},
+                                           'artifact_path': 'missing/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
             state={'expert_roster': [{'id': 'historian',
                     'role': 'historian',
                     'brief': 'Trace origins and chronology.'},
@@ -636,12 +692,15 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
                        'expert_results': [{'expert_id': 'historian',
                                            'summary': 'Historian perspective completed with '
                                                       'evidence [1].',
-                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json'},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json',
+                                           'new_evidence': []},
                                           {'expert_id': 'systems_analyst',
                                            'summary': 'Systems analyst perspective completed with '
                                                       'evidence [99].',
-                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/test_workflow.py'}],
-                       'expert_results_complete': True}},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/test_workflow.py',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
             state={'expert_roster': [{'id': 'historian',
                     'role': 'historian',
                     'brief': 'Trace origins and chronology.'},
@@ -665,16 +724,158 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
                        'expert_results': [{'expert_id': 'historian',
                                            'summary': 'Historian perspective completed with '
                                                       'evidence [1].',
-                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json'},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json',
+                                           'new_evidence': []},
                                           {'expert_id': 'systems_analyst',
                                            'summary': 'Systems analyst perspective completed with '
                                                       'evidence [2].',
-                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/test_workflow.py'}],
-                       'expert_results_complete': True}},
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/test_workflow.py',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
             state={'expert_roster': [{'id': 'historian',
                     'role': 'historian',
                     'brief': 'Trace origins and chronology.'},
                    {'id': 'systems_analyst', 'role': 'systems analyst'}],
+ 'round_index': 0,
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+ 'constraints': {'max_rounds': 8}},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_expert_results_accepts_appended_evidence(self):
+        result = verifiers.verify_launch_expert_subagents(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='launch_expert_subagents',
+            observation={'status': 'succeeded',
+ 'summary': 'The expert-result package merged one new source.',
+ 'structured_output': {'expert_round_index': 1,
+                       'expert_results': [{'expert_id': 'historian',
+                                           'summary': 'Historian perspective completed with '
+                                                      'evidence [4].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian_appended.md',
+                                           'new_evidence': ['source-d — new historian claim']},
+                                          {'expert_id': 'systems_analyst',
+                                           'summary': 'Systems analyst perspective completed with '
+                                                      'evidence [2].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a',
+                                             '[2] source-b',
+                                             '[3] source-c',
+                                             '[4] source-d — new historian claim']}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 0,
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+ 'constraints': {'max_rounds': 8}},
+        )
+        self.assertIs(result['passed'], True)
+
+    def test_expert_results_rejects_rewritten_prefix(self):
+        result = verifiers.verify_launch_expert_subagents(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='launch_expert_subagents',
+            observation={'status': 'succeeded',
+ 'summary': 'The merged registry rewrote a persisted evidence entry.',
+ 'structured_output': {'expert_round_index': 1,
+                       'expert_results': [{'expert_id': 'historian',
+                                           'summary': 'Historian perspective completed with '
+                                                      'evidence [1].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md',
+                                           'new_evidence': []},
+                                          {'expert_id': 'systems_analyst',
+                                           'summary': 'Systems analyst perspective completed with '
+                                                      'evidence [2].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a-rewritten',
+                                             '[2] source-b',
+                                             '[3] source-c']}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 0,
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+ 'constraints': {'max_rounds': 8}},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_expert_results_rejects_id_gap(self):
+        result = verifiers.verify_launch_expert_subagents(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='launch_expert_subagents',
+            observation={'status': 'succeeded',
+ 'summary': 'The merged registry skipped a citation identifier.',
+ 'structured_output': {'expert_round_index': 1,
+                       'expert_results': [{'expert_id': 'historian',
+                                           'summary': 'Historian perspective completed with '
+                                                      'evidence [5].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian_appended.md',
+                                           'new_evidence': ['source-d — new historian claim']},
+                                          {'expert_id': 'systems_analyst',
+                                           'summary': 'Systems analyst perspective completed with '
+                                                      'evidence [2].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a',
+                                             '[2] source-b',
+                                             '[3] source-c',
+                                             '[5] source-d — new historian claim']}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 0,
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+ 'constraints': {'max_rounds': 8}},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_expert_results_rejects_duplicate_locator(self):
+        result = verifiers.verify_launch_expert_subagents(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='launch_expert_subagents',
+            observation={'status': 'succeeded',
+ 'summary': 'The merge reintroduced a persisted locator under a new citation id.',
+ 'structured_output': {'expert_round_index': 1,
+                       'expert_results': [{'expert_id': 'historian',
+                                           'summary': 'Historian perspective completed with '
+                                                      'evidence [4].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian_appended.md',
+                                           'new_evidence': ['source-a — duplicate locator']},
+                                          {'expert_id': 'systems_analyst',
+                                           'summary': 'Systems analyst perspective completed with '
+                                                      'evidence [2].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a',
+                                             '[2] source-b',
+                                             '[3] source-c',
+                                             '[4] source-a — duplicate locator']}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
  'round_index': 0,
  'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
  'constraints': {'max_rounds': 8}},
@@ -700,6 +901,468 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, 'finalize_collaborative_report')
         self.assertEqual(result.branch_kind, 'complete')
 
+    def test_roundtable_rejects_dropped_merged_evidence(self):
+        result = verifiers.verify_autonomous_roundtable(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='autonomous_roundtable',
+            observation={'status': 'succeeded',
+ 'summary': 'The moderator dropped a merged evidence entry.',
+ 'structured_output': {'last_turn_summary': 'The analyst added a grounded comparison.',
+                       'conversation_transcript': ['prior turn', 'new analyst turn'],
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'knowledge_map_summary': 'supported map',
+                       'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'systems_analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'round_index': 1,
+                       'round_decision': 'continue',
+                       'continue_roundtable': True,
+                       'should_reorganize': False,
+                       'coverage_sufficient': False,
+                       'ready_for_report': False}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 0,
+ 'conversation_transcript': ['prior turn'],
+ 'constraints': {'max_rounds': 3},
+ 'expert_results_complete': True,
+ 'expert_results': [{'expert_id': 'historian',
+                     'summary': 'Historian perspective completed.',
+                     'artifact_path': 'reports/experts/1/historian.md'},
+                    {'expert_id': 'systems_analyst',
+                     'summary': 'Systems analyst perspective completed.',
+                     'artifact_path': 'reports/experts/1/systems_analyst.md'}],
+ 'evidence_registry': ['[1] source-a',
+                       '[2] source-b',
+                       '[3] source-c',
+                       '[4] source-d — new historian claim']},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_expert_results_rejects_unused_over_budget(self):
+        result = verifiers.verify_launch_expert_subagents(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='launch_expert_subagents',
+            observation={'status': 'succeeded',
+ 'summary': 'One expert returned more than three unused retrieved items.',
+ 'structured_output': {'expert_round_index': 1,
+                       'expert_results': [{'expert_id': 'historian',
+                                           'summary': 'Historian perspective completed with '
+                                                      'evidence [1].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md',
+                                           'new_evidence': ['source-e — unused claim one',
+                                                            'source-f — unused claim two',
+                                                            'source-g — unused claim three',
+                                                            'source-h — unused claim four']},
+                                          {'expert_id': 'systems_analyst',
+                                           'summary': 'Systems analyst perspective completed with '
+                                                      'evidence [2].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a',
+                                             '[2] source-b',
+                                             '[3] source-c',
+                                             '[4] source-e — unused claim one',
+                                             '[5] source-f — unused claim two',
+                                             '[6] source-g — unused claim three',
+                                             '[7] source-h — unused claim four']}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 0,
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+ 'constraints': {'max_rounds': 8}},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_expert_results_rejects_malformed_new_evidence(self):
+        result = verifiers.verify_launch_expert_subagents(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='launch_expert_subagents',
+            observation={'status': 'succeeded',
+ 'summary': 'A new_evidence item omitted the locator-claim separator.',
+ 'structured_output': {'expert_round_index': 1,
+                       'expert_results': [{'expert_id': 'historian',
+                                           'summary': 'Historian perspective completed with '
+                                                      'evidence [1].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md',
+                                           'new_evidence': ['source-d new historian claim without '
+                                                            'dash']},
+                                          {'expert_id': 'systems_analyst',
+                                           'summary': 'Systems analyst perspective completed with '
+                                                      'evidence [2].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a',
+                                             '[2] source-b',
+                                             '[3] source-c',
+                                             '[4] source-d new historian claim without dash']}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 0,
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+ 'constraints': {'max_rounds': 8}},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_expert_results_verifier_failed_goes_to_repair(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 0,
+ 'constraints': {'max_rounds': 8},
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}),
+            current_step_id='launch_expert_subagents',
+            observation={'status': 'succeeded',
+ 'summary': 'All expert results completed.',
+ 'structured_output': {'expert_round_index': 1,
+                       'expert_results': [{'expert_id': 'historian',
+                                           'summary': 'Historian perspective completed with '
+                                                      'evidence [1].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md',
+                                           'new_evidence': []},
+                                          {'expert_id': 'systems_analyst',
+                                           'summary': 'Systems analyst perspective completed with '
+                                                      'evidence [2].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
+            verifier_result={'passed': False, 'message': 'expert-result merge contract failed', 'details': {}},
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'retry')
+
+    def test_expert_results_missing_verifier_fails_closed(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 0,
+ 'constraints': {'max_rounds': 8},
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}),
+            current_step_id='launch_expert_subagents',
+            observation={'status': 'succeeded',
+ 'summary': 'All expert results completed.',
+ 'structured_output': {'expert_round_index': 1,
+                       'expert_results': [{'expert_id': 'historian',
+                                           'summary': 'Historian perspective completed with '
+                                                      'evidence [1].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md',
+                                           'new_evidence': []},
+                                          {'expert_id': 'systems_analyst',
+                                           'summary': 'Systems analyst perspective completed with '
+                                                      'evidence [2].',
+                                           'artifact_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md',
+                                           'new_evidence': []}],
+                       'expert_results_complete': True,
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}},
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'repair')
+
+    def test_expert_results_blocked_goes_to_repair(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 0,
+ 'constraints': {'max_rounds': 8},
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}),
+            current_step_id='launch_expert_subagents',
+            observation={'status': 'blocked',
+ 'summary': 'An expert artifact was unavailable.',
+ 'structured_output': {'blocked_reason': 'missing expert artifact',
+                       'missing_expert_ids': ['historian']}},
+            verifier_result={'passed': False, 'message': 'expert-result stage blocked', 'details': {}},
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'repair')
+
+    def test_repair_and_resume_returns_to_expert_results(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'return_stage_id': 'launch_expert_subagents'}),
+            current_step_id='repair_and_resume',
+            observation={'status': 'succeeded',
+ 'summary': 'Repair completed.',
+ 'structured_output': {'retry_reason': 'Retry is safe after the repair.',
+                       'retry_notes': 'The missing expert artifact was restored.',
+                       'repair_actions': ['Retry the expert-result stage.']}},
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, 'launch_expert_subagents')
+        self.assertEqual(result.branch_kind, 'continue')
+
+    def test_roundtable_accepts_semantically_complete_report(self):
+        result = verifiers.verify_autonomous_roundtable(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='autonomous_roundtable',
+            observation={'status': 'succeeded',
+ 'summary': 'The Moderator found every required topic semantically covered.',
+ 'structured_output': {'last_turn_summary': 'All required topics are grounded.',
+                       'conversation_transcript': ['prior turn', 'coverage decision'],
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'coverage_assessment': [{'topic_id': 'history',
+                                                'status': 'covered',
+                                                'evidence_refs': ['[1]'],
+                                                'open_gaps': [],
+                                                'next_validation_metrics': []},
+                                               {'topic_id': 'mechanism',
+                                                'status': 'covered',
+                                                'evidence_refs': ['[2]', '[3]'],
+                                                'open_gaps': [],
+                                                'next_validation_metrics': []}],
+                       'coverage_decision_rationale': 'Both required topics have traceable '
+                                                      'evidence and no unresolved gaps.',
+                       'next_round_validation_plan': [],
+                       'report_scope_status': 'complete',
+                       'knowledge_map_summary': 'complete supported map',
+                       'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'systems_analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'round_index': 2,
+                       'round_decision': 'report',
+                       'continue_roundtable': False,
+                       'should_reorganize': False,
+                       'coverage_sufficient': True,
+                       'ready_for_report': True}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 1,
+ 'conversation_transcript': ['prior turn'],
+ 'constraints': {'max_rounds': 3, 'coverage_threshold': 2},
+ 'expert_results_complete': True,
+ 'expert_results': [{'expert_id': 'historian',
+                     'summary': 'History complete.',
+                     'artifact_path': 'reports/experts/2/historian.md'},
+                    {'expert_id': 'systems_analyst',
+                     'summary': 'Mechanism complete.',
+                     'artifact_path': 'reports/experts/2/systems_analyst.md'}],
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
+        )
+        self.assertIs(result['passed'], True)
+
+    def test_roundtable_rejects_threshold_only_completion(self):
+        result = verifiers.verify_autonomous_roundtable(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='autonomous_roundtable',
+            observation={'status': 'succeeded',
+ 'summary': 'The topic count met the threshold but one topic remains missing.',
+ 'structured_output': {'last_turn_summary': 'Mechanism evidence is still missing.',
+                       'conversation_transcript': ['prior turn', 'coverage decision'],
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'coverage_assessment': [{'topic_id': 'history',
+                                                'status': 'covered',
+                                                'evidence_refs': ['[1]'],
+                                                'open_gaps': [],
+                                                'next_validation_metrics': []},
+                                               {'topic_id': 'mechanism',
+                                                'status': 'missing',
+                                                'evidence_refs': [],
+                                                'open_gaps': ['No causal evidence.'],
+                                                'next_validation_metrics': ['Find two independent '
+                                                                            'causal sources.']}],
+                       'coverage_decision_rationale': 'The numeric threshold is met but semantic '
+                                                      'coverage is not.',
+                       'next_round_validation_plan': [],
+                       'report_scope_status': 'complete',
+                       'knowledge_map_summary': 'incomplete map',
+                       'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'systems_analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'round_index': 2,
+                       'round_decision': 'report',
+                       'continue_roundtable': False,
+                       'should_reorganize': False,
+                       'coverage_sufficient': True,
+                       'ready_for_report': True}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 1,
+ 'conversation_transcript': ['prior turn'],
+ 'constraints': {'max_rounds': 3, 'coverage_threshold': 2},
+ 'expert_results_complete': True,
+ 'expert_results': [{'expert_id': 'historian',
+                     'summary': 'History complete.',
+                     'artifact_path': 'reports/experts/2/historian.md'},
+                    {'expert_id': 'systems_analyst',
+                     'summary': 'Mechanism incomplete.',
+                     'artifact_path': 'reports/experts/2/systems_analyst.md'}],
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_roundtable_accepts_forced_partial_report_at_max_rounds(self):
+        result = verifiers.verify_autonomous_roundtable(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='autonomous_roundtable',
+            observation={'status': 'succeeded',
+ 'summary': 'The round budget ended with an explicit partial handoff.',
+ 'structured_output': {'last_turn_summary': 'Mechanism evidence remains unresolved at the round '
+                                            'limit.',
+                       'conversation_transcript': ['prior turn', 'forced stop decision'],
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'coverage_assessment': [{'topic_id': 'history',
+                                                'status': 'covered',
+                                                'evidence_refs': ['[1]'],
+                                                'open_gaps': [],
+                                                'next_validation_metrics': []},
+                                               {'topic_id': 'mechanism',
+                                                'status': 'missing',
+                                                'evidence_refs': [],
+                                                'open_gaps': ['No causal evidence.'],
+                                                'next_validation_metrics': ['Find two independent '
+                                                                            'causal sources.']}],
+                       'coverage_decision_rationale': 'The budget is exhausted, so unresolved work '
+                                                      'must be handed off explicitly.',
+                       'next_round_validation_plan': ['mechanism — Find two independent causal '
+                                                      'sources.'],
+                       'report_scope_status': 'partial',
+                       'knowledge_map_summary': 'partial supported map',
+                       'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'systems_analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'round_index': 3,
+                       'round_decision': 'report',
+                       'continue_roundtable': False,
+                       'should_reorganize': False,
+                       'coverage_sufficient': False,
+                       'ready_for_report': True}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 2,
+ 'conversation_transcript': ['prior turn'],
+ 'constraints': {'max_rounds': 3, 'coverage_threshold': 2},
+ 'expert_results_complete': True,
+ 'expert_results': [{'expert_id': 'historian',
+                     'summary': 'History complete.',
+                     'artifact_path': 'reports/experts/3/historian.md'},
+                    {'expert_id': 'systems_analyst',
+                     'summary': 'Mechanism incomplete.',
+                     'artifact_path': 'reports/experts/3/systems_analyst.md'}],
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
+        )
+        self.assertIs(result['passed'], True)
+
+    def test_roundtable_rejects_complete_label_for_forced_stop(self):
+        result = verifiers.verify_autonomous_roundtable(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='autonomous_roundtable',
+            observation={'status': 'succeeded',
+ 'summary': 'The round budget ended but the report was incorrectly labeled complete.',
+ 'structured_output': {'last_turn_summary': 'Mechanism evidence remains unresolved at the round '
+                                            'limit.',
+                       'conversation_transcript': ['prior turn', 'forced stop decision'],
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'coverage_assessment': [{'topic_id': 'history',
+                                                'status': 'covered',
+                                                'evidence_refs': ['[1]'],
+                                                'open_gaps': [],
+                                                'next_validation_metrics': []},
+                                               {'topic_id': 'mechanism',
+                                                'status': 'missing',
+                                                'evidence_refs': [],
+                                                'open_gaps': ['No causal evidence.'],
+                                                'next_validation_metrics': ['Find two independent '
+                                                                            'causal sources.']}],
+                       'coverage_decision_rationale': 'The budget is exhausted, but unresolved '
+                                                      'work remains.',
+                       'next_round_validation_plan': ['mechanism — Find two independent causal '
+                                                      'sources.'],
+                       'report_scope_status': 'complete',
+                       'knowledge_map_summary': 'partial supported map',
+                       'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'systems_analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'round_index': 3,
+                       'round_decision': 'report',
+                       'continue_roundtable': False,
+                       'should_reorganize': False,
+                       'coverage_sufficient': False,
+                       'ready_for_report': True}},
+            state={'expert_roster': [{'id': 'historian',
+                    'role': 'historian',
+                    'brief': 'Trace origins and chronology.'},
+                   {'id': 'systems_analyst',
+                    'role': 'systems analyst',
+                    'brief': 'Trace mechanisms and trade-offs.'}],
+ 'round_index': 2,
+ 'conversation_transcript': ['prior turn'],
+ 'constraints': {'max_rounds': 3, 'coverage_threshold': 2},
+ 'expert_results_complete': True,
+ 'expert_results': [{'expert_id': 'historian',
+                     'summary': 'History complete.',
+                     'artifact_path': 'reports/experts/3/historian.md'},
+                    {'expert_id': 'systems_analyst',
+                     'summary': 'Mechanism incomplete.',
+                     'artifact_path': 'reports/experts/3/systems_analyst.md'}],
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
+        )
+        self.assertIs(result['passed'], False)
+
     def test_generated_request_unblocking_input_resumes_to_return_stage(self):
         state = self._make_state(None)
         state.return_stage_id = 'warm_start_shared_space'
@@ -707,7 +1370,7 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         result = graphbuilder_runtime.run_transition_preview(
             state=state,
             current_step_id="request_unblocking_input",
-            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {}},
+            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {'blocking_reason': 'Approval was missing.', 'user_action_needed': 'Confirm the approval.', 'suggested_next_input': 'Approval confirmed.'}},
             verifier_result=None,
         )
         self.assertEqual(result.step_id, 'warm_start_shared_space')
@@ -717,7 +1380,7 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
             current_step_id="request_unblocking_input",
-            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {}},
+            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {'blocking_reason': 'Approval was missing.', 'user_action_needed': 'Confirm the approval.', 'suggested_next_input': 'Approval confirmed.'}},
             verifier_result=None,
         )
         self.assertEqual(result.step_id, "request_unblocking_input")
@@ -730,7 +1393,7 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         result = graphbuilder_runtime.run_transition_preview(
             state=state,
             current_step_id="request_unblocking_input",
-            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {}},
+            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {'blocking_reason': 'Approval was missing.', 'user_action_needed': 'Confirm the approval.', 'suggested_next_input': 'Approval confirmed.'}},
             verifier_result=None,
         )
         self.assertEqual(result.step_id, "repair_and_resume")
@@ -739,22 +1402,10 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
     def test_generated_repair_and_resume_resumes_to_return_stage(self):
         state = self._make_state(None)
         state.return_stage_id = 'warm_start_shared_space'
-        state.repair_context = {
-            'source_stage_id': 'verify_report',
-            'repair_payload': {
-                'summary': 'The report verifier found a repairable citation defect.',
-                'requirements': ['replace the unresolved citation'],
-                'evidence': ['Unknown citation [99]'],
-            },
-        }
         result = graphbuilder_runtime.run_transition_preview(
             state=state,
             current_step_id="repair_and_resume",
-            observation={'status': 'succeeded',
-                         'summary': 'Repair completed.',
-                         'structured_output': {'retry_reason': 'Retry with the repaired context.',
-                                               'retry_notes': 'The repair plan is grounded in the persisted failure.',
-                                               'repair_actions': ['apply the repair plan']}},
+            observation={'status': 'succeeded', 'summary': 'Repair completed.', 'structured_output': {'retry_reason': 'Retry is safe after the repair.', 'retry_notes': 'The missing dependency was refreshed.', 'repair_actions': ['Retry the original stage.']}},
             verifier_result=None,
         )
         self.assertEqual(result.step_id, 'warm_start_shared_space')
@@ -764,23 +1415,7 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
             current_step_id="repair_and_resume",
-            observation={'status': 'succeeded', 'summary': 'Repair completed.', 'structured_output': {}},
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, "repair_and_resume")
-        self.assertEqual(result.branch_kind, "retry")
-
-    def test_repair_and_resume_rejects_empty_success_output(self):
-        state = self._make_state(None)
-        state.return_stage_id = 'warm_start_shared_space'
-        state.repair_context = {
-            'source_stage_id': 'verify_report',
-            'repair_payload': {'summary': 'The report verifier found a repairable defect.'},
-        }
-        result = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id="repair_and_resume",
-            observation={'status': 'succeeded', 'summary': 'Repair output was empty.', 'structured_output': {}},
+            observation={'status': 'succeeded', 'summary': 'Repair completed.', 'structured_output': {'retry_reason': 'Retry is safe after the repair.', 'retry_notes': 'The missing dependency was refreshed.', 'repair_actions': ['Retry the original stage.']}},
             verifier_result=None,
         )
         self.assertEqual(result.step_id, "repair_and_resume")
@@ -830,6 +1465,7 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
             'structured_output': {'blocked_reason': 'awaiting approval', 'missing_inputs': ['approval']},
             'artifacts': [],
             'error': None,
+            'tool_trace': [],
             'raw_output': '',
         })
         self.assertEqual(response['kind'], 'yield')

@@ -1,6 +1,6 @@
 {
   "workflow_id": "co_storm_autonomous_research",
-  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, moderate coverage, reorganize the knowledge map, and synthesize a cited report without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff.",
+  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -72,7 +72,7 @@
         "The warm-start transcript contains grounded research turns.",
         "The knowledge-map summary and coverage baseline are non-empty.",
         "The evidence registry contains stable citation identifiers and source locators.",
-        "The shared space is ready for autonomous roundtable rotation."
+        "The shared space is ready for independent expert result collection."
       ],
       "output_schema": {
         "expert_roster": "object[]",
@@ -211,44 +211,51 @@
       "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "collect_independent_expert_results",
-      "expected_artifact": "one grounded result and one distinct artifact for each expert",
-      "prompt": "/research-nex {{workflow_goal}} using {{expert_roster}}, {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{round_index}}; for every expert, delegate one independent subagent with its role-specific brief and the immutable shared-space snapshot, collect one grounded result and one distinct artifact, and return the completed expert results for Moderator synthesis.",
+      "expected_artifact": "one grounded result, optional unnumbered new_evidence, and one distinct artifact for each expert, plus the merged evidence_registry",
+      "prompt": "/research-nex {{workflow_goal}} using {{expert_roster}}, {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{round_index}}; for every expert, delegate one independent subagent with its role-specific brief and the immutable shared-space snapshot, allow each subagent to retrieve new sources as unnumbered new_evidence, then merge those entries onto evidence_registry with contiguous global citation numbers and return the completed expert results for Moderator synthesis.",
       "prompt_sections": {
-        "stage_goal": "Collect one grounded result and one distinct artifact for every expert before the Moderator makes a routing decision.",
+        "stage_goal": "Collect one grounded result and one distinct artifact for every expert, merge any newly retrieved evidence onto the shared registry, and then hand the package to the Moderator.",
         "context": [
-          "Workflow goal: {{workflow_goal}}",
           "Expert roster with stable identifiers: {{expert_roster}}",
           "Current shared knowledge-map summary: {{knowledge_map_summary}}",
           "Current evidence registry: {{evidence_registry}}",
           "Current coverage map: {{coverage_map}}",
-          "Completed Moderator transcript: {{conversation_transcript}}",
+          "Carried-forward transcript: {{conversation_transcript}}",
           "Last completed round index: {{round_index}}",
           "Run constraints: {{constraints_json}}"
         ],
         "boundaries": [
           "Delegate exactly one independent subagent for every expert in expert_roster; do not substitute one response for multiple experts.",
-          "Give every subagent its role-specific brief and the same immutable shared-space snapshot; subagents must not read or coordinate through sibling outputs.",
-          "Return expert_results as objects with exactly expert_id, summary, and artifact_path fields.",
-          "Each summary and artifact must be grounded in the shared evidence, and each artifact_path must identify a distinct non-empty artifact.",
+          "Give every subagent its role-specific brief and the same immutable shared-space snapshot; subagents must not read or coordinate through sibling outputs or assign global citation numbers.",
+          "Each expert may retrieve new sources via research-nex/search-nex; return them as unnumbered new_evidence strings of the form source-locator — claim.",
+          "After all subagents finish, merge new_evidence in roster order, skip locators already in the persisted registry, assign contiguous ids starting at max(persisted id)+1, and return the full evidence_registry as persisted prefix plus those numbered entries.",
+          "Return expert_round_index equal to the persisted {{round_index}} plus one, and do not exceed constraints.max_rounds.",
+          "Return expert_results as objects with exactly expert_id, summary, artifact_path, and new_evidence fields.",
+          "Summaries and artifacts may cite persisted or newly merged citation numbers; they must not cite unknown numbers or invent registry rows the merge did not produce.",
+          "Each expert may include at most three unused retrieved items that are not cited in that expert's summary or artifact; the merged registry must contain at most 128 entries.",
           "Keep expert results focused on the assigned perspective; the later Moderator stage makes the round decision.",
-          "Do not request user participation, approval, or checkpoints."
+          "Do not request user participation, approval, or checkpoints.",
+          "Do not build or persist a hierarchical knowledge graph in this stage."
         ],
         "blocked_conditions": [
           "Block when any expert result or artifact is missing.",
-          "Block when results are duplicated, empty, or not grounded in the shared evidence.",
+          "Block when results are duplicated, empty, or not grounded in the merged evidence registry.",
+          "Block when newly retrieved evidence cannot be merged without rewriting the persisted registry prefix, skipping citation ids, duplicating locators, or exceeding the registry budget.",
           "Block when the next expert round would exceed the configured autonomous round budget."
         ]
       },
       "done_when": [
         "expert_results contains one result for every expert in expert_roster.",
-        "Every result has a non-empty grounded summary and a distinct artifact.",
+        "Every result has a non-empty grounded summary, a distinct artifact, and a new_evidence list.",
+        "evidence_registry preserves the persisted prefix and appends any newly retrieved entries with contiguous citation numbers.",
         "expert_round_index is exactly one greater than the last completed Moderator round.",
         "The complete expert result set is ready for Moderator synthesis."
       ],
       "output_schema": {
         "expert_round_index": "integer",
         "expert_results": "object[]",
-        "expert_results_complete": "boolean"
+        "expert_results_complete": "boolean",
+        "evidence_registry": "string[]"
       },
       "failure_schema": {
         "blocked_reason": "string?",
@@ -261,11 +268,22 @@
           "operations": [
             "independent expert perspective collection",
             "grounded result collection",
+            "expert retrieval and evidence merge",
             "expert result artifact handoff"
           ],
           "file_patterns": [],
           "usage_notes": [
-            "Primary owner for collecting one independent, grounded result for each expert; use the role-specific brief and shared snapshot supplied by this stage."
+            "Primary owner for collecting one independent, grounded result for each expert; subagents may retrieve, but this stage owns global citation numbering."
+          ]
+        },
+        {
+          "skill": "search-nex",
+          "operations": [
+            "source discovery for expert retrieval"
+          ],
+          "file_patterns": [],
+          "usage_notes": [
+            "Auxiliary retrieval support for expert subagents; do not let subagents assign global citation numbers."
           ]
         }
       ],
@@ -284,6 +302,11 @@
           "state_key": "expert_results_complete",
           "output_key": "expert_results_complete",
           "kind": "boolean"
+        },
+        {
+          "state_key": "evidence_registry",
+          "output_key": "evidence_registry",
+          "kind": "list"
         }
       ],
       "template_context_keys": [
@@ -302,7 +325,11 @@
       "repair_conditions": [],
       "transitions": [],
       "outcome_routes": [],
-      "missing_verifier_route": null,
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "launch_expert_subagents completed without a verifier result; fail closed before Moderator synthesis."
+      },
       "verifier_rules": [
         {
           "output_key": "expert_results_complete",
@@ -323,7 +350,7 @@
       "custom_verifier_requirements": [
         {
           "id": "expert_results_match_roster",
-          "description": "The expert-result stage must return exactly one evidence-grounded result for every persisted expert and a safe, distinct artifact for each result.",
+          "description": "The expert-result stage must return exactly one evidence-grounded result for every persisted expert, merge unnumbered new_evidence onto evidence_registry as an append-only prefix-preserving list, and keep a safe, distinct artifact for each result.",
           "signals": [
             "expert_roster",
             "round_index",
@@ -331,6 +358,10 @@
             "expert_results",
             "expert_results_complete",
             "evidence_registry"
+          ],
+          "python_imports": [
+            "re",
+            "pathlib"
           ],
           "implementation_surface": [
             "verifiers.py",
@@ -340,19 +371,23 @@
             "Require expert_results_complete to be true.",
             "Require persisted expert_roster to contain unique records with exactly non-empty id, role, and brief string fields, and use those ids as the exact expected result order.",
             "Require expert_round_index to be a positive integer equal to persisted state.round_index + 1 and no greater than constraints.max_rounds.",
-            "Require expert_results to have exactly one object per roster id; each object must contain exactly expert_id, summary, and artifact_path, with non-empty strings and unique expert ids and paths.",
-            "Require expert_results expert_id values to equal the persisted roster ids in order.",
-            "Parse numeric citation identifiers from persisted evidence_registry, require every evidence detail to be non-empty, and reject any citation identifier in a summary or artifact that is not registered.",
+            "Require expert_results to have exactly one object per roster id; each object must contain exactly expert_id, summary, artifact_path, and new_evidence, with unique expert ids and paths.",
+            "Require each new_evidence item to be an unnumbered non-empty string with exactly one ' — ' separator, a non-empty locator, and a non-empty claim; reject entries that contain [n] citation markers.",
+            "Treat returned evidence_registry as the exact persisted list (same strings and order) plus newly numbered entries; do not normalize whitespace in the persisted prefix.",
+            "Merge new_evidence in roster order, skip locators already present in the persisted prefix or earlier experts, and require new citation ids to start at max(persisted id)+1 with no gaps.",
+            "Reject a rewritten persisted prefix, duplicate locators, more than three unused new_evidence items per expert, or a merged registry longer than 128 entries.",
+            "Require every citation identifier in a summary or artifact to exist in the merged registry, and require the union of each expert's summary and artifact citations to include at least one merged registry identifier.",
             "Resolve each artifact_path beneath repo_root and reject absolute paths, traversal, symlinks, missing or non-regular files, empty files, and invalid UTF-8.",
-            "Read each artifact through a bounded UTF-8 check so an oversized artifact cannot exhaust verifier memory.",
-            "Keep the result contract limited to the expert identity, grounded summary, and artifact path."
+            "Read each artifact through a bounded UTF-8 check so an oversized artifact cannot exhaust verifier memory."
           ],
           "test_intent": [
-            "Accept two roster-matching results with distinct readable artifacts that cite registered evidence.",
+            "Accept two roster-matching results with distinct readable artifacts that cite only persisted evidence and return the persisted registry unchanged.",
+            "Accept a merge that preserves the persisted prefix and appends contiguous new citation ids from unnumbered new_evidence.",
             "Reject an unknown, missing, duplicate, or out-of-order expert id.",
-            "Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, or an unsafe or missing artifact."
+            "Reject a rewritten persisted registry prefix, a skipped citation id, a duplicated locator, more than three unused retrieved items for one expert, or a new_evidence item that is not locator — claim.",
+            "Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, an unknown citation, or an unsafe or missing artifact."
           ],
-          "implementation_version": 3
+          "implementation_version": 5
         }
       ]
     },
@@ -368,8 +403,8 @@
       },
       "recovery_return_node": null,
       "intent": "advance_one_moderated_expert_round",
-      "expected_artifact": "one Moderator synthesis turn over independent expert-subagent results, updated evidence and coverage, and an exclusive routing decision",
-      "prompt": "/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{conversation_transcript}}, and {{expert_results}}; act as the Co-STORM Moderator over the completed expert results, synthesize one grounded roundtable turn, update the shared conceptual space, and return exactly one of continue, reorganize, or report.",
+      "expected_artifact": "one Moderator synthesis turn over independent expert-subagent results, a topic-level semantic coverage assessment with next-round validation metrics, and an exclusive routing decision",
+      "prompt": "/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{conversation_transcript}}, and {{expert_results}}; act as the Co-STORM Moderator over the completed expert results, synthesize one grounded roundtable turn, adjudicate semantic coverage topic by topic, record the next validation work, and return exactly one of continue, reorganize, or report.",
       "prompt_sections": {
         "stage_goal": "Advance the autonomous roundtable by exactly one moderated turn, preserving the shared transcript and evidence while deciding whether to continue, reorganize the knowledge map, or synthesize the report.",
         "context": [
@@ -377,6 +412,8 @@
           "Shared knowledge-map summary: {{knowledge_map_summary}}",
           "Evidence registry: {{evidence_registry}}",
           "Coverage map: {{coverage_map}}",
+          "Prior semantic coverage assessment: {{coverage_assessment}}",
+          "Prior next-round validation plan: {{next_round_validation_plan}}",
           "Conversation transcript: {{conversation_transcript}}",
           "Completed expert results: {{expert_results}}",
           "Current round index: {{round_index}}",
@@ -387,9 +424,13 @@
           "Carry forward the persisted expert_roster records exactly as {id, role, brief}; do not collapse them back to strings or rewrite their briefs.",
           "Produce exactly one new research or moderation turn and preserve prior turns in the returned transcript.",
           "Return the structured decision flags and select exactly one of continue, reorganize, or report.",
-          "Do not mark report readiness before the coverage signal or the configured round limit justifies stopping.",
-          "When coverage_threshold is supplied, coverage_map must contain at least that many distinct topics before declaring coverage_sufficient.",
-          "Every new factual claim must be linked to an existing or newly added evidence entry."
+          "The Moderator is the semantic authority for coverage. Return coverage_assessment records with exactly topic_id, status, evidence_refs, open_gaps, and next_validation_metrics; status must be covered, bounded_gap, or missing.",
+          "Use each trimmed coverage_map topic verbatim as its stable topic_id, keep topic_id stable across rounds, and do not silently drop a warm-start or previously assessed topic. Cite evidence_refs only with identifiers present in evidence_registry.",
+          "coverage_threshold is only a deterministic lower bound on the number of distinct assessed topics. Meeting it never proves semantic completion by itself.",
+          "Set coverage_sufficient true only when the threshold guardrail is met, no topic is missing, every covered topic has evidence and no gaps or metrics, and every bounded_gap topic records evidence, open gaps, and measurable validation metrics. These are one-way eligibility guards: the Moderator may still judge a bounded gap material and keep coverage_sufficient false.",
+          "When coverage_sufficient is false, return next_round_validation_plan as the exact set of `topic_id — metric` strings derived from every missing or materially unresolved bounded_gap topic. For report with complete scope, coverage_sufficient must be true and that plan must be empty.",
+          "When max_rounds is reached with unresolved coverage, report is allowed only as report_scope_status=partial with coverage_sufficient=false and an explicit non-empty next_round_validation_plan; never present forced stopping as complete coverage.",
+          "Cite only the already merged {{evidence_registry}}; do not assign new global citation numbers, rewrite persisted rows, or drop merged ids. Send new source retrieval back through another expert-result round."
         ],
         "blocked_conditions": [
           "Block when the current knowledge map, expert roster, or evidence registry cannot be carried forward.",
@@ -399,9 +440,9 @@
       },
       "done_when": [
         "Exactly one new grounded turn is added to the transcript.",
-        "The evidence registry and coverage map are carried forward or expanded.",
+        "The merged evidence registry is carried forward unchanged and topic-level semantic coverage is updated without dropping prior topic ids.",
         "round_index increases by one and remains within the configured autonomous budget.",
-        "round_decision and its boolean routing flags are mutually consistent.",
+        "round_decision, report_scope_status, coverage_sufficient, and the boolean routing flags are mutually consistent.",
         "The turn is ready for a continue, reorganize, or report transition."
       ],
       "output_schema": {
@@ -409,6 +450,10 @@
         "conversation_transcript": "string[]",
         "evidence_registry": "string[]",
         "coverage_map": "string[]",
+        "coverage_assessment": "object[]",
+        "coverage_decision_rationale": "string",
+        "next_round_validation_plan": "string[]",
+        "report_scope_status": "string",
         "knowledge_map_summary": "string",
         "expert_roster": "object[]",
         "round_index": "integer",
@@ -459,6 +504,26 @@
           "kind": "list"
         },
         {
+          "state_key": "coverage_assessment",
+          "output_key": "coverage_assessment",
+          "kind": "list"
+        },
+        {
+          "state_key": "coverage_decision_rationale",
+          "output_key": "coverage_decision_rationale",
+          "kind": "string"
+        },
+        {
+          "state_key": "next_round_validation_plan",
+          "output_key": "next_round_validation_plan",
+          "kind": "list"
+        },
+        {
+          "state_key": "report_scope_status",
+          "output_key": "report_scope_status",
+          "kind": "string"
+        },
+        {
           "state_key": "knowledge_map_summary",
           "output_key": "knowledge_map_summary",
           "kind": "string"
@@ -496,6 +561,10 @@
         "conversation_transcript",
         "evidence_registry",
         "coverage_map",
+        "coverage_assessment",
+        "coverage_decision_rationale",
+        "next_round_validation_plan",
+        "report_scope_status",
         "knowledge_map_summary",
         "expert_roster",
         "expert_round_index",
@@ -522,7 +591,7 @@
           "value": null,
           "next_node": "synthesize_report",
           "branch_kind": "complete_research",
-          "reason": "Moderator determined that coverage or the autonomous research budget justifies report synthesis."
+          "reason": "Moderator determined that semantic coverage is complete or the autonomous budget requires an explicitly partial report."
         },
         {
           "output_key": "continue_roundtable",
@@ -573,12 +642,16 @@
       "custom_verifier_requirements": [
         {
           "id": "roundtable_flags_match_decision",
-          "description": "The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, and require a completed expert-result package.",
+          "description": "The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, require a completed expert-result package, and provide a deterministic topic-level semantic coverage assessment.",
           "signals": [
             "round_decision",
             "continue_roundtable",
             "should_reorganize",
             "ready_for_report",
+            "coverage_assessment",
+            "coverage_decision_rationale",
+            "next_round_validation_plan",
+            "report_scope_status",
             "expert_results",
             "expert_results_complete"
           ],
@@ -594,16 +667,48 @@
             "Require persisted expert_results_complete to be true and persisted expert_results to be non-empty before the Moderator can accept a round.",
             "Require the Moderator to carry forward the persisted structured expert roster exactly.",
             "Reject round_index values below one, reject values above constraints.max_rounds, and reject continue or reorganize once max_rounds has been reached.",
-            "When coverage_threshold is supplied, require coverage_map to contain at least that many distinct non-empty topics."
+            "Require coverage_assessment records to have exactly topic_id, status, evidence_refs, open_gaps, and next_validation_metrics; topic ids must be non-empty and unique, statuses must be covered, bounded_gap, or missing, and evidence refs must resolve to evidence_registry ids.",
+            "Require all persisted coverage_map topics to appear verbatim as assessed topic ids on the first round, and preserve all topic ids from persisted coverage_assessment on later rounds.",
+            "Treat coverage_threshold only as a minimum number of assessed topics. Reject coverage_sufficient=true unless no topic is missing, covered topics have evidence and no gaps or metrics, and bounded gaps have evidence, explicit gaps, and metrics; allow the Moderator to keep coverage_sufficient=false for material bounded gaps.",
+            "When coverage_sufficient is false, require next_round_validation_plan to equal the complete set of `topic_id — metric` strings for every missing topic and every bounded_gap topic the Moderator keeps unresolved.",
+            "Require continue to carry a missing or materially unresolved bounded_gap topic; require complete report to have sufficient coverage and no pending plan.",
+            "At max_rounds, allow insufficient coverage only as a partial report with a non-empty next_round_validation_plan; never mark forced stopping as complete."
           ],
           "test_intent": [
             "Accept a continue decision with only continue_roundtable true, a strictly incremented round, and one appended transcript turn.",
             "Reject ambiguous decisions with two true flags.",
-            "Reject a report decision before coverage_sufficient is true unless max_rounds has been reached.",
+            "Reject a report decision before semantic coverage is sufficient unless max_rounds has been reached and the report is explicitly partial.",
+            "Reject coverage_sufficient when threshold-sized topic counts still include a missing topic.",
+            "Accept a Moderator continuation when a structurally valid bounded gap is judged material and its metrics are carried into the plan.",
+            "Reject a covered topic that still contains gaps or validation metrics.",
+            "Reject a first-round assessment that replaces a warm-start coverage topic.",
+            "Reject a validation plan that is unrelated to or omits an unresolved topic metric.",
+            "Reject missing, malformed, or unresolvable evidence references in the semantic assessment.",
             "Reject a skipped round or a rewritten transcript prefix.",
             "Reject a Moderator turn that has no completed expert-result package."
           ],
-          "implementation_version": 4
+          "implementation_version": 6
+        },
+        {
+          "id": "merged_evidence_registry_is_preserved",
+          "description": "The Moderator must carry forward the merged evidence_registry exactly; new numbered evidence is produced only by launch_expert_subagents.",
+          "signals": [
+            "evidence_registry"
+          ],
+          "implementation_surface": [
+            "verifiers.py",
+            "workflow-specific regression tests"
+          ],
+          "hint_pseudocode": [
+            "Require persisted evidence_registry to be a non-empty list of strings.",
+            "Require output.evidence_registry to equal the persisted list exactly (same strings and order).",
+            "Reject dropped, rewritten, reordered, or newly numbered registry rows."
+          ],
+          "test_intent": [
+            "Accept a Moderator turn that returns the persisted merged registry unchanged.",
+            "Reject a Moderator turn that drops a merged citation or rewrites a persisted row."
+          ],
+          "implementation_version": 1
         }
       ]
     },
@@ -620,7 +725,7 @@
       "recovery_return_node": null,
       "intent": "reorganize_the_shared_knowledge_map",
       "expected_artifact": "expanded, deduplicated, and coverage-aware knowledge-map summary",
-      "prompt": "/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{conversation_transcript}}; reorganize the shared Co-STORM knowledge space by expanding overloaded topics, merging redundant branches, removing unsupported leaves, and return the updated map with a completion decision.",
+      "prompt": "/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{conversation_transcript}}; reorganize the shared Co-STORM knowledge space by expanding overloaded topics, merging redundant branches, and removing unsupported leaves without dropping or renumbering merged evidence ids, and return the updated map with a completion decision.",
       "prompt_sections": {
         "stage_goal": "Reorganize the shared knowledge map after a moderator-selected threshold so later expert turns can target gaps without losing evidence provenance.",
         "context": [
@@ -632,7 +737,7 @@
           "Run constraints: {{constraints_json}}"
         ],
         "boundaries": [
-          "Do not discard an evidence entry unless it is explicitly marked duplicate or unsupported and its provenance is preserved in the result.",
+          "Preserve every merged citation identifier; mark duplicates in the knowledge-map summary instead of deleting, renumbering, or rewriting evidence_registry rows. New numbered evidence comes only from expert-result merge.",
           "Do not generate the final report in this stage.",
           "Return the reorganized evidence and completion decision without selecting a subsequent research activity.",
           "Keep the knowledge map aligned with actual evidence and observed coverage gaps."
@@ -644,7 +749,7 @@
       },
       "done_when": [
         "The knowledge-map summary is materially updated or explicitly confirmed coherent.",
-        "Evidence provenance is preserved while redundant or unsupported branches are cleaned.",
+        "Evidence citation identifiers are preserved while redundant or unsupported map branches are cleaned.",
         "Coverage gaps remain visible for the next roundtable turn.",
         "reorganization_count increases by one."
       ],
@@ -765,7 +870,7 @@
       "custom_verifier_requirements": [
         {
           "id": "reorganization_budget_is_respected",
-          "description": "Knowledge-space reorganization must advance the counter exactly once, preserve grounded evidence entries, and respect the autonomous reorganization budget.",
+          "description": "Knowledge-space reorganization must advance the counter exactly once, preserve the evidence registry exactly, and respect the autonomous reorganization budget.",
           "signals": [
             "reorganization_count",
             "reorganized"
@@ -777,14 +882,15 @@
           "hint_pseudocode": [
             "Require reorganization_count to be an integer greater than zero and exactly one greater than persisted state.reorganization_count.",
             "Read constraints.max_reorganizations from persisted state and reject counts above that value or a reorganization after the budget is exhausted.",
-            "Reject empty evidence entries and preserve the citation identifiers carried by the prior state."
+            "Require output.evidence_registry to equal persisted state.evidence_registry exactly, including strings and order; reject additions, rewrites, reordering, and deletion."
           ],
           "test_intent": [
             "Accept the first reorganization when the configured budget is two.",
             "Reject a reorganization count above the configured budget.",
-            "Reject a reorganization that skips a counter value."
+            "Reject a reorganization that skips a counter value.",
+            "Reject a reorganization that adds, rewrites, reorders, or deletes any evidence registry row."
           ],
-          "implementation_version": 2
+          "implementation_version": 3
         }
       ]
     },
@@ -797,13 +903,17 @@
       "recovery_return_node": null,
       "intent": "synthesize_the_cited_report",
       "expected_artifact": "structured report artifact with sections, inline citations, and a report summary",
-      "prompt": "/content-research-writer {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{conversation_transcript}}; synthesize the autonomous Co-STORM knowledge space into a structured, cited report, preserving evidence links for every substantive section.",
+      "prompt": "/content-research-writer {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{coverage_decision_rationale}}, {{next_round_validation_plan}}, {{report_scope_status}}, and {{conversation_transcript}}; synthesize the autonomous Co-STORM knowledge space into a structured, cited report, preserving evidence links and the Moderator's complete-or-partial scope decision for every substantive section.",
       "prompt_sections": {
-        "stage_goal": "Turn the reorganized shared knowledge space into a coherent report whose outline follows the map and whose claims remain traceable to the evidence registry.",
+        "stage_goal": "Turn the current shared knowledge space into a coherent report whose outline follows the map and whose claims remain traceable to the merged evidence registry.",
         "context": [
           "Knowledge-map summary: {{knowledge_map_summary}}",
           "Evidence registry: {{evidence_registry}}",
           "Coverage map: {{coverage_map}}",
+          "Moderator semantic coverage assessment: {{coverage_assessment}}",
+          "Moderator coverage rationale: {{coverage_decision_rationale}}",
+          "Outstanding next-round validation plan: {{next_round_validation_plan}}",
+          "Report scope status: {{report_scope_status}}",
           "Conversation transcript: {{conversation_transcript}}",
           "Requested deliverable: {{deliverable_type}}",
           "Previous report repair summary: {{report_repair_summary}}",
@@ -813,7 +923,8 @@
           "Do not introduce unsupported facts, uncited substantive claims, or sections absent from the knowledge map without marking them as limitations.",
           "Use stable numeric inline citations that refer to the evidence registry; do not fabricate URLs or citation entries.",
           "Return the report artifact and its path before handoff.",
-          "Do not declare final quality approval in this stage; return the report for an independent quality check."
+          "Do not declare final quality approval in this stage; return the report for an independent quality check.",
+          "Include an exact `Report scope: complete` or `Report scope: partial` line. When partial, preserve every unresolved topic_id, open gap, validation metric, and top-level next-round plan item verbatim in a limitations and next-validation section; do not imply complete coverage."
         ],
         "blocked_conditions": [
           "Block when the knowledge map or evidence registry is empty or internally inconsistent.",
@@ -825,6 +936,7 @@
         "A report artifact exists.",
         "The report has a clear outline with at least two substantive sections.",
         "Inline numeric citations refer to the carried-forward evidence registry.",
+        "The report faithfully communicates the Moderator's complete or partial scope decision and unresolved validation work.",
         "The report is ready for an independent quality and citation gate."
       ],
       "output_schema": {
@@ -884,6 +996,10 @@
         "knowledge_map_summary",
         "evidence_registry",
         "coverage_map",
+        "coverage_assessment",
+        "coverage_decision_rationale",
+        "next_round_validation_plan",
+        "report_scope_status",
         "conversation_transcript",
         "deliverable_type",
         "report_repair_summary",
@@ -949,7 +1065,7 @@
       "recovery_return_node": null,
       "intent": "verify_report_quality_and_citation_integrity",
       "expected_artifact": "independent report quality verdict, citation coverage summary, and repair findings if needed",
-      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, and {{coverage_map}}; independently verify section coverage, citation referential integrity, unsupported claims, duplication, and coherence, then return a structured pass or repair verdict.",
+      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{next_round_validation_plan}}, and {{report_scope_status}}; independently verify section coverage, citation referential integrity, unsupported claims, duplication, coherence, and faithful disclosure of the Moderator's complete-or-partial scope decision, then return a structured pass or repair verdict.",
       "prompt_sections": {
         "stage_goal": "Apply the final deterministic quality gate to the generated report and prove that its citations and sections are grounded in the shared evidence registry.",
         "context": [
@@ -958,12 +1074,18 @@
           "Report sections: {{report_sections}}",
           "Evidence registry: {{evidence_registry}}",
           "Coverage map: {{coverage_map}}",
+          "Moderator semantic coverage assessment: {{coverage_assessment}}",
+          "Outstanding next-round validation plan: {{next_round_validation_plan}}",
+          "Report scope status: {{report_scope_status}}",
+          "Moderator coverage-sufficient flag: {{coverage_sufficient}}",
           "Knowledge-map summary: {{knowledge_map_summary}}"
         ],
         "boundaries": [
           "Do not silently rewrite the report while performing verification; return concrete findings for the repair stage.",
-          "Treat unknown citation identifiers, missing section coverage, and unsupported substantive claims as failures.",
+          "Treat unknown citation identifiers, including numbers absent from the merged evidence_registry, missing section coverage, and unsupported substantive claims as failures.",
           "A pass requires a report artifact, traceable citations, and no unresolved critical quality findings.",
+          "A partial report may pass only when it contains the exact `Report scope: partial` marker and faithfully lists every unresolved topic id, open gap, validation metric, and next-round plan item; reject any partial report that presents itself as complete.",
+          "A complete report may pass only when coverage_sufficient is true, next_round_validation_plan is empty, and the report contains the exact `Report scope: complete` marker.",
           "Return concrete findings and a pass or repair verdict without rewriting the report."
         ],
         "blocked_conditions": [
@@ -974,6 +1096,7 @@
       "done_when": [
         "The report is read and checked against the evidence registry and coverage map.",
         "quality_verdict is pass only when citation and section gates are satisfied.",
+        "The audit confirms that complete reports have sufficient semantic coverage and partial reports disclose all unresolved coverage work.",
         "Quality findings and the citation coverage summary are recorded.",
         "The report is explicitly marked ready for finalization or repair."
       ],
@@ -1042,6 +1165,10 @@
         "report_sections",
         "evidence_registry",
         "coverage_map",
+        "coverage_assessment",
+        "next_round_validation_plan",
+        "report_scope_status",
+        "coverage_sufficient",
         "knowledge_map_summary"
       ],
       "repair_conditions": [],
@@ -1109,7 +1236,7 @@
       "custom_verifier_requirements": [
         {
           "id": "report_citation_integrity",
-          "description": "Every numeric inline citation in the report must resolve to a non-empty grounded evidence entry carried in state; repair verdicts must explicitly fail the gate and pass verdicts must satisfy the final quality conditions.",
+          "description": "Every numeric inline citation must resolve to grounded evidence, and the report must deterministically preserve the Moderator's complete-or-partial scope decision and all unresolved validation work before a pass can finalize.",
           "signals": [
             "report_path",
             "verified_report_path",
@@ -1117,7 +1244,11 @@
             "report_ready",
             "quality_verdict",
             "quality_findings",
-            "coverage_map"
+            "coverage_map",
+            "coverage_assessment",
+            "coverage_sufficient",
+            "next_round_validation_plan",
+            "report_scope_status"
           ],
           "implementation_surface": [
             "verifiers.py",
@@ -1128,6 +1259,8 @@
             "Extract numeric markers such as [1] from the report and parse numeric identifiers from evidence_registry entries.",
             "Reject unknown markers, missing or empty evidence entries, or a pass verdict with no citation markers.",
             "Require verified_report_path to resolve to the same repository-relative regular file as report_path.",
+            "Require `Report scope: complete` only when state.report_scope_status is complete, coverage_sufficient is true, and next_round_validation_plan is empty.",
+            "Require `Report scope: partial` when state.report_scope_status is partial and require the report to contain every unresolved topic_id, open_gap, next_validation_metric, and top-level next_round_validation_plan item verbatim.",
             "Reject unresolved critical or blocker findings when quality_verdict is pass, and make a repair verdict fail this verifier so policy enters repair_report."
           ],
           "test_intent": [
@@ -1135,9 +1268,12 @@
             "Reject a report containing an unknown [99] marker.",
             "Reject a pass verdict for an uncited report.",
             "Reject a pass verdict with an unresolved critical finding.",
+            "Accept a partial report that explicitly discloses every unresolved topic, gap, metric, and plan item.",
+            "Reject a partial report that omits its marker or any unresolved validation item.",
+            "Reject a complete report when coverage_sufficient is false or validation work remains.",
             "Reject a repair verdict as a verifier failure so the repair route is taken."
           ],
-          "implementation_version": 2
+          "implementation_version": 3
         }
       ]
     },
@@ -1150,7 +1286,7 @@
       "recovery_return_node": "synthesize_report",
       "intent": "repair_report_quality_or_grounding",
       "expected_artifact": "concrete report repair actions and a repaired-report handoff",
-      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{repair_summary}}, {{repair_requirements}}, {{repair_evidence}}, and {{evidence_registry}}; repair the cited report's groundedness, section coverage, or duplication defects and return a handoff for re-synthesis.",
+      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{repair_summary}}, {{repair_requirements}}, {{repair_evidence}}, and {{evidence_registry}}; translate audit findings into concrete repair actions and a handoff for the next synthesize_report pass without rewriting the report body in this stage.",
       "prompt_sections": {
         "stage_goal": "Translate report-audit findings into concrete repair actions so the report can be regenerated and rechecked without changing the research scope.",
         "context": [
@@ -1284,14 +1420,36 @@
       ],
       "output_schema": {
         "blocking_reason": "string",
-        "host_action_needed": "string",
-        "suggested_host_action": "string?"
+        "user_action_needed": "string",
+        "suggested_next_input": "string?"
       },
       "failure_schema": {
         "blocked_reason": "string?",
         "error_message": "string?",
         "missing_inputs": "string[]?"
-      }
+      },
+      "state_updates": [
+        {
+          "state_key": "unblocking_blocking_reason",
+          "output_key": "blocking_reason",
+          "kind": "string"
+        },
+        {
+          "state_key": "unblocking_user_action_needed",
+          "output_key": "user_action_needed",
+          "kind": "string"
+        },
+        {
+          "state_key": "unblocking_suggested_next_input",
+          "output_key": "suggested_next_input",
+          "kind": "string"
+        }
+      ],
+      "template_context_keys": [
+        "unblocking_blocking_reason",
+        "unblocking_user_action_needed",
+        "unblocking_suggested_next_input"
+      ]
     },
     "repair_and_resume": {
       "intent": "repair_and_resume",
@@ -1329,11 +1487,13 @@
         "blocked_reason": "string?",
         "error_message": "string?",
         "missing_inputs": "string[]?"
-      }
+      },
+      "state_updates": [],
+      "template_context_keys": []
     }
   },
   "final_step_id": "finalize_collaborative_report",
-  "final_prompt": "Finalize the autonomous Co-STORM research handoff. If {{report_path}} exists, {{quality_verdict}} is pass, and {{report_ready}} is true, return the validated report and include its summary ({{report_summary}}) and citation coverage ({{citation_coverage_summary}}). Otherwise, state that this is a partial handoff, do not claim validation, and include the available findings ({{quality_findings}}), repair summary ({{report_repair_summary}}), repair actions ({{repair_actions}}), and citation coverage ({{citation_coverage_summary}}).",
+  "final_prompt": "Finalize the autonomous Co-STORM research handoff. First inspect {{report_scope_status}}. If {{report_path}} exists, {{quality_verdict}} is pass, {{report_ready}} is true, and report_scope_status is complete, return the validated complete report with summary ({{report_summary}}) and citation coverage ({{citation_coverage_summary}}). If the same validation gates pass and report_scope_status is partial, return a validated partial report, explicitly preserve the coverage rationale ({{coverage_decision_rationale}}), unresolved assessment ({{coverage_assessment}}), and next-round validation plan ({{next_round_validation_plan}}), and never describe it as complete. Otherwise return an unvalidated partial handoff with findings ({{quality_findings}}), repair summary ({{report_repair_summary}}), repair actions ({{repair_actions}}), and citation coverage ({{citation_coverage_summary}}).",
   "dependencies": [
     {
       "id": "research-nex",
@@ -1447,15 +1607,22 @@
             {
               "expert_id": "historian",
               "summary": "Historian perspective completed.",
-              "artifact_path": "reports/experts/1/historian.md"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md",
+              "new_evidence": []
             },
             {
               "expert_id": "systems_analyst",
               "summary": "Systems analyst perspective completed.",
-              "artifact_path": "reports/experts/1/systems_analyst.md"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
             }
           ],
-          "expert_results_complete": true
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
         }
       },
       "verifier_result": {
@@ -1479,7 +1646,12 @@
         "round_index": 0,
         "constraints": {
           "max_rounds": 8
-        }
+        },
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
       },
       "expected_next_node": "autonomous_roundtable",
       "expected_branch_kind": "continue"
@@ -1859,6 +2031,33 @@
             "history",
             "mechanism"
           ],
+          "coverage_assessment": [
+            {
+              "topic_id": "history",
+              "status": "covered",
+              "evidence_refs": [
+                "[1]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            },
+            {
+              "topic_id": "mechanism",
+              "status": "missing",
+              "evidence_refs": [],
+              "open_gaps": [
+                "Causal mechanism is not yet corroborated."
+              ],
+              "next_validation_metrics": [
+                "Find two independent sources that support the causal chain."
+              ]
+            }
+          ],
+          "coverage_decision_rationale": "History is grounded, but the mechanism still needs independent corroboration.",
+          "next_round_validation_plan": [
+            "mechanism — Find two independent sources that support the causal chain."
+          ],
+          "report_scope_status": "in_progress",
           "knowledge_map_summary": "supported map",
           "expert_roster": [
             {
@@ -2089,6 +2288,33 @@
             "history",
             "mechanism"
           ],
+          "coverage_assessment": [
+            {
+              "topic_id": "history",
+              "status": "covered",
+              "evidence_refs": [
+                "[1]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            },
+            {
+              "topic_id": "mechanism",
+              "status": "missing",
+              "evidence_refs": [],
+              "open_gaps": [
+                "Causal mechanism is not yet corroborated."
+              ],
+              "next_validation_metrics": [
+                "Find two independent sources that support the causal chain."
+              ]
+            }
+          ],
+          "coverage_decision_rationale": "History is grounded, but the mechanism still needs independent corroboration.",
+          "next_round_validation_plan": [
+            "mechanism — Find two independent sources that support the causal chain."
+          ],
+          "report_scope_status": "in_progress",
           "knowledge_map_summary": "supported map",
           "expert_roster": [
             {
@@ -2143,6 +2369,11 @@
             "summary": "Systems analyst perspective completed.",
             "artifact_path": "reports/experts/1/systems_analyst.md"
           }
+        ],
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
         ]
       }
     },
@@ -2252,7 +2483,12 @@
       "state": {
         "constraints": {
           "max_reorganizations": 2
-        }
+        },
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
       }
     },
     {
@@ -2268,15 +2504,22 @@
             {
               "expert_id": "historian",
               "summary": "Historian perspective completed.",
-              "artifact_path": "reports/experts/1/historian.md"
+              "artifact_path": "reports/experts/1/historian.md",
+              "new_evidence": []
             },
             {
               "expert_id": "systems_analyst",
               "summary": "Systems analyst perspective completed.",
-              "artifact_path": "reports/experts/1/systems_analyst.md"
+              "artifact_path": "reports/experts/1/systems_analyst.md",
+              "new_evidence": []
             }
           ],
-          "expert_results_complete": false
+          "expert_results_complete": false,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
         }
       },
       "expected_passed": false,
@@ -2295,10 +2538,16 @@
             {
               "expert_id": "historian",
               "summary": "Historian perspective completed.",
-              "artifact_path": "reports/experts/1/historian.md"
+              "artifact_path": "reports/experts/1/historian.md",
+              "new_evidence": []
             }
           ],
-          "expert_results_complete": true
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
         }
       },
       "expected_passed": false,
@@ -2317,15 +2566,22 @@
             {
               "expert_id": "historian",
               "summary": "Historian perspective completed with evidence [1].",
-              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md",
+              "new_evidence": []
             },
             {
               "expert_id": "systems_analyst",
               "summary": "Systems analyst perspective completed with evidence [2].",
-              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/test_workflow.py"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
             }
           ],
-          "expert_results_complete": true
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
         }
       },
       "expected_passed": true,
@@ -2366,15 +2622,22 @@
             {
               "expert_id": "historian",
               "summary": "Historian perspective completed.",
-              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json",
+              "new_evidence": []
             },
             {
               "expert_id": "unknown",
               "summary": "Unknown perspective completed.",
-              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/manifest.json"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/manifest.json",
+              "new_evidence": []
             }
           ],
-          "expert_results_complete": true
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
         }
       },
       "expected_passed": false,
@@ -2410,15 +2673,22 @@
             {
               "expert_id": "historian",
               "summary": "Historian perspective completed.",
-              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json",
+              "new_evidence": []
             },
             {
               "expert_id": "systems_analyst",
               "summary": "Systems analyst perspective completed.",
-              "artifact_path": "missing/systems_analyst.md"
+              "artifact_path": "missing/systems_analyst.md",
+              "new_evidence": []
             }
           ],
-          "expert_results_complete": true
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
         }
       },
       "expected_passed": false,
@@ -2454,15 +2724,22 @@
             {
               "expert_id": "historian",
               "summary": "Historian perspective completed with evidence [1].",
-              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json",
+              "new_evidence": []
             },
             {
               "expert_id": "systems_analyst",
               "summary": "Systems analyst perspective completed with evidence [99].",
-              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/test_workflow.py"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/test_workflow.py",
+              "new_evidence": []
             }
           ],
-          "expert_results_complete": true
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
         }
       },
       "expected_passed": false,
@@ -2503,15 +2780,22 @@
             {
               "expert_id": "historian",
               "summary": "Historian perspective completed with evidence [1].",
-              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/spec.json",
+              "new_evidence": []
             },
             {
               "expert_id": "systems_analyst",
               "summary": "Systems analyst perspective completed with evidence [2].",
-              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/test_workflow.py"
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/test_workflow.py",
+              "new_evidence": []
             }
           ],
-          "expert_results_complete": true
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
         }
       },
       "expected_passed": false,
@@ -2525,6 +2809,239 @@
           {
             "id": "systems_analyst",
             "role": "systems analyst"
+          }
+        ],
+        "round_index": 0,
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ],
+        "constraints": {
+          "max_rounds": 8
+        }
+      }
+    },
+    {
+      "name": "expert_results_accepts_appended_evidence",
+      "type": "verifier",
+      "step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The expert-result package merged one new source.",
+        "structured_output": {
+          "expert_round_index": 1,
+          "expert_results": [
+            {
+              "expert_id": "historian",
+              "summary": "Historian perspective completed with evidence [4].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian_appended.md",
+              "new_evidence": [
+                "source-d — new historian claim"
+              ]
+            },
+            {
+              "expert_id": "systems_analyst",
+              "summary": "Systems analyst perspective completed with evidence [2].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
+            }
+          ],
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c",
+            "[4] source-d — new historian claim"
+          ]
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ],
+        "constraints": {
+          "max_rounds": 8
+        }
+      }
+    },
+    {
+      "name": "expert_results_rejects_rewritten_prefix",
+      "type": "verifier",
+      "step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The merged registry rewrote a persisted evidence entry.",
+        "structured_output": {
+          "expert_round_index": 1,
+          "expert_results": [
+            {
+              "expert_id": "historian",
+              "summary": "Historian perspective completed with evidence [1].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md",
+              "new_evidence": []
+            },
+            {
+              "expert_id": "systems_analyst",
+              "summary": "Systems analyst perspective completed with evidence [2].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
+            }
+          ],
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a-rewritten",
+            "[2] source-b",
+            "[3] source-c"
+          ]
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ],
+        "constraints": {
+          "max_rounds": 8
+        }
+      }
+    },
+    {
+      "name": "expert_results_rejects_id_gap",
+      "type": "verifier",
+      "step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The merged registry skipped a citation identifier.",
+        "structured_output": {
+          "expert_round_index": 1,
+          "expert_results": [
+            {
+              "expert_id": "historian",
+              "summary": "Historian perspective completed with evidence [5].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian_appended.md",
+              "new_evidence": [
+                "source-d — new historian claim"
+              ]
+            },
+            {
+              "expert_id": "systems_analyst",
+              "summary": "Systems analyst perspective completed with evidence [2].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
+            }
+          ],
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c",
+            "[5] source-d — new historian claim"
+          ]
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ],
+        "constraints": {
+          "max_rounds": 8
+        }
+      }
+    },
+    {
+      "name": "expert_results_rejects_duplicate_locator",
+      "type": "verifier",
+      "step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The merge reintroduced a persisted locator under a new citation id.",
+        "structured_output": {
+          "expert_round_index": 1,
+          "expert_results": [
+            {
+              "expert_id": "historian",
+              "summary": "Historian perspective completed with evidence [4].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian_appended.md",
+              "new_evidence": [
+                "source-a — duplicate locator"
+              ]
+            },
+            {
+              "expert_id": "systems_analyst",
+              "summary": "Systems analyst perspective completed with evidence [2].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
+            }
+          ],
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c",
+            "[4] source-a — duplicate locator"
+          ]
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
           }
         ],
         "round_index": 0,
@@ -2567,6 +3084,845 @@
       },
       "expected_next_node": "finalize_collaborative_report",
       "expected_branch_kind": "complete"
+    },
+    {
+      "name": "roundtable_rejects_dropped_merged_evidence",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The moderator dropped a merged evidence entry.",
+        "structured_output": {
+          "last_turn_summary": "The analyst added a grounded comparison.",
+          "conversation_transcript": [
+            "prior turn",
+            "new analyst turn"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "knowledge_map_summary": "supported map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 1,
+          "round_decision": "continue",
+          "continue_roundtable": true,
+          "should_reorganize": false,
+          "coverage_sufficient": false,
+          "ready_for_report": false
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "conversation_transcript": [
+          "prior turn"
+        ],
+        "constraints": {
+          "max_rounds": 3
+        },
+        "expert_results_complete": true,
+        "expert_results": [
+          {
+            "expert_id": "historian",
+            "summary": "Historian perspective completed.",
+            "artifact_path": "reports/experts/1/historian.md"
+          },
+          {
+            "expert_id": "systems_analyst",
+            "summary": "Systems analyst perspective completed.",
+            "artifact_path": "reports/experts/1/systems_analyst.md"
+          }
+        ],
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c",
+          "[4] source-d — new historian claim"
+        ]
+      }
+    },
+    {
+      "name": "expert_results_rejects_unused_over_budget",
+      "type": "verifier",
+      "step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "One expert returned more than three unused retrieved items.",
+        "structured_output": {
+          "expert_round_index": 1,
+          "expert_results": [
+            {
+              "expert_id": "historian",
+              "summary": "Historian perspective completed with evidence [1].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md",
+              "new_evidence": [
+                "source-e — unused claim one",
+                "source-f — unused claim two",
+                "source-g — unused claim three",
+                "source-h — unused claim four"
+              ]
+            },
+            {
+              "expert_id": "systems_analyst",
+              "summary": "Systems analyst perspective completed with evidence [2].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
+            }
+          ],
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c",
+            "[4] source-e — unused claim one",
+            "[5] source-f — unused claim two",
+            "[6] source-g — unused claim three",
+            "[7] source-h — unused claim four"
+          ]
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ],
+        "constraints": {
+          "max_rounds": 8
+        }
+      }
+    },
+    {
+      "name": "expert_results_rejects_malformed_new_evidence",
+      "type": "verifier",
+      "step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "A new_evidence item omitted the locator-claim separator.",
+        "structured_output": {
+          "expert_round_index": 1,
+          "expert_results": [
+            {
+              "expert_id": "historian",
+              "summary": "Historian perspective completed with evidence [1].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md",
+              "new_evidence": [
+                "source-d new historian claim without dash"
+              ]
+            },
+            {
+              "expert_id": "systems_analyst",
+              "summary": "Systems analyst perspective completed with evidence [2].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
+            }
+          ],
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c",
+            "[4] source-d new historian claim without dash"
+          ]
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ],
+        "constraints": {
+          "max_rounds": 8
+        }
+      }
+    },
+    {
+      "name": "expert_results_verifier_failed_goes_to_repair",
+      "type": "transition",
+      "current_step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "All expert results completed.",
+        "structured_output": {
+          "expert_round_index": 1,
+          "expert_results": [
+            {
+              "expert_id": "historian",
+              "summary": "Historian perspective completed with evidence [1].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md",
+              "new_evidence": []
+            },
+            {
+              "expert_id": "systems_analyst",
+              "summary": "Systems analyst perspective completed with evidence [2].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
+            }
+          ],
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "message": "expert-result merge contract failed",
+        "details": {}
+      },
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "constraints": {
+          "max_rounds": 8
+        },
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      },
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "retry"
+    },
+    {
+      "name": "expert_results_missing_verifier_fails_closed",
+      "type": "transition",
+      "current_step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "succeeded",
+        "summary": "All expert results completed.",
+        "structured_output": {
+          "expert_round_index": 1,
+          "expert_results": [
+            {
+              "expert_id": "historian",
+              "summary": "Historian perspective completed with evidence [1].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md",
+              "new_evidence": []
+            },
+            {
+              "expert_id": "systems_analyst",
+              "summary": "Systems analyst perspective completed with evidence [2].",
+              "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+              "new_evidence": []
+            }
+          ],
+          "expert_results_complete": true,
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ]
+        }
+      },
+      "verifier_result": null,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "constraints": {
+          "max_rounds": 8
+        },
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      },
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "repair"
+    },
+    {
+      "name": "expert_results_blocked_goes_to_repair",
+      "type": "transition",
+      "current_step_id": "launch_expert_subagents",
+      "observation": {
+        "status": "blocked",
+        "summary": "An expert artifact was unavailable.",
+        "structured_output": {
+          "blocked_reason": "missing expert artifact",
+          "missing_expert_ids": [
+            "historian"
+          ]
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "message": "expert-result stage blocked",
+        "details": {}
+      },
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 0,
+        "constraints": {
+          "max_rounds": 8
+        },
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      },
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "repair"
+    },
+    {
+      "name": "repair_and_resume_returns_to_expert_results",
+      "type": "transition",
+      "current_step_id": "repair_and_resume",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Repair completed.",
+        "structured_output": {
+          "retry_reason": "Retry is safe after the repair.",
+          "retry_notes": "The missing expert artifact was restored.",
+          "repair_actions": [
+            "Retry the expert-result stage."
+          ]
+        }
+      },
+      "verifier_result": null,
+      "state": {
+        "return_stage_id": "launch_expert_subagents"
+      },
+      "expected_next_node": "launch_expert_subagents",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "roundtable_accepts_semantically_complete_report",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The Moderator found every required topic semantically covered.",
+        "structured_output": {
+          "last_turn_summary": "All required topics are grounded.",
+          "conversation_transcript": [
+            "prior turn",
+            "coverage decision"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "coverage_assessment": [
+            {
+              "topic_id": "history",
+              "status": "covered",
+              "evidence_refs": [
+                "[1]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            },
+            {
+              "topic_id": "mechanism",
+              "status": "covered",
+              "evidence_refs": [
+                "[2]",
+                "[3]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            }
+          ],
+          "coverage_decision_rationale": "Both required topics have traceable evidence and no unresolved gaps.",
+          "next_round_validation_plan": [],
+          "report_scope_status": "complete",
+          "knowledge_map_summary": "complete supported map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 2,
+          "round_decision": "report",
+          "continue_roundtable": false,
+          "should_reorganize": false,
+          "coverage_sufficient": true,
+          "ready_for_report": true
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 1,
+        "conversation_transcript": [
+          "prior turn"
+        ],
+        "constraints": {
+          "max_rounds": 3,
+          "coverage_threshold": 2
+        },
+        "expert_results_complete": true,
+        "expert_results": [
+          {
+            "expert_id": "historian",
+            "summary": "History complete.",
+            "artifact_path": "reports/experts/2/historian.md"
+          },
+          {
+            "expert_id": "systems_analyst",
+            "summary": "Mechanism complete.",
+            "artifact_path": "reports/experts/2/systems_analyst.md"
+          }
+        ],
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      }
+    },
+    {
+      "name": "roundtable_rejects_threshold_only_completion",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The topic count met the threshold but one topic remains missing.",
+        "structured_output": {
+          "last_turn_summary": "Mechanism evidence is still missing.",
+          "conversation_transcript": [
+            "prior turn",
+            "coverage decision"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "coverage_assessment": [
+            {
+              "topic_id": "history",
+              "status": "covered",
+              "evidence_refs": [
+                "[1]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            },
+            {
+              "topic_id": "mechanism",
+              "status": "missing",
+              "evidence_refs": [],
+              "open_gaps": [
+                "No causal evidence."
+              ],
+              "next_validation_metrics": [
+                "Find two independent causal sources."
+              ]
+            }
+          ],
+          "coverage_decision_rationale": "The numeric threshold is met but semantic coverage is not.",
+          "next_round_validation_plan": [],
+          "report_scope_status": "complete",
+          "knowledge_map_summary": "incomplete map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 2,
+          "round_decision": "report",
+          "continue_roundtable": false,
+          "should_reorganize": false,
+          "coverage_sufficient": true,
+          "ready_for_report": true
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 1,
+        "conversation_transcript": [
+          "prior turn"
+        ],
+        "constraints": {
+          "max_rounds": 3,
+          "coverage_threshold": 2
+        },
+        "expert_results_complete": true,
+        "expert_results": [
+          {
+            "expert_id": "historian",
+            "summary": "History complete.",
+            "artifact_path": "reports/experts/2/historian.md"
+          },
+          {
+            "expert_id": "systems_analyst",
+            "summary": "Mechanism incomplete.",
+            "artifact_path": "reports/experts/2/systems_analyst.md"
+          }
+        ],
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      }
+    },
+    {
+      "name": "roundtable_accepts_forced_partial_report_at_max_rounds",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The round budget ended with an explicit partial handoff.",
+        "structured_output": {
+          "last_turn_summary": "Mechanism evidence remains unresolved at the round limit.",
+          "conversation_transcript": [
+            "prior turn",
+            "forced stop decision"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "coverage_assessment": [
+            {
+              "topic_id": "history",
+              "status": "covered",
+              "evidence_refs": [
+                "[1]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            },
+            {
+              "topic_id": "mechanism",
+              "status": "missing",
+              "evidence_refs": [],
+              "open_gaps": [
+                "No causal evidence."
+              ],
+              "next_validation_metrics": [
+                "Find two independent causal sources."
+              ]
+            }
+          ],
+          "coverage_decision_rationale": "The budget is exhausted, so unresolved work must be handed off explicitly.",
+          "next_round_validation_plan": [
+            "mechanism — Find two independent causal sources."
+          ],
+          "report_scope_status": "partial",
+          "knowledge_map_summary": "partial supported map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 3,
+          "round_decision": "report",
+          "continue_roundtable": false,
+          "should_reorganize": false,
+          "coverage_sufficient": false,
+          "ready_for_report": true
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 2,
+        "conversation_transcript": [
+          "prior turn"
+        ],
+        "constraints": {
+          "max_rounds": 3,
+          "coverage_threshold": 2
+        },
+        "expert_results_complete": true,
+        "expert_results": [
+          {
+            "expert_id": "historian",
+            "summary": "History complete.",
+            "artifact_path": "reports/experts/3/historian.md"
+          },
+          {
+            "expert_id": "systems_analyst",
+            "summary": "Mechanism incomplete.",
+            "artifact_path": "reports/experts/3/systems_analyst.md"
+          }
+        ],
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      }
+    },
+    {
+      "name": "roundtable_rejects_complete_label_for_forced_stop",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "The round budget ended but the report was incorrectly labeled complete.",
+        "structured_output": {
+          "last_turn_summary": "Mechanism evidence remains unresolved at the round limit.",
+          "conversation_transcript": [
+            "prior turn",
+            "forced stop decision"
+          ],
+          "evidence_registry": [
+            "[1] source-a",
+            "[2] source-b",
+            "[3] source-c"
+          ],
+          "coverage_map": [
+            "history",
+            "mechanism"
+          ],
+          "coverage_assessment": [
+            {
+              "topic_id": "history",
+              "status": "covered",
+              "evidence_refs": [
+                "[1]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            },
+            {
+              "topic_id": "mechanism",
+              "status": "missing",
+              "evidence_refs": [],
+              "open_gaps": [
+                "No causal evidence."
+              ],
+              "next_validation_metrics": [
+                "Find two independent causal sources."
+              ]
+            }
+          ],
+          "coverage_decision_rationale": "The budget is exhausted, but unresolved work remains.",
+          "next_round_validation_plan": [
+            "mechanism — Find two independent causal sources."
+          ],
+          "report_scope_status": "complete",
+          "knowledge_map_summary": "partial supported map",
+          "expert_roster": [
+            {
+              "id": "historian",
+              "role": "historian",
+              "brief": "Trace origins and chronology."
+            },
+            {
+              "id": "systems_analyst",
+              "role": "systems analyst",
+              "brief": "Trace mechanisms and trade-offs."
+            }
+          ],
+          "round_index": 3,
+          "round_decision": "report",
+          "continue_roundtable": false,
+          "should_reorganize": false,
+          "coverage_sufficient": false,
+          "ready_for_report": true
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "expert_roster": [
+          {
+            "id": "historian",
+            "role": "historian",
+            "brief": "Trace origins and chronology."
+          },
+          {
+            "id": "systems_analyst",
+            "role": "systems analyst",
+            "brief": "Trace mechanisms and trade-offs."
+          }
+        ],
+        "round_index": 2,
+        "conversation_transcript": [
+          "prior turn"
+        ],
+        "constraints": {
+          "max_rounds": 3,
+          "coverage_threshold": 2
+        },
+        "expert_results_complete": true,
+        "expert_results": [
+          {
+            "expert_id": "historian",
+            "summary": "History complete.",
+            "artifact_path": "reports/experts/3/historian.md"
+          },
+          {
+            "expert_id": "systems_analyst",
+            "summary": "Mechanism incomplete.",
+            "artifact_path": "reports/experts/3/systems_analyst.md"
+          }
+        ],
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      }
     }
   ]
 }

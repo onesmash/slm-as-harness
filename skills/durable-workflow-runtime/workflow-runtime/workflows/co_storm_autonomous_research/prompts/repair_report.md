@@ -1,4 +1,4 @@
-/content-research-writer {{workflow_goal}} using {{report_path}}, {{repair_summary}}, {{repair_requirements}}, {{repair_evidence}}, and {{evidence_registry}}; repair the cited report's groundedness, section coverage, or duplication defects and return a handoff for re-synthesis.
+/content-research-writer {{workflow_goal}} using {{report_path}}, {{repair_summary}}, {{repair_requirements}}, {{repair_evidence}}, and {{evidence_registry}}; translate audit findings into concrete repair actions and a handoff for the next synthesize_report pass without rewriting the report body in this stage.
 
 Stage Context:
 

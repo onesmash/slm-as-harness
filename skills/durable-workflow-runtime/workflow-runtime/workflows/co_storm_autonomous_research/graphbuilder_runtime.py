@@ -75,14 +75,14 @@ NODE_DEFINITIONS = {
         step_id="launch_expert_subagents",
         prompt_asset_path=PROMPTS_DIR / "launch_expert_subagents.md",
         intent="collect_independent_expert_results",
-        expected_artifact="one grounded result and one distinct artifact for each expert",
+        expected_artifact="one grounded result, optional unnumbered new_evidence, and one distinct artifact for each expert, plus the merged evidence_registry",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "autonomous_roundtable": NodeDefinition(
         step_id="autonomous_roundtable",
         prompt_asset_path=PROMPTS_DIR / "autonomous_roundtable.md",
         intent="advance_one_moderated_expert_round",
-        expected_artifact="one Moderator synthesis turn over independent expert-subagent results, updated evidence and coverage, and an exclusive routing decision",
+        expected_artifact="one Moderator synthesis turn over independent expert-subagent results, a topic-level semantic coverage assessment with next-round validation metrics, and an exclusive routing decision",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "reorganize_knowledge_space": NodeDefinition(
@@ -280,10 +280,26 @@ def build_template_context(*, step_id: str, run_state) -> dict:
             "current_step_id": step_id,
             "return_stage_id": getattr(state, "return_stage_id", None) or "",
             "source_stage_id": str(repair_context.get("source_stage_id") or ""),
-            "repair_category": str(repair_payload.get("category") or ""),
-            "repair_summary": str(repair_payload.get("summary") or ""),
-            "repair_requirements": _format_prompt_list(repair_payload.get("requirements")),
-            "repair_evidence": _format_prompt_list(repair_payload.get("evidence")),
+            "repair_category": _format_prompt_value(
+                getattr(state, "repair_category", None)
+                or repair_context.get("repair_category")
+                or repair_payload.get("category")
+            ),
+            "repair_summary": _format_prompt_value(
+                getattr(state, "repair_summary", None)
+                or repair_context.get("repair_summary")
+                or repair_payload.get("summary")
+            ),
+            "repair_requirements": _format_prompt_list(
+                getattr(state, "repair_requirements", None)
+                or repair_context.get("repair_requirements")
+                or repair_payload.get("requirements")
+            ),
+            "repair_evidence": _format_prompt_list(
+                getattr(state, "repair_evidence", None)
+                or repair_context.get("repair_evidence")
+                or repair_payload.get("evidence")
+            ),
             "repair_blocked_attempts": _format_prompt_value(getattr(state, "repair_blocked_attempts", 0)),
             "terminal_reason": str(getattr(run_state, "terminal_reason", "") or ""),
             "degraded": str(
@@ -325,6 +341,10 @@ def _template_context_from_state(state: workflow_state.CoStormAutonomousResearch
         "expert_results": _format_prompt_value(state.expert_results),
         "expert_results_complete": _format_prompt_value(state.expert_results_complete),
         "last_turn_summary": _format_prompt_value(state.last_turn_summary),
+        "coverage_assessment": _format_prompt_value(state.coverage_assessment),
+        "coverage_decision_rationale": _format_prompt_value(state.coverage_decision_rationale),
+        "next_round_validation_plan": _format_prompt_value(state.next_round_validation_plan),
+        "report_scope_status": _format_prompt_value(state.report_scope_status),
         "round_decision": _format_prompt_value(state.round_decision),
         "coverage_sufficient": _format_prompt_value(state.coverage_sufficient),
         "ready_for_report": _format_prompt_value(state.ready_for_report),
@@ -341,6 +361,9 @@ def _template_context_from_state(state: workflow_state.CoStormAutonomousResearch
         "verified_report_path": _format_prompt_value(state.verified_report_path),
         "report_repair_summary": _format_prompt_value(state.report_repair_summary),
         "repair_actions": _format_prompt_value(state.repair_actions),
+        "unblocking_blocking_reason": _format_prompt_value(state.unblocking_blocking_reason),
+        "unblocking_user_action_needed": _format_prompt_value(state.unblocking_user_action_needed),
+        "unblocking_suggested_next_input": _format_prompt_value(state.unblocking_suggested_next_input),
         "goal": _format_prompt_value(task_input_values.get("goal")),
         "deliverable_type": _format_prompt_value(task_input_values.get("deliverable_type")),
         "research_scope": _format_prompt_value(task_input_values.get("research_scope")),

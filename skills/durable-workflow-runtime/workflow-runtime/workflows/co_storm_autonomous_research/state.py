@@ -33,6 +33,78 @@ MAX_WORKFLOW_TEXT_BYTES = 16 * 1024
 MAX_WORKFLOW_LIST_ITEM_BYTES = 8 * 1024
 MAX_WORKFLOW_LIST_BYTES = 64 * 1024
 
+_RECOVERY_OUTPUT_SCHEMAS = {'repair_report': {'report_repair_summary': 'string',
+                   'repair_actions': 'string[]',
+                   'repair_ready': 'boolean'},
+ 'request_unblocking_input': {'blocking_reason': 'string',
+                              'user_action_needed': 'string',
+                              'suggested_next_input': 'string?'},
+ 'repair_and_resume': {'retry_reason': 'string',
+                       'retry_notes': 'string',
+                       'repair_actions': 'string[]'}}
+
+
+def recovery_output_validation_error(*, current_step_id: str, structured_output: object) -> str | None:
+    schema = _RECOVERY_OUTPUT_SCHEMAS.get(current_step_id)
+    if schema is None:
+        return None
+    if not isinstance(structured_output, dict):
+        return "recovery succeeded output must be an object"
+    unexpected = sorted(repr(key) for key in structured_output if key not in schema)
+    if unexpected:
+        return f"{current_step_id} returned unexpected fields: {unexpected}"
+    missing = [
+        key
+        for key, schema_type in schema.items()
+        if not schema_type.endswith("?") and key not in structured_output
+    ]
+    if missing:
+        return f"{current_step_id} is missing required fields: {missing}"
+    for key, schema_type in schema.items():
+        if key not in structured_output:
+            continue
+        message = _recovery_schema_type_error(
+            key,
+            structured_output[key],
+            schema_type.rstrip("?"),
+        )
+        if message:
+            return message
+    if current_step_id == "repair_and_resume":
+        actions = structured_output.get("repair_actions")
+        if not isinstance(actions, list) or not actions or any(
+            not isinstance(item, str) or not item.strip() for item in actions
+        ):
+            return "repair_actions must contain at least one meaningful action"
+    return None
+
+
+def _recovery_schema_type_error(key: str, value: object, schema_type: str) -> str | None:
+    if schema_type == "string":
+        if not isinstance(value, str):
+            return f"{key} must be a string"
+        if not value.strip():
+            return f"{key} must be meaningful text"
+        return None
+    if schema_type == "boolean":
+        return None if isinstance(value, bool) else f"{key} must be a boolean"
+    if schema_type == "integer":
+        return None if isinstance(value, int) and not isinstance(value, bool) else f"{key} must be an integer"
+    if schema_type == "number":
+        return None if isinstance(value, (int, float)) and not isinstance(value, bool) else f"{key} must be a number"
+    if schema_type == "object":
+        return None if isinstance(value, dict) else f"{key} must be an object"
+    if schema_type.endswith("[]"):
+        if not isinstance(value, list):
+            return f"{key} must be a list"
+        item_type = schema_type[:-2]
+        for index, item in enumerate(value):
+            message = _recovery_schema_type_error(f"{key}[{index}]", item, item_type)
+            if message:
+                return message
+        return None
+    return f"{key} uses unsupported recovery schema type: {schema_type}"
+
 
 @dataclass
 class CoStormAutonomousResearchWorkflowState:
@@ -58,6 +130,10 @@ class CoStormAutonomousResearchWorkflowState:
     expert_results: list = field(default_factory=list)
     expert_results_complete: bool | None = None
     last_turn_summary: str | None = None
+    coverage_assessment: list = field(default_factory=list)
+    coverage_decision_rationale: str | None = None
+    next_round_validation_plan: list = field(default_factory=list)
+    report_scope_status: str | None = None
     round_decision: str | None = None
     coverage_sufficient: bool | None = None
     ready_for_report: bool | None = None
@@ -74,6 +150,9 @@ class CoStormAutonomousResearchWorkflowState:
     verified_report_path: str | None = None
     report_repair_summary: str | None = None
     repair_actions: list = field(default_factory=list)
+    unblocking_blocking_reason: str | None = None
+    unblocking_user_action_needed: str | None = None
+    unblocking_suggested_next_input: str | None = None
     artifacts_by_stage: dict[str, list[dict]] = field(default_factory=dict)
     repair_context: dict[str, object] = field(default_factory=dict)
 
@@ -210,6 +289,10 @@ def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflow
         expert_results=_list_value(payload.get('expert_results')),
         expert_results_complete=_scalar_value(payload.get('expert_results_complete')),
         last_turn_summary=_scalar_value(payload.get('last_turn_summary')),
+        coverage_assessment=_list_value(payload.get('coverage_assessment')),
+        coverage_decision_rationale=_scalar_value(payload.get('coverage_decision_rationale')),
+        next_round_validation_plan=_list_value(payload.get('next_round_validation_plan')),
+        report_scope_status=_scalar_value(payload.get('report_scope_status')),
         round_decision=_scalar_value(payload.get('round_decision')),
         coverage_sufficient=_scalar_value(payload.get('coverage_sufficient')),
         ready_for_report=_scalar_value(payload.get('ready_for_report')),
@@ -226,6 +309,9 @@ def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflow
         verified_report_path=_scalar_value(payload.get('verified_report_path')),
         report_repair_summary=_scalar_value(payload.get('report_repair_summary')),
         repair_actions=_list_value(payload.get('repair_actions')),
+        unblocking_blocking_reason=_scalar_value(payload.get('unblocking_blocking_reason')),
+        unblocking_user_action_needed=_scalar_value(payload.get('unblocking_user_action_needed')),
+        unblocking_suggested_next_input=_scalar_value(payload.get('unblocking_suggested_next_input')),
         artifacts_by_stage=_normalize_artifact_journal(payload.get("artifacts_by_stage")),
         repair_context=dict(payload.get("repair_context") or {}),
     )
@@ -239,10 +325,18 @@ def record_observation(
     verifier_result: dict | None,
 ) -> None:
     state.attempt_counts[current_step_id] = state.attempt_counts.get(current_step_id, 0) + 1
+    recovery_output_error = (
+        recovery_output_validation_error(
+            current_step_id=current_step_id,
+            structured_output=observation.get("structured_output"),
+        )
+        if current_step_id in REPAIR_STAGE_IDS and observation.get("status") == "succeeded"
+        else None
+    )
     if current_step_id == "repair_and_resume":
-        if observation.get("status") == "blocked":
+        if observation.get("status") == "blocked" or recovery_output_error is not None:
             state.repair_blocked_attempts += 1
-        elif observation.get("status") == "succeeded":
+        elif observation.get("status") == "succeeded" and recovery_output_error is None:
             state.repair_blocked_attempts = 0
     structured_output = observation.get("structured_output") or {}
     if isinstance(structured_output, dict):
@@ -250,7 +344,10 @@ def record_observation(
             isinstance(verifier_result, dict)
             and verifier_result.get("passed") is True
         )
-        if observation.get("status") == "succeeded" and verifier_passed:
+        if observation.get("status") == "succeeded" and (
+            verifier_passed
+            or (current_step_id in REPAIR_STAGE_IDS and recovery_output_error is None)
+        ):
             state.artifacts_by_stage.setdefault(current_step_id, []).append(
                 _compact_artifact_snapshot(structured_output)
             )
@@ -266,11 +363,16 @@ def record_observation(
                 state.expert_round_index = _scalar_value(structured_output.get('expert_round_index'))
                 state.expert_results = _list_value(structured_output.get('expert_results'))
                 state.expert_results_complete = _scalar_value(structured_output.get('expert_results_complete'))
+                state.evidence_registry = _list_value(structured_output.get('evidence_registry'))
             elif current_step_id == 'autonomous_roundtable':
                 state.last_turn_summary = _scalar_value(structured_output.get('last_turn_summary'))
                 state.conversation_transcript = _list_value(structured_output.get('conversation_transcript'))
                 state.evidence_registry = _list_value(structured_output.get('evidence_registry'))
                 state.coverage_map = _list_value(structured_output.get('coverage_map'))
+                state.coverage_assessment = _list_value(structured_output.get('coverage_assessment'))
+                state.coverage_decision_rationale = _scalar_value(structured_output.get('coverage_decision_rationale'))
+                state.next_round_validation_plan = _list_value(structured_output.get('next_round_validation_plan'))
+                state.report_scope_status = _scalar_value(structured_output.get('report_scope_status'))
                 state.knowledge_map_summary = _scalar_value(structured_output.get('knowledge_map_summary'))
                 state.expert_roster = _list_value(structured_output.get('expert_roster'))
                 state.round_index = _scalar_value(structured_output.get('round_index'))
@@ -297,6 +399,10 @@ def record_observation(
             elif current_step_id == 'repair_report':
                 state.report_repair_summary = _scalar_value(structured_output.get('report_repair_summary'))
                 state.repair_actions = _list_value(structured_output.get('repair_actions'))
+            elif current_step_id == 'request_unblocking_input':
+                state.unblocking_blocking_reason = _scalar_value(structured_output.get('blocking_reason'))
+                state.unblocking_user_action_needed = _scalar_value(structured_output.get('user_action_needed'))
+                state.unblocking_suggested_next_input = _scalar_value(structured_output.get('suggested_next_input'))
             else:
                 pass
 
@@ -318,7 +424,7 @@ def record_observation(
     )
     state.return_stage_id = return_stage_id
     state.repair_context = _build_repair_context(
-        current_step_id=current_step_id,
+        current_step_id=_repair_context_source_stage_id(state, current_step_id),
         return_stage_id=return_stage_id,
         transition_reason=transition_reason,
         repair_payload=repair_payload or {},
@@ -349,11 +455,23 @@ def determine_transition_reason(
         return "partial"
     if status == "failed":
         return "failed"
+    if current_step_id in MAIN_STAGE_IDS and status == "succeeded":
+        if not (
+            isinstance(verifier_result, dict)
+            and verifier_result.get("passed") is True
+        ):
+            return "verifier_failed"
     if verifier_result is not None and (
         not isinstance(verifier_result, dict)
         or verifier_result.get("passed") is not True
     ):
         return "verifier_failed"
+    if current_step_id in REPAIR_STAGE_IDS and status == "succeeded":
+        if recovery_output_validation_error(
+            current_step_id=current_step_id,
+            structured_output=observation.get("structured_output"),
+        ) is not None:
+            return "verifier_failed"
     structured_output = observation.get("structured_output") or {}
     if isinstance(structured_output, dict):
         pass
@@ -410,6 +528,16 @@ def _build_repair_context(
         "transition_reason": transition_reason,
         "repair_payload": dict(repair_payload or {}),
     }
+
+
+def _repair_context_source_stage_id(state: CoStormAutonomousResearchWorkflowState, current_step_id: str) -> str:
+    if current_step_id != "request_unblocking_input":
+        return current_step_id
+    existing_context = state.repair_context if isinstance(state.repair_context, dict) else {}
+    existing_source = existing_context.get("source_stage_id")
+    if existing_source in REPAIR_STAGE_IDS:
+        return str(existing_source)
+    return current_step_id
 
 
 def _list_value(value) -> list:

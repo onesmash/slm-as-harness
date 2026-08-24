@@ -90,7 +90,7 @@
     },
     {
       "workflow_id": "co_storm_autonomous_research",
-      "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, moderate coverage, reorganize the knowledge map, and synthesize a cited report without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff.",
+      "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff.",
       "start_input_schema": {
         "task_input": {
           "goal": "string",
