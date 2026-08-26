@@ -7,7 +7,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:brainstorming-nex",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -15,7 +15,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/writing-plans",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -23,7 +23,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/subagent-driven-development",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -31,7 +31,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/test-driven-development",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -39,7 +39,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/systematic-debugging",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -47,7 +47,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:research-nex",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -55,7 +55,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:search-nex",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -63,7 +63,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:xcodebuildmcp-cli",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -71,7 +71,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:manipulate-xcodeproj",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -79,7 +79,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:agentic-release-qa",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -87,7 +87,7 @@
       "type": "skill",
       "scope": "project",
       "source": "skill-catalog:pixel-diff",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -95,7 +95,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:agent-device",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -103,7 +103,7 @@
       "type": "cli",
       "scope": "global",
       "source": "npm:agent-device",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -111,7 +111,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/requesting-code-review",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -119,7 +119,7 @@
       "type": "skill",
       "scope": "global",
       "source": "https://github.com/obra/superpowers/tree/main/skills/verification-before-completion",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -127,7 +127,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:ios-best-practices",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -135,7 +135,7 @@
       "type": "skill",
       "scope": "project",
       "source": "skill-catalog:code-kb-workflow",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -143,7 +143,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:software-design-philosophy",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -151,7 +151,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:test-nex",
-      "recorded_at": "2026-08-20T02:10:31Z",
+      "recorded_at": "2026-08-25T08:23:00Z",
       "recorded_by": "bridge.py preflight"
     }
   ]

@@ -7,7 +7,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:research-nex",
-      "recorded_at": "2026-08-24T14:00:43Z",
+      "recorded_at": "2026-08-25T03:06:36Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -15,15 +15,15 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:search-nex",
-      "recorded_at": "2026-08-24T14:00:43Z",
+      "recorded_at": "2026-08-25T03:06:36Z",
       "recorded_by": "bridge.py preflight"
     },
     {
       "id": "content-research-writer",
       "type": "skill",
-      "scope": "project",
+      "scope": "global",
       "source": "skill-catalog:content-research-writer",
-      "recorded_at": "2026-08-24T14:00:43Z",
+      "recorded_at": "2026-08-25T03:06:36Z",
       "recorded_by": "bridge.py preflight"
     }
   ]
