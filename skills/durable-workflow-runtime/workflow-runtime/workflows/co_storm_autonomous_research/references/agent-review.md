@@ -17,7 +17,7 @@ the right workflow.
 
 ## State Ownership
 
-- `state_mode`: `generated`.
+- `state_mode`: `custom`.
 - When `state_mode` is `custom`, review the existing workflow `state.py` as a
   domain-owned implementation and verify strict persisted-state validation,
   bounded serialization, and fail-closed verifier promotion before sign-off.
@@ -117,6 +117,25 @@ the right workflow.
     - Reject a reorganization that skips a counter value.
     - Reject a reorganization that adds, rewrites, reorders, or deletes any evidence registry row.
 
+### `synthesize_report`
+
+- `report_quote_in_place_locators`: Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.
+  Signals: `report_path`, `evidence_registry`
+  Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
+  Python imports: `re`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
+  Hint pseudocode:
+    - Read the repository-relative report_path from structured_output safely under repo_root.
+    - Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.
+    - Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.
+    - Reject when a cited [n] has no in-window locator, when a locator is empty, or when the report has numeric markers but no locators beside them.
+  Test intent:
+    - Accept a report that writes source-a [1] and source-b [2] beside the markers.
+    - Reject a report that only writes [1] and [2] without the registry locators.
+    - Reject a report whose locators exist only far from the [n] marker.
+
 ### `verify_report`
 
 - `report_citation_integrity`: Every numeric inline citation must resolve to grounded evidence, and the report must deterministically preserve the Moderator's complete-or-partial scope decision and all unresolved validation work before a pass can finalize.
@@ -142,6 +161,22 @@ the right workflow.
     - Reject a partial report that omits its marker or any unresolved validation item.
     - Reject a complete report when coverage_sufficient is false or validation work remains.
     - Reject a repair verdict as a verifier failure so the repair route is taken.
+- `report_quote_in_place_locators`: Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.
+  Signals: `report_path`, `verified_report_path`, `evidence_registry`
+  Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
+  Python imports: `re`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
+  Hint pseudocode:
+    - Read the same repository-relative report identified by persisted report_path and verified_report_path.
+    - Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.
+    - Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.
+    - Reject a pass-quality report that uses number-only citations whose locators are absent from the nearby report text.
+  Test intent:
+    - Accept a report that writes source-a [1] and source-b [2] beside the markers.
+    - Reject a report that only writes [1] and [2] without the registry locators.
+    - Reject a report whose locators exist only far from the [n] marker.
 
 
 ## What The Script Generated

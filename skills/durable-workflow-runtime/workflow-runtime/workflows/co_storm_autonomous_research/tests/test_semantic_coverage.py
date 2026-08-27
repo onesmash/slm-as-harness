@@ -288,6 +288,123 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         self.assertIs(result["passed"], False)
         self.assertIn("requires coverage_sufficient=true", result["message"])
 
+    def test_failed_verify_report_persists_fail_closed_audit_fields(self):
+        from workflows.co_storm_autonomous_research import state as workflow_state
+
+        path = f"{FIXTURE_ROOT}/number_only_report.md"
+        persisted = self._complete_report_state()
+        persisted["report_path"] = path
+        observation = {
+            "status": "succeeded",
+            "summary": "LLM claimed the number-only report passed.",
+            "structured_output": {
+                "quality_verdict": "pass",
+                "quality_findings": ["Minor duplication"],
+                "citation_coverage_summary": "Numeric markers exist.",
+                "report_ready": True,
+                "verified_report_path": path,
+            },
+        }
+        result = verifiers.verify_verify_report(
+            repo_root=str(REPO_ROOT),
+            run_id="semantic-coverage-review",
+            step_id="verify_report",
+            observation=observation,
+            state=persisted,
+        )
+        self.assertIs(result["passed"], False)
+        workflow = workflow_state.make_initial_state(
+            {"task_input": {"goal": "persist failed audit"}, "context": {}, "constraints": {}}
+        )
+        workflow_state.record_observation(
+            workflow,
+            current_step_id="verify_report",
+            observation=observation,
+            verifier_result=result,
+        )
+        self.assertEqual(workflow.quality_verdict, "repair")
+        self.assertIs(workflow.report_ready, False)
+        self.assertIn("Minor duplication", workflow.quality_findings)
+        self.assertTrue(
+            any("in-place source locator" in str(item) for item in workflow.quality_findings)
+        )
+
+    def test_failed_synthesize_report_persists_report_path(self):
+        from workflows.co_storm_autonomous_research import state as workflow_state
+
+        path = f"{FIXTURE_ROOT}/number_only_report.md"
+        observation = {
+            "status": "succeeded",
+            "summary": "Number-only report.",
+            "structured_output": {
+                "outline": "History and mechanism",
+                "report_path": path,
+                "report_summary": "A complete grounded report.",
+                "report_sections": ["History", "Mechanism"],
+                "report_ready_for_verification": True,
+            },
+        }
+        result = verifiers.verify_synthesize_report(
+            repo_root=str(REPO_ROOT),
+            run_id="semantic-coverage-review",
+            step_id="synthesize_report",
+            observation=observation,
+            state={"evidence_registry": list(REGISTRY)},
+        )
+        self.assertIs(result["passed"], False)
+        workflow = workflow_state.make_initial_state(
+            {"task_input": {"goal": "persist failed report path"}, "context": {}, "constraints": {}}
+        )
+        workflow_state.record_observation(
+            workflow,
+            current_step_id="synthesize_report",
+            observation=observation,
+            verifier_result=result,
+        )
+        self.assertEqual(workflow.report_path, path)
+        self.assertEqual(workflow.report_sections, ["History", "Mechanism"])
+        state = self._complete_report_state()
+        state["report_path"] = f"{FIXTURE_ROOT}/number_only_report.md"
+        result = self._verify_report(state)
+        self.assertIs(result["passed"], False)
+        self.assertIn("in-place source locator", result["message"])
+
+    def test_synthesize_report_rejects_number_only_citations(self):
+        result = self._synthesize_report(f"{FIXTURE_ROOT}/number_only_report.md")
+        self.assertIs(result["passed"], False)
+        self.assertIn("in-place source locator", result["message"])
+
+    def test_synthesize_report_rejects_distant_locators(self):
+        result = self._synthesize_report(f"{FIXTURE_ROOT}/distant_locator_report.md")
+        self.assertIs(result["passed"], False)
+        self.assertIn("in-place source locator", result["message"])
+
+    def test_verify_report_rejects_distant_locators(self):
+        state = self._complete_report_state()
+        state["report_path"] = f"{FIXTURE_ROOT}/distant_locator_report.md"
+        result = self._verify_report(state)
+        self.assertIs(result["passed"], False)
+        self.assertIn("in-place source locator", result["message"])
+
+    def _synthesize_report(self, path: str):
+        return verifiers.verify_synthesize_report(
+            repo_root=str(REPO_ROOT),
+            run_id="semantic-coverage-review",
+            step_id="synthesize_report",
+            observation={
+                "status": "succeeded",
+                "summary": "Report synthesis completed.",
+                "structured_output": {
+                    "outline": "History and mechanism",
+                    "report_path": path,
+                    "report_summary": "A complete grounded report.",
+                    "report_sections": ["History", "Mechanism"],
+                    "report_ready_for_verification": True,
+                },
+            },
+            state={"evidence_registry": list(REGISTRY)},
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -10,4 +10,4 @@ No causal evidence.
 
 mechanism — Find two independent causal sources.
 
-Evidence [1] and [2].
+Evidence source-a [1] and source-b [2].

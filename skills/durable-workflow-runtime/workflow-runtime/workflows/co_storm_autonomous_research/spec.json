@@ -1,6 +1,6 @@
 {
   "workflow_id": "co_storm_autonomous_research",
-  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff.",
+  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose claims quote registry source locators in place beside numeric [n] markers, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -34,7 +34,7 @@
     "exhausted_branch_kind": "partial",
     "exhausted_reason": "repair exhausted 3 self-repair attempts; terminate with a partial handoff instead of waiting for user input"
   },
-  "state_mode": "generated",
+  "state_mode": "custom",
   "stages": [
     {
       "step_id": "warm_start_shared_space",
@@ -902,10 +902,10 @@
       "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "synthesize_the_cited_report",
-      "expected_artifact": "structured report artifact with sections, inline citations, and a report summary",
-      "prompt": "/content-research-writer {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{coverage_decision_rationale}}, {{next_round_validation_plan}}, {{report_scope_status}}, and {{conversation_transcript}}; synthesize the autonomous Co-STORM knowledge space into a structured, cited report, preserving evidence links and the Moderator's complete-or-partial scope decision for every substantive section.",
+      "expected_artifact": "structured report artifact with sections, in-place source locators beside numeric [n] citations, and a report summary",
+      "prompt": "/content-research-writer {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{coverage_decision_rationale}}, {{next_round_validation_plan}}, {{report_scope_status}}, and {{conversation_transcript}}; synthesize the autonomous Co-STORM knowledge space into a structured, cited report that quotes each used evidence_registry locator in place beside its [n] marker and preserves the Moderator's complete-or-partial scope decision for every substantive section.",
       "prompt_sections": {
-        "stage_goal": "Turn the current shared knowledge space into a coherent report whose outline follows the map and whose claims remain traceable to the merged evidence registry.",
+        "stage_goal": "Turn the current shared knowledge space into a coherent report whose outline follows the map, whose numeric [n] citations match evidence_registry, and whose cited claims quote each registry source locator in place beside the marker.",
         "context": [
           "Knowledge-map summary: {{knowledge_map_summary}}",
           "Evidence registry: {{evidence_registry}}",
@@ -921,7 +921,8 @@
         ],
         "boundaries": [
           "Do not introduce unsupported facts, uncited substantive claims, or sections absent from the knowledge map without marking them as limitations.",
-          "Use stable numeric inline citations that refer to the evidence registry; do not fabricate URLs or citation entries.",
+          "Keep stable numeric [n] markers that match evidence_registry, and quote each cited entry's source locator in place after the claim (path, URL, or file:line). A centralized Sources appendix does not replace in-sentence locators.",
+          "Do not fabricate locators, URLs, or citation identifiers.",
           "Return the report artifact and its path before handoff.",
           "Do not declare final quality approval in this stage; return the report for an independent quality check.",
           "Include an exact `Report scope: complete` or `Report scope: partial` line. When partial, preserve every unresolved topic_id, open gap, validation metric, and top-level next-round plan item verbatim in a limitations and next-validation section; do not imply complete coverage."
@@ -936,6 +937,7 @@
         "A report artifact exists.",
         "The report has a clear outline with at least two substantive sections.",
         "Inline numeric citations refer to the carried-forward evidence registry.",
+        "Each numeric citation in the report file is accompanied by that registry entry's source locator in nearby report text.",
         "The report faithfully communicates the Moderator's complete or partial scope decision and unresolved validation work.",
         "The report is ready for an independent quality and citation gate."
       ],
@@ -961,7 +963,8 @@
           ],
           "file_patterns": [],
           "usage_notes": [
-            "Primary owner for turning the shared knowledge map into the report artifact."
+            "Primary owner for turning the shared knowledge map into the report artifact.",
+            "research-nex writing-refinement applies: quote locators in place; do not emit number-only [n] citations."
           ]
         }
       ],
@@ -1007,8 +1010,19 @@
       ],
       "repair_conditions": [],
       "transitions": [],
-      "outcome_routes": [],
-      "missing_verifier_route": null,
+      "outcome_routes": [
+        {
+          "outcome": "verifier_failed",
+          "next_node": "repair_report",
+          "branch_kind": "repair",
+          "reason": "Report synthesis failed the in-place locator or report-file gate; use report-specific repair before re-synthesis."
+        }
+      ],
+      "missing_verifier_route": {
+        "next_node": "repair_and_resume",
+        "branch_kind": "repair",
+        "reason": "synthesize_report completed without a verifier result; fail closed and preserve the report for recovery."
+      },
       "verifier_rules": [
         {
           "output_key": "outline",
@@ -1054,7 +1068,34 @@
           ]
         }
       ],
-      "custom_verifier_requirements": []
+      "custom_verifier_requirements": [
+        {
+          "id": "report_quote_in_place_locators",
+          "description": "Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.",
+          "signals": [
+            "report_path",
+            "evidence_registry"
+          ],
+          "python_imports": [
+            "re"
+          ],
+          "implementation_surface": [
+            "verifiers.py",
+            "workflow-specific regression tests"
+          ],
+          "hint_pseudocode": [
+            "Read the repository-relative report_path from structured_output safely under repo_root.",
+            "Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.",
+            "Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.",
+            "Reject when a cited [n] has no in-window locator, when a locator is empty, or when the report has numeric markers but no locators beside them."
+          ],
+          "test_intent": [
+            "Accept a report that writes source-a [1] and source-b [2] beside the markers.",
+            "Reject a report that only writes [1] and [2] without the registry locators.",
+            "Reject a report whose locators exist only far from the [n] marker."
+          ]
+        }
+      ]
     },
     {
       "step_id": "verify_report",
@@ -1065,9 +1106,9 @@
       "recovery_return_node": null,
       "intent": "verify_report_quality_and_citation_integrity",
       "expected_artifact": "independent report quality verdict, citation coverage summary, and repair findings if needed",
-      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{next_round_validation_plan}}, and {{report_scope_status}}; independently verify section coverage, citation referential integrity, unsupported claims, duplication, coherence, and faithful disclosure of the Moderator's complete-or-partial scope decision, then return a structured pass or repair verdict.",
+      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{next_round_validation_plan}}, and {{report_scope_status}}; independently verify section coverage, citation referential integrity, in-place source locators beside each [n], unsupported claims, duplication, coherence, and faithful disclosure of the Moderator's complete-or-partial scope decision, then return a structured pass or repair verdict.",
       "prompt_sections": {
-        "stage_goal": "Apply the final deterministic quality gate to the generated report and prove that its citations and sections are grounded in the shared evidence registry.",
+        "stage_goal": "Apply the final deterministic quality gate and prove that citations resolve to evidence_registry and that each [n] marker quotes its source locator in nearby report text.",
         "context": [
           "Report path: {{report_path}}",
           "Report summary: {{report_summary}}",
@@ -1083,6 +1124,8 @@
         "boundaries": [
           "Do not silently rewrite the report while performing verification; return concrete findings for the repair stage.",
           "Treat unknown citation identifiers, including numbers absent from the merged evidence_registry, missing section coverage, and unsupported substantive claims as failures.",
+          "Treat number-only [n] citations as a citation failure when the matching evidence_registry locator is missing from nearby report text.",
+          "A failed report verifier must still persist fail-closed audit fields (quality_verdict=repair, report_ready=false, findings including the verifier message) so repair_report can see them.",
           "A pass requires a report artifact, traceable citations, and no unresolved critical quality findings.",
           "A partial report may pass only when it contains the exact `Report scope: partial` marker and faithfully lists every unresolved topic id, open gap, validation metric, and next-round plan item; reject any partial report that presents itself as complete.",
           "A complete report may pass only when coverage_sufficient is true, next_round_validation_plan is empty, and the report contains the exact `Report scope: complete` marker.",
@@ -1098,7 +1141,8 @@
         "quality_verdict is pass only when citation and section gates are satisfied.",
         "The audit confirms that complete reports have sufficient semantic coverage and partial reports disclose all unresolved coverage work.",
         "Quality findings and the citation coverage summary are recorded.",
-        "The report is explicitly marked ready for finalization or repair."
+        "The report is explicitly marked ready for finalization or repair.",
+        "quality_verdict is pass only when each [n] marker is accompanied by its registry source locator in nearby report text."
       ],
       "output_schema": {
         "quality_verdict": "string",
@@ -1274,6 +1318,33 @@
             "Reject a repair verdict as a verifier failure so the repair route is taken."
           ],
           "implementation_version": 3
+        },
+        {
+          "id": "report_quote_in_place_locators",
+          "description": "Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.",
+          "signals": [
+            "report_path",
+            "verified_report_path",
+            "evidence_registry"
+          ],
+          "python_imports": [
+            "re"
+          ],
+          "implementation_surface": [
+            "verifiers.py",
+            "workflow-specific regression tests"
+          ],
+          "hint_pseudocode": [
+            "Read the same repository-relative report identified by persisted report_path and verified_report_path.",
+            "Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.",
+            "Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.",
+            "Reject a pass-quality report that uses number-only citations whose locators are absent from the nearby report text."
+          ],
+          "test_intent": [
+            "Accept a report that writes source-a [1] and source-b [2] beside the markers.",
+            "Reject a report that only writes [1] and [2] without the registry locators.",
+            "Reject a report whose locators exist only far from the [n] marker."
+          ]
         }
       ]
     },
@@ -1286,21 +1357,26 @@
       "recovery_return_node": "synthesize_report",
       "intent": "repair_report_quality_or_grounding",
       "expected_artifact": "concrete report repair actions and a repaired-report handoff",
-      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{repair_summary}}, {{repair_requirements}}, {{repair_evidence}}, and {{evidence_registry}}; translate audit findings into concrete repair actions and a handoff for the next synthesize_report pass without rewriting the report body in this stage.",
+      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{repair_summary}}, {{repair_requirements}}, {{repair_evidence}}, {{quality_findings}}, {{citation_coverage_summary}}, {{quality_verdict}}, and {{evidence_registry}}; translate audit findings into concrete repair actions including any missing in-place source locators and a handoff for the next synthesize_report pass without rewriting the report body in this stage.",
       "prompt_sections": {
-        "stage_goal": "Translate report-audit findings into concrete repair actions so the report can be regenerated and rechecked without changing the research scope.",
+        "stage_goal": "Translate report-audit findings into concrete repair actions, naming any missing in-place locators, so the report can be regenerated and rechecked without changing the research scope.",
         "context": [
           "Report path: {{report_path}}",
           "Verifier or recovery context from persisted repair state: {{repair_summary}}",
           "Repair requirements from persisted repair state: {{repair_requirements}}",
           "Repair evidence from persisted repair state: {{repair_evidence}}",
+          "Quality findings from the failed report audit: {{quality_findings}}",
+          "Citation coverage summary from the failed report audit: {{citation_coverage_summary}}",
+          "Quality verdict from the failed report audit: {{quality_verdict}}",
           "Evidence registry: {{evidence_registry}}",
           "Knowledge-map summary: {{knowledge_map_summary}}"
         ],
         "boundaries": [
           "Keep repairs limited to the report artifact and its evidence grounding; do not invent new research outside the shared evidence registry.",
           "Return concrete repair actions and a handoff for the next report pass.",
-          "Name every repair action that the next synthesis pass must apply."
+          "Name every repair action that the next synthesis pass must apply.",
+          "Name any missing in-place source locators so the next synthesize_report pass can restore path/URL/file:line text beside [n] markers.",
+          "Prefer fail-closed quality_verdict/quality_findings and repair_summary over any prior LLM pass verdict when the report verifier failed."
         ],
         "blocked_conditions": [
           "Block when a concrete repair action cannot be derived from the available audit or repair context.",
@@ -1309,6 +1385,7 @@
       },
       "done_when": [
         "The available audit or repair context is translated into concrete repair actions.",
+        "Missing in-place source locators are named when citation findings require them.",
         "The repair handoff is ready for the report synthesis stage.",
         "No unsupported new facts are introduced during repair."
       ],
@@ -1357,7 +1434,10 @@
         "repair_requirements",
         "repair_evidence",
         "evidence_registry",
-        "knowledge_map_summary"
+        "knowledge_map_summary",
+        "quality_findings",
+        "citation_coverage_summary",
+        "quality_verdict"
       ],
       "repair_conditions": [],
       "transitions": [],
@@ -3921,6 +4001,169 @@
           "[1] source-a",
           "[2] source-b",
           "[3] source-c"
+        ]
+      }
+    },
+    {
+      "name": "synthesize_report_rejects_number_only_citations",
+      "type": "verifier",
+      "step_id": "synthesize_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Report drafted with numeric citations only.",
+        "structured_output": {
+          "outline": "History and mechanism",
+          "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md",
+          "report_summary": "A complete grounded report.",
+          "report_sections": [
+            "History",
+            "Mechanism"
+          ],
+          "report_ready_for_verification": true
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      }
+    },
+    {
+      "name": "synthesize_report_accepts_in_place_locators",
+      "type": "verifier",
+      "step_id": "synthesize_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Report drafted with in-place locators.",
+        "structured_output": {
+          "outline": "History and mechanism",
+          "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md",
+          "report_summary": "A complete grounded report.",
+          "report_sections": [
+            "History",
+            "Mechanism"
+          ],
+          "report_ready_for_verification": true
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      }
+    },
+    {
+      "name": "synthesize_report_rejects_distant_locators",
+      "type": "verifier",
+      "step_id": "synthesize_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Locators exist only far from markers.",
+        "structured_output": {
+          "outline": "History and mechanism",
+          "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/distant_locator_report.md",
+          "report_summary": "A complete grounded report.",
+          "report_sections": [
+            "History",
+            "Mechanism"
+          ],
+          "report_ready_for_verification": true
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      }
+    },
+    {
+      "name": "synthesize_report_verifier_failed_enters_report_repair",
+      "type": "transition",
+      "current_step_id": "synthesize_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Number-only citations failed verification.",
+        "structured_output": {
+          "outline": "History and mechanism",
+          "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md",
+          "report_summary": "A complete grounded report.",
+          "report_sections": [
+            "History",
+            "Mechanism"
+          ],
+          "report_ready_for_verification": true
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "message": "report citation [1] is missing in-place source locator 'source-a'",
+        "details": {}
+      },
+      "state": {
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ]
+      },
+      "expected_next_node": "repair_report",
+      "expected_branch_kind": "repair"
+    },
+    {
+      "name": "verify_report_rejects_number_only_citations",
+      "type": "verifier",
+      "step_id": "verify_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Number-only report failed citation audit.",
+        "structured_output": {
+          "quality_verdict": "pass",
+          "quality_findings": [],
+          "citation_coverage_summary": "Numeric markers exist.",
+          "report_ready": true,
+          "verified_report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md"
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md",
+        "report_summary": "A complete grounded report.",
+        "evidence_registry": [
+          "[1] source-a",
+          "[2] source-b",
+          "[3] source-c"
+        ],
+        "report_scope_status": "complete",
+        "coverage_sufficient": true,
+        "next_round_validation_plan": [],
+        "coverage_assessment": [
+          {
+            "topic_id": "history",
+            "status": "covered",
+            "evidence_refs": [
+              "[1]"
+            ],
+            "open_gaps": [],
+            "next_validation_metrics": []
+          },
+          {
+            "topic_id": "mechanism",
+            "status": "covered",
+            "evidence_refs": [
+              "[2]"
+            ],
+            "open_gaps": [],
+            "next_validation_metrics": []
+          }
         ]
       }
     }

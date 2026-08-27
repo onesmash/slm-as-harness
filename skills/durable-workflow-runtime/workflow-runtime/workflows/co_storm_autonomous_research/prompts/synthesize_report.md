@@ -1,4 +1,4 @@
-/content-research-writer {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{coverage_decision_rationale}}, {{next_round_validation_plan}}, {{report_scope_status}}, and {{conversation_transcript}}; synthesize the autonomous Co-STORM knowledge space into a structured, cited report, preserving evidence links and the Moderator's complete-or-partial scope decision for every substantive section.
+/content-research-writer {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{coverage_decision_rationale}}, {{next_round_validation_plan}}, {{report_scope_status}}, and {{conversation_transcript}}; synthesize the autonomous Co-STORM knowledge space into a structured, cited report that quotes each used evidence_registry locator in place beside its [n] marker and preserves the Moderator's complete-or-partial scope decision for every substantive section.
 
 Stage Context:
 
@@ -17,7 +17,8 @@ Stage Context:
 Stage Boundaries:
 
 - Do not introduce unsupported facts, uncited substantive claims, or sections absent from the knowledge map without marking them as limitations.
-- Use stable numeric inline citations that refer to the evidence registry; do not fabricate URLs or citation entries.
+- Keep stable numeric [n] markers that match evidence_registry, and quote each cited entry's source locator in place after the claim (path, URL, or file:line). A centralized Sources appendix does not replace in-sentence locators.
+- Do not fabricate locators, URLs, or citation identifiers.
 - Return the report artifact and its path before handoff.
 - Do not declare final quality approval in this stage; return the report for an independent quality check.
 - Include an exact `Report scope: complete` or `Report scope: partial` line. When partial, preserve every unresolved topic_id, open gap, validation metric, and top-level next-round plan item verbatim in a limitations and next-validation section; do not imply complete coverage.

@@ -5,26 +5,26 @@
     {
       "id": "research-nex",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:research-nex",
-      "recorded_at": "2026-08-25T03:06:36Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-08-06T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "search-nex",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:search-nex",
-      "recorded_at": "2026-08-25T03:06:36Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-08-06T00:00:00Z",
+      "recorded_by": "workflow-creator"
     },
     {
       "id": "content-research-writer",
       "type": "skill",
-      "scope": "global",
+      "scope": "either",
       "source": "skill-catalog:content-research-writer",
-      "recorded_at": "2026-08-25T03:06:36Z",
-      "recorded_by": "bridge.py preflight"
+      "recorded_at": "2026-08-06T00:00:00Z",
+      "recorded_by": "workflow-creator"
     }
   ]
 }

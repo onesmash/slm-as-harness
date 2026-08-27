@@ -30,8 +30,8 @@ MISSING_VERIFIER_ROUTES = {'warm_start_shared_space': {'next_node': 'repair_and_
                                           'verifier result; fail closed before continuing.'},
  'synthesize_report': {'next_node': 'repair_and_resume',
                        'branch_kind': 'repair',
-                       'reason': 'synthesize_report completed without a valid verifier result; '
-                                 'fail closed before continuing.'},
+                       'reason': 'synthesize_report completed without a verifier result; fail '
+                                 'closed and preserve the report for recovery.'},
  'verify_report': {'next_node': 'repair_and_resume',
                    'branch_kind': 'repair',
                    'reason': 'verify_report completed without a verifier result; fail closed and '
@@ -231,6 +231,12 @@ def choose_next_node(
         )
 
     if current_step_id == "synthesize_report":
+        if observation["status"] == "succeeded" and _verifier_result_is_valid(verifier_result) and not _verifier_is_passed(verifier_result):
+            return TransitionDecision(
+                next_node='repair_report',
+                branch_kind='repair',
+                reason='Report synthesis failed the in-place locator or report-file gate; use report-specific repair before re-synthesis.',
+            )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,
             observation=observation,

@@ -317,6 +317,35 @@ def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflow
     )
 
 
+def _promote_failed_report_stage_output(
+    state: CoStormAutonomousResearchWorkflowState,
+    *,
+    current_step_id: str,
+    structured_output: dict,
+    verifier_result: dict | None,
+) -> None:
+    verifier_message = ""
+    if isinstance(verifier_result, dict):
+        verifier_message = _scalar_value(verifier_result.get("message")) or ""
+    if current_step_id == "synthesize_report":
+        state.outline = _scalar_value(structured_output.get("outline"))
+        state.report_path = _scalar_value(structured_output.get("report_path"))
+        state.report_summary = _scalar_value(structured_output.get("report_summary"))
+        state.report_sections = _list_value(structured_output.get("report_sections"))
+        return
+    if current_step_id != "verify_report":
+        return
+    findings = _list_value(structured_output.get("quality_findings"))
+    if verifier_message and verifier_message not in findings:
+        findings = [*findings, verifier_message]
+    summary = _scalar_value(structured_output.get("citation_coverage_summary"))
+    state.quality_verdict = "repair"
+    state.quality_findings = findings
+    state.citation_coverage_summary = summary or verifier_message
+    state.report_ready = False
+    state.verified_report_path = _scalar_value(structured_output.get("verified_report_path"))
+
+
 def record_observation(
     state: CoStormAutonomousResearchWorkflowState,
     *,
@@ -344,6 +373,17 @@ def record_observation(
             isinstance(verifier_result, dict)
             and verifier_result.get("passed") is True
         )
+        if (
+            observation.get("status") == "succeeded"
+            and current_step_id in {"synthesize_report", "verify_report"}
+            and not verifier_passed
+        ):
+            _promote_failed_report_stage_output(
+                state,
+                current_step_id=current_step_id,
+                structured_output=structured_output,
+                verifier_result=verifier_result,
+            )
         if observation.get("status") == "succeeded" and (
             verifier_passed
             or (current_step_id in REPAIR_STAGE_IDS and recovery_output_error is None)

@@ -174,13 +174,17 @@ SYNTHESIZE_REPORT_ROUTE_1 = SkillRoute(
         operations=['evidence-grounded report synthesis', 'section organization', 'inline citation placement'],
         file_patterns=[],
     ),
-    usage_notes=['Primary owner for turning the shared knowledge map into the report artifact.'],
+    usage_notes=['Primary owner for turning the shared knowledge map into the report artifact.',
+ 'research-nex writing-refinement applies: quote locators in place; do not emit number-only [n] '
+ 'citations.'],
 )
 
 SYNTHESIZE_REPORT = StepContract(
     done_when=['A report artifact exists.',
  'The report has a clear outline with at least two substantive sections.',
  'Inline numeric citations refer to the carried-forward evidence registry.',
+ "Each numeric citation in the report file is accompanied by that registry entry's source locator "
+ 'in nearby report text.',
  "The report faithfully communicates the Moderator's complete or partial scope decision and "
  'unresolved validation work.',
  'The report is ready for an independent quality and citation gate.'],
@@ -215,7 +219,9 @@ VERIFY_REPORT = StepContract(
  'The audit confirms that complete reports have sufficient semantic coverage and partial reports '
  'disclose all unresolved coverage work.',
  'Quality findings and the citation coverage summary are recorded.',
- 'The report is explicitly marked ready for finalization or repair.'],
+ 'The report is explicitly marked ready for finalization or repair.',
+ 'quality_verdict is pass only when each [n] marker is accompanied by its registry source locator '
+ 'in nearby report text.'],
     output_schema={'quality_verdict': 'string',
  'quality_findings': 'string[]',
  'citation_coverage_summary': 'string',
@@ -242,6 +248,7 @@ REPAIR_REPORT_ROUTE_1 = SkillRoute(
 
 REPAIR_REPORT = StepContract(
     done_when=['The available audit or repair context is translated into concrete repair actions.',
+ 'Missing in-place source locators are named when citation findings require them.',
  'The repair handoff is ready for the report synthesis stage.',
  'No unsupported new facts are introduced during repair.'],
     output_schema={'report_repair_summary': 'string', 'repair_actions': 'string[]', 'repair_ready': 'boolean'},

@@ -279,6 +279,14 @@ def verify_synthesize_report(
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_synthesize_report(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
 
 def verify_verify_report(
@@ -1154,6 +1162,61 @@ Test intent:
     # of creating it from scratch.
     return None
 
+def _run_custom_verifier_requirements_synthesize_report(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_synthesize_report_report_quote_in_place_locators(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+# custom_verifier_stage_id: synthesize_report
+# custom_verifier_requirement_id: report_quote_in_place_locators
+# template_version: 1
+# spec_fingerprint: bc1b93f9e2a28df0dced1b1b5c704387a65851e05d648ca560c0fb5633bfa0aa
+# implementation_version: none
+def _custom_verifier_requirement_synthesize_report_report_quote_in_place_locators(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
+
+Requirement: Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.
+Signals: report_path, evidence_registry
+Implementation surfaces: verifiers.py, workflow-specific regression tests
+Hint pseudocode:
+- Read the repository-relative report_path from structured_output safely under repo_root.
+- Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.
+- Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.
+- Reject when a cited [n] has no in-window locator, when a locator is empty, or when the report has numeric markers but no locators beside them.
+Test intent:
+- Accept a report that writes source-a [1] and source-b [2] beside the markers.
+- Reject a report that only writes [1] and [2] without the registry locators.
+- Reject a report whose locators exist only far from the [n] marker."""
+    from workflows.co_storm_autonomous_research.citation_locators import (
+        load_utf8_report,
+        missing_in_place_locator,
+    )
+
+    report_text, error = load_utf8_report(repo_root, output.get("report_path"))
+    if error:
+        return error
+    persisted_state = state if isinstance(state, dict) else {}
+    return missing_in_place_locator(report_text, persisted_state.get("evidence_registry"))
+
 def _run_custom_verifier_requirements_verify_report(
     *,
     output: dict,
@@ -1162,6 +1225,13 @@ def _run_custom_verifier_requirements_verify_report(
 ) -> str | None:
     errors: list[str] = []
     message = _custom_verifier_requirement_verify_report_report_citation_integrity(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    message = _custom_verifier_requirement_verify_report_report_quote_in_place_locators(
         output=output,
         state=state,
         repo_root=repo_root,
@@ -1360,6 +1430,62 @@ Test intent:
     # review pass can validate or refine concrete verifier logic instead
     # of creating it from scratch.
     return None
+
+# custom_verifier_stage_id: verify_report
+# custom_verifier_requirement_id: report_quote_in_place_locators
+# template_version: 1
+# spec_fingerprint: 66ff8e86660bcdc84c0d379ff0eb34dd5cca5b2987c522390ac2e60610006bc7
+# implementation_version: none
+def _custom_verifier_requirement_verify_report_report_quote_in_place_locators(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
+
+Requirement: Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.
+Signals: report_path, verified_report_path, evidence_registry
+Implementation surfaces: verifiers.py, workflow-specific regression tests
+Hint pseudocode:
+- Read the same repository-relative report identified by persisted report_path and verified_report_path.
+- Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.
+- Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.
+- Reject a pass-quality report that uses number-only citations whose locators are absent from the nearby report text.
+Test intent:
+- Accept a report that writes source-a [1] and source-b [2] beside the markers.
+- Reject a report that only writes [1] and [2] without the registry locators.
+- Reject a report whose locators exist only far from the [n] marker."""
+    from workflows.co_storm_autonomous_research.citation_locators import (
+        load_utf8_report,
+        missing_in_place_locator,
+        resolve_safe_repo_file,
+    )
+
+    if output.get("quality_verdict") == "repair":
+        return None
+    persisted_state = state if isinstance(state, dict) else {}
+    report_path = persisted_state.get("report_path")
+    verified_report_path = output.get("verified_report_path")
+    if not isinstance(report_path, str) or not report_path.strip():
+        return "persisted report_path is missing"
+    if not isinstance(verified_report_path, str) or not verified_report_path.strip():
+        return "verified_report_path is missing"
+    resolved_report = resolve_safe_repo_file(repo_root, report_path)
+    resolved_verified = resolve_safe_repo_file(repo_root, verified_report_path)
+    if resolved_report is None:
+        return "report_path must point to a readable repository-relative regular report file"
+    if resolved_verified is None:
+        return "verified_report_path must point to a readable repository-relative regular report file"
+    if resolved_report != resolved_verified:
+        return "verified_report_path must identify the same artifact as persisted report_path"
+    report_text, error = load_utf8_report(repo_root, report_path)
+    if error:
+        return error
+    return missing_in_place_locator(report_text, persisted_state.get("evidence_registry"))
 
 def _verify_structured_output_schema(
     *,

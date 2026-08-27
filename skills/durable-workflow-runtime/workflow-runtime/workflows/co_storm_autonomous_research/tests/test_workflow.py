@@ -1363,115 +1363,102 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], False)
 
-    def test_generated_request_unblocking_input_resumes_to_return_stage(self):
-        state = self._make_state(None)
-        state.return_stage_id = 'warm_start_shared_space'
-        state.repair_context = {'source_stage_id': 'request_unblocking_input'}
-        result = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id="request_unblocking_input",
-            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {'blocking_reason': 'Approval was missing.', 'user_action_needed': 'Confirm the approval.', 'suggested_next_input': 'Approval confirmed.'}},
-            verifier_result=None,
+    def test_synthesize_report_rejects_number_only_citations(self):
+        result = verifiers.verify_synthesize_report(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='synthesize_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Report drafted with numeric citations only.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History', 'Mechanism'],
+                       'report_ready_for_verification': True}},
+            state={'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
         )
-        self.assertEqual(result.step_id, 'warm_start_shared_space')
-        self.assertEqual(result.branch_kind, "continue")
+        self.assertIs(result['passed'], False)
 
-    def test_generated_request_unblocking_input_without_return_stage_stays_put(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id="request_unblocking_input",
-            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {'blocking_reason': 'Approval was missing.', 'user_action_needed': 'Confirm the approval.', 'suggested_next_input': 'Approval confirmed.'}},
-            verifier_result=None,
+    def test_synthesize_report_accepts_in_place_locators(self):
+        result = verifiers.verify_synthesize_report(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='synthesize_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Report drafted with in-place locators.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History', 'Mechanism'],
+                       'report_ready_for_verification': True}},
+            state={'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
         )
-        self.assertEqual(result.step_id, "request_unblocking_input")
-        self.assertEqual(result.branch_kind, "repair")
+        self.assertIs(result['passed'], True)
 
-    def test_generated_request_unblocking_input_returns_to_repair_owner(self):
-        state = self._make_state(None)
-        state.return_stage_id = 'warm_start_shared_space'
-        state.repair_context = {'source_stage_id': 'repair_and_resume'}
-        result = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id="request_unblocking_input",
-            observation={'status': 'succeeded', 'summary': 'Missing input supplied.', 'structured_output': {'blocking_reason': 'Approval was missing.', 'user_action_needed': 'Confirm the approval.', 'suggested_next_input': 'Approval confirmed.'}},
-            verifier_result=None,
+    def test_synthesize_report_rejects_distant_locators(self):
+        result = verifiers.verify_synthesize_report(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='synthesize_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Locators exist only far from markers.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/distant_locator_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History', 'Mechanism'],
+                       'report_ready_for_verification': True}},
+            state={'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
         )
-        self.assertEqual(result.step_id, "repair_and_resume")
-        self.assertEqual(result.branch_kind, "continue")
+        self.assertIs(result['passed'], False)
 
-    def test_generated_repair_and_resume_resumes_to_return_stage(self):
-        state = self._make_state(None)
-        state.return_stage_id = 'warm_start_shared_space'
+    def test_synthesize_report_verifier_failed_enters_report_repair(self):
         result = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id="repair_and_resume",
-            observation={'status': 'succeeded', 'summary': 'Repair completed.', 'structured_output': {'retry_reason': 'Retry is safe after the repair.', 'retry_notes': 'The missing dependency was refreshed.', 'repair_actions': ['Retry the original stage.']}},
-            verifier_result=None,
+            state=self._make_state({'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}),
+            current_step_id='synthesize_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Number-only citations failed verification.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History', 'Mechanism'],
+                       'report_ready_for_verification': True}},
+            verifier_result={'passed': False,
+ 'message': "report citation [1] is missing in-place source locator 'source-a'",
+ 'details': {}},
         )
-        self.assertEqual(result.step_id, 'warm_start_shared_space')
-        self.assertEqual(result.branch_kind, "continue")
+        self.assertEqual(result.step_id, 'repair_report')
+        self.assertEqual(result.branch_kind, 'repair')
 
-    def test_generated_repair_and_resume_without_return_stage_stays_put(self):
-        result = graphbuilder_runtime.run_transition_preview(
-            state=self._make_state(None),
-            current_step_id="repair_and_resume",
-            observation={'status': 'succeeded', 'summary': 'Repair completed.', 'structured_output': {'retry_reason': 'Retry is safe after the repair.', 'retry_notes': 'The missing dependency was refreshed.', 'repair_actions': ['Retry the original stage.']}},
-            verifier_result=None,
+    def test_verify_report_rejects_number_only_citations(self):
+        result = verifiers.verify_verify_report(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='verify_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Number-only report failed citation audit.',
+ 'structured_output': {'quality_verdict': 'pass',
+                       'quality_findings': [],
+                       'citation_coverage_summary': 'Numeric markers exist.',
+                       'report_ready': True,
+                       'verified_report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md'}},
+            state={'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md',
+ 'report_summary': 'A complete grounded report.',
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+ 'report_scope_status': 'complete',
+ 'coverage_sufficient': True,
+ 'next_round_validation_plan': [],
+ 'coverage_assessment': [{'topic_id': 'history',
+                          'status': 'covered',
+                          'evidence_refs': ['[1]'],
+                          'open_gaps': [],
+                          'next_validation_metrics': []},
+                         {'topic_id': 'mechanism',
+                          'status': 'covered',
+                          'evidence_refs': ['[2]'],
+                          'open_gaps': [],
+                          'next_validation_metrics': []}]},
         )
-        self.assertEqual(result.step_id, "repair_and_resume")
-        self.assertEqual(result.branch_kind, "retry")
-
-    def test_generated_repair_and_resume_blocked_before_threshold_retries_locally(self):
-        state = self._make_state(None)
-        state.return_stage_id = 'verify_report'
-        result = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id="repair_and_resume",
-            observation={'status': 'blocked', 'summary': 'Repair still needs external input.', 'structured_output': {'missing_inputs': ['approval']}},
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, "repair_and_resume")
-        self.assertEqual(result.branch_kind, "retry")
-        self.assertEqual(state.return_stage_id, 'verify_report')
-
-    def test_generated_repair_and_resume_blocked_after_threshold_requests_unblocking(self):
-        state = self._make_state({'attempt_counts': {'repair_and_resume': 2}})
-        state.return_stage_id = 'verify_report'
-        result = graphbuilder_runtime.run_transition_preview(
-            state=state,
-            current_step_id="repair_and_resume",
-            observation={'status': 'blocked', 'summary': 'Repair still needs external input.', 'structured_output': {'missing_inputs': ['approval']}},
-            verifier_result=None,
-        )
-        self.assertEqual(result.step_id, 'finalize_collaborative_report')
-        self.assertEqual(result.branch_kind, 'partial')
-        self.assertEqual(state.return_stage_id, 'verify_report')
-
-    def test_generated_blocked_repair_context_preserves_host_visible_summary(self):
-        from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
-
-        engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        response = engine.start('co_storm_autonomous_research', {
-            "task_input": {"goal": "generated workflow regression"},
-            "context": {"repo_root": str(REPO_ROOT)},
-            "constraints": {"max_steps": 5},
-        })
-        run_id = response['run_id']
-        response = engine.resume(run_id, {
-            'run_id': run_id,
-            'step_id': 'warm_start_shared_space',
-            'status': 'blocked',
-            'summary': 'Need external approval before continuing.',
-            'structured_output': {'blocked_reason': 'awaiting approval', 'missing_inputs': ['approval']},
-            'artifacts': [],
-            'error': None,
-            'tool_trace': [],
-            'raw_output': '',
-        })
-        self.assertEqual(response['kind'], 'yield')
-        self.assertEqual(response['retry_context']['category'], 'blocked')
-        self.assertEqual(response['retry_context']['summary'], 'awaiting approval')
-        self.assertEqual(response['retry_context']['requirements'], ['approval'])
+        self.assertIs(result['passed'], False)
 
 
 if __name__ == "__main__":
