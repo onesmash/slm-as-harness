@@ -12,4 +12,9 @@ Find two independent causal sources.
 
 mechanism — Find two independent causal sources.
 
-Evidence source-a [1] and source-b [2].
+Evidence [1] and [2].
+
+## Evidence index
+
+- [1] source-a
+- [2] source-b

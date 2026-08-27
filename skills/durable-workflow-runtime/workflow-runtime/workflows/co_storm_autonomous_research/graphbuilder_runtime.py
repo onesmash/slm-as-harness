@@ -96,14 +96,14 @@ NODE_DEFINITIONS = {
         step_id="synthesize_report",
         prompt_asset_path=PROMPTS_DIR / "synthesize_report.md",
         intent="synthesize_the_cited_report",
-        expected_artifact="structured report artifact with sections, in-place source locators beside numeric [n] citations, and a report summary",
+        expected_artifact="structured report artifact with sections, compact numeric [n] citations, one consolidated Evidence index mapping each used citation to its exact source locator, and a report summary",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "verify_report": NodeDefinition(
         step_id="verify_report",
         prompt_asset_path=PROMPTS_DIR / "verify_report.md",
         intent="verify_report_quality_and_citation_integrity",
-        expected_artifact="independent report quality verdict, citation coverage summary, and repair findings if needed",
+        expected_artifact="report quality and citation-integrity verdict under deterministic gate authority, with advisory LLM quality findings, a citation coverage summary, and repair findings if needed",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "repair_report": NodeDefinition(

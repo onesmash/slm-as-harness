@@ -235,7 +235,7 @@ def choose_next_node(
             return TransitionDecision(
                 next_node='repair_report',
                 branch_kind='repair',
-                reason='Report synthesis failed the in-place locator or report-file gate; use report-specific repair before re-synthesis.',
+                reason='Report synthesis failed the compact citation-index or report-file gate; use report-specific repair before re-synthesis.',
             )
         status_decision = _route_common_failure(
             current_step_id=current_step_id,

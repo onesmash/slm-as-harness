@@ -180,7 +180,7 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         self.assertEqual(result.step_id, 'autonomous_roundtable')
         self.assertEqual(result.branch_kind, 'retry')
 
-    def test_reorganization_returns_to_roundtable(self):
+    def test_reorganization_returns_to_expert_results(self):
         result = graphbuilder_runtime.run_transition_preview(
             state=self._make_state(None),
             current_step_id='reorganize_knowledge_space',
@@ -1363,13 +1363,13 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], False)
 
-    def test_synthesize_report_rejects_number_only_citations(self):
+    def test_synthesize_report_rejects_missing_evidence_index(self):
         result = verifiers.verify_synthesize_report(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='synthesize_report',
             observation={'status': 'succeeded',
- 'summary': 'Report drafted with numeric citations only.',
+ 'summary': 'Report drafted with numeric citations but no Evidence index.',
  'structured_output': {'outline': 'History and mechanism',
                        'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md',
                        'report_summary': 'A complete grounded report.',
@@ -1379,13 +1379,13 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], False)
 
-    def test_synthesize_report_accepts_in_place_locators(self):
+    def test_synthesize_report_accepts_compact_evidence_index(self):
         result = verifiers.verify_synthesize_report(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='synthesize_report',
             observation={'status': 'succeeded',
- 'summary': 'Report drafted with in-place locators.',
+ 'summary': 'Report drafted with compact body citations and a final Evidence index.',
  'structured_output': {'outline': 'History and mechanism',
                        'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md',
                        'report_summary': 'A complete grounded report.',
@@ -1395,15 +1395,31 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], True)
 
-    def test_synthesize_report_rejects_distant_locators(self):
+    def test_synthesize_report_rejects_missing_evidence_index_for_distant_locators(self):
         result = verifiers.verify_synthesize_report(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='synthesize_report',
             observation={'status': 'succeeded',
- 'summary': 'Locators exist only far from markers.',
+ 'summary': 'Locators exist outside the required final Evidence index.',
  'structured_output': {'outline': 'History and mechanism',
                        'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/distant_locator_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History', 'Mechanism'],
+                       'report_ready_for_verification': True}},
+            state={'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_synthesize_report_rejects_body_locator(self):
+        result = verifiers.verify_synthesize_report(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='synthesize_report',
+            observation={'status': 'succeeded',
+ 'summary': 'The report repeats a registry locator beside a body citation.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/body_locator_report.md',
                        'report_summary': 'A complete grounded report.',
                        'report_sections': ['History', 'Mechanism'],
                        'report_ready_for_verification': True}},
@@ -1416,26 +1432,24 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
             state=self._make_state({'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']}),
             current_step_id='synthesize_report',
             observation={'status': 'succeeded',
- 'summary': 'Number-only citations failed verification.',
+ 'summary': 'The report is missing its Evidence index.',
  'structured_output': {'outline': 'History and mechanism',
                        'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md',
                        'report_summary': 'A complete grounded report.',
                        'report_sections': ['History', 'Mechanism'],
                        'report_ready_for_verification': True}},
-            verifier_result={'passed': False,
- 'message': "report citation [1] is missing in-place source locator 'source-a'",
- 'details': {}},
+            verifier_result={'passed': False, 'message': 'report is missing a valid Evidence index', 'details': {}},
         )
         self.assertEqual(result.step_id, 'repair_report')
         self.assertEqual(result.branch_kind, 'repair')
 
-    def test_verify_report_rejects_number_only_citations(self):
+    def test_verify_report_rejects_missing_evidence_index(self):
         result = verifiers.verify_verify_report(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='verify_report',
             observation={'status': 'succeeded',
- 'summary': 'Number-only report failed citation audit.',
+ 'summary': 'Report without an Evidence index failed citation audit.',
  'structured_output': {'quality_verdict': 'pass',
                        'quality_findings': [],
                        'citation_coverage_summary': 'Numeric markers exist.',
@@ -1459,6 +1473,66 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
                           'next_validation_metrics': []}]},
         )
         self.assertIs(result['passed'], False)
+
+    def test_verify_report_rejects_body_locator(self):
+        result = verifiers.verify_verify_report(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='verify_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Report citation audit rejected a repeated body locator.',
+ 'structured_output': {'quality_verdict': 'pass',
+                       'quality_findings': [],
+                       'citation_coverage_summary': 'Numeric markers exist.',
+                       'report_ready': True,
+                       'verified_report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/body_locator_report.md'}},
+            state={'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/body_locator_report.md',
+ 'report_summary': 'A complete grounded report.',
+ 'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+ 'report_scope_status': 'complete',
+ 'coverage_sufficient': True,
+ 'next_round_validation_plan': [],
+ 'coverage_assessment': [{'topic_id': 'history',
+                          'status': 'covered',
+                          'evidence_refs': ['[1]'],
+                          'open_gaps': [],
+                          'next_validation_metrics': []},
+                         {'topic_id': 'mechanism',
+                          'status': 'covered',
+                          'evidence_refs': ['[2]'],
+                          'open_gaps': [],
+                          'next_validation_metrics': []}]},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_repair_report_blocked_routes_to_repair_and_resume(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'return_stage_id': 'verify_report'}),
+            current_step_id='repair_report',
+            observation={'status': 'blocked',
+ 'summary': 'Report repair cannot derive concrete actions.',
+ 'structured_output': {'blocked_reason': 'missing report audit context'}},
+            verifier_result={'passed': False, 'message': 'repair_report blocked', 'details': {}},
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'repair')
+
+    def test_max_steps_exceeded_degrades_to_final_handoff(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'constraints': {'max_steps': 2}, 'attempt_counts': {'warm_start_shared_space': 2}}),
+            current_step_id='warm_start_shared_space',
+            observation={'status': 'succeeded',
+ 'summary': 'The runtime step budget was exceeded before a verified handoff.',
+ 'structured_output': {'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'systems_analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}]}},
+            verifier_result={'passed': True, 'message': 'warm-start contract passed', 'details': {}},
+        )
+        self.assertEqual(result.step_id, 'finalize_collaborative_report')
+        self.assertEqual(result.branch_kind, 'complete')
 
 
 if __name__ == "__main__":

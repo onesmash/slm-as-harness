@@ -326,24 +326,36 @@ def _promote_failed_report_stage_output(
 ) -> None:
     verifier_message = ""
     if isinstance(verifier_result, dict):
-        verifier_message = _scalar_value(verifier_result.get("message")) or ""
+        raw_message = verifier_result.get("message")
+        if isinstance(raw_message, str) and raw_message.strip():
+            verifier_message = raw_message.strip()
     if current_step_id == "synthesize_report":
-        state.outline = _scalar_value(structured_output.get("outline"))
-        state.report_path = _scalar_value(structured_output.get("report_path"))
-        state.report_summary = _scalar_value(structured_output.get("report_summary"))
-        state.report_sections = _list_value(structured_output.get("report_sections"))
+        if "outline" in structured_output:
+            state.outline = _scalar_value(structured_output.get("outline"))
+        candidate_path = structured_output.get("report_path")
+        if isinstance(candidate_path, str) and candidate_path.strip():
+            state.report_path = candidate_path.strip()
+        if "report_summary" in structured_output:
+            state.report_summary = _scalar_value(structured_output.get("report_summary"))
+        if "report_sections" in structured_output:
+            state.report_sections = _list_value(structured_output.get("report_sections"))
         return
     if current_step_id != "verify_report":
         return
     findings = _list_value(structured_output.get("quality_findings"))
-    if verifier_message and verifier_message not in findings:
-        findings = [*findings, verifier_message]
+    failure_message = verifier_message or "verify_report did not complete successfully; repair is required"
+    if failure_message not in findings:
+        findings = [*findings, failure_message]
     summary = _scalar_value(structured_output.get("citation_coverage_summary"))
     state.quality_verdict = "repair"
     state.quality_findings = findings
-    state.citation_coverage_summary = summary or verifier_message
+    state.citation_coverage_summary = (
+        summary if isinstance(summary, str) and summary.strip() else failure_message
+    )
     state.report_ready = False
-    state.verified_report_path = _scalar_value(structured_output.get("verified_report_path"))
+    candidate_path = structured_output.get("verified_report_path")
+    if isinstance(candidate_path, str) and candidate_path.strip():
+        state.verified_report_path = candidate_path.strip()
 
 
 def record_observation(
@@ -374,9 +386,12 @@ def record_observation(
             and verifier_result.get("passed") is True
         )
         if (
-            observation.get("status") == "succeeded"
+            observation.get("status") in {"succeeded", "failed", "blocked", "partial"}
             and current_step_id in {"synthesize_report", "verify_report"}
-            and not verifier_passed
+            and (
+                observation.get("status") != "succeeded"
+                or not verifier_passed
+            )
         ):
             _promote_failed_report_stage_output(
                 state,
@@ -527,7 +542,14 @@ def apply_transition(state: CoStormAutonomousResearchWorkflowState, *, current_s
         state.return_stage_id = None
         state.repair_context = {}
         state.repair_blocked_attempts = 0
-    elif current_step_id in DECLARED_RECOVERY_STAGE_IDS and next_step_id != current_step_id:
+    elif (
+        current_step_id in DECLARED_RECOVERY_STAGE_IDS
+        and next_step_id in MAIN_STAGE_IDS
+    ):
+        # Clear repair bookkeeping only when the declared recovery stage returns to a
+        # main stage. Preserve return_stage_id/repair_context when it is routed onward
+        # to a shared repair helper (e.g. repair_report blocked -> repair_and_resume) so
+        # the original stage can still be resumed after the helper succeeds.
         state.return_stage_id = None
         state.repair_context = {}
 

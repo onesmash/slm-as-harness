@@ -171,20 +171,23 @@ REORGANIZE_KNOWLEDGE_SPACE = StepContract(
 SYNTHESIZE_REPORT_ROUTE_1 = SkillRoute(
     skill='content-research-writer',
     use_when=SkillUseWhen(
-        operations=['evidence-grounded report synthesis', 'section organization', 'inline citation placement'],
+        operations=['evidence-grounded report synthesis',
+ 'section organization',
+ 'compact citation and Evidence index formatting'],
         file_patterns=[],
     ),
     usage_notes=['Primary owner for turning the shared knowledge map into the report artifact.',
- 'research-nex writing-refinement applies: quote locators in place; do not emit number-only [n] '
- 'citations.'],
+ 'Use number-only [n] markers in the body and a final Evidence index with exact locator-only rows; '
+ 'do not repeat long locators in prose.'],
 )
 
 SYNTHESIZE_REPORT = StepContract(
     done_when=['A report artifact exists.',
  'The report has a clear outline with at least two substantive sections.',
  'Inline numeric citations refer to the carried-forward evidence registry.',
- "Each numeric citation in the report file is accompanied by that registry entry's source locator "
- 'in nearby report text.',
+ 'The report has exactly one consolidated Evidence index with one exact locator row for every '
+ 'citation id used in the report body.',
+ 'Long source locators are not repeated beside body claims.',
  "The report faithfully communicates the Moderator's complete or partial scope decision and "
  'unresolved validation work.',
  'The report is ready for an independent quality and citation gate.'],
@@ -209,8 +212,8 @@ VERIFY_REPORT_ROUTE_1 = SkillRoute(
         operations=['report quality audit', 'citation coverage audit', 'unsupported-claim and duplication detection'],
         file_patterns=[],
     ),
-    usage_notes=['Primary owner for the report-quality evidence review; deterministic verifier code remains '
- 'authoritative for routing.'],
+    usage_notes=['Primary owner for the report-quality evidence review; the deterministic verifier code remains '
+ 'authoritative for routing, and the LLM verdict is advisory input to the repair loop.'],
 )
 
 VERIFY_REPORT = StepContract(
@@ -220,8 +223,8 @@ VERIFY_REPORT = StepContract(
  'disclose all unresolved coverage work.',
  'Quality findings and the citation coverage summary are recorded.',
  'The report is explicitly marked ready for finalization or repair.',
- 'quality_verdict is pass only when each [n] marker is accompanied by its registry source locator '
- 'in nearby report text.'],
+ 'quality_verdict is pass only when the report body uses compact [n] markers and the final '
+ 'Evidence index satisfies the exact locator mapping.'],
     output_schema={'quality_verdict': 'string',
  'quality_findings': 'string[]',
  'citation_coverage_summary': 'string',
@@ -240,7 +243,7 @@ VERIFY_REPORT = StepContract(
 REPAIR_REPORT_ROUTE_1 = SkillRoute(
     skill='content-research-writer',
     use_when=SkillUseWhen(
-        operations=['citation repair planning', 'section coverage repair', 'grounded report revision'],
+        operations=['citation repair planning', 'section coverage repair', 'grounded report repair planning'],
         file_patterns=[],
     ),
     usage_notes=['Primary owner for report-specific recovery; it prepares the next report pass.'],
@@ -248,7 +251,7 @@ REPAIR_REPORT_ROUTE_1 = SkillRoute(
 
 REPAIR_REPORT = StepContract(
     done_when=['The available audit or repair context is translated into concrete repair actions.',
- 'Missing in-place source locators are named when citation findings require them.',
+ 'Missing or mismatched Evidence index rows are named when citation findings require them.',
  'The repair handoff is ready for the report synthesis stage.',
  'No unsupported new facts are introduced during repair.'],
     output_schema={'report_repair_summary': 'string', 'repair_actions': 'string[]', 'repair_ready': 'boolean'},

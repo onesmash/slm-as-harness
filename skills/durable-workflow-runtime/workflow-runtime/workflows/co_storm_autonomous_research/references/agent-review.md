@@ -119,39 +119,49 @@ the right workflow.
 
 ### `synthesize_report`
 
-- `report_quote_in_place_locators`: Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.
-  Signals: `report_path`, `evidence_registry`
+- `report_uses_compact_evidence_index`: The rendered report body may use compact number-only [n] citations for readability, but it must end with exactly one Evidence index containing one exact source-locator-only row for every citation id used in the body.
+  Signals: `report_path`, `report_sections`, `context`, `evidence_registry`
   Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
-  Python imports: `re`
+  Python imports: `re`, `workflows.co_storm_autonomous_research.citation_locators`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
   same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Read the repository-relative report_path from structured_output safely under repo_root.
-    - Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.
-    - Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.
-    - Reject when a cited [n] has no in-window locator, when a locator is empty, or when the report has numeric markers but no locators beside them.
+    - When context.output_dir is set, require the report artifact to remain under that canonical repository-relative output directory.
+    - Verify that report_sections names at least two substantive rendered Markdown sections and matches the report artifact rather than relying only on the LLM-declared count.
+    - Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
+    - Strip HTML comments and raw HTML blocks, then identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.
+    - Extract bounded ASCII numeric [n] markers from the rendered report body, ignoring inline and fenced or indented Markdown code; reject oversized citation identifiers and unclosed comments or code spans.
+    - Parse Evidence index rows in the exact form `- [n] locator`; allow one surrounding pair of Markdown backticks around the locator, but reject any ` — claim` suffix.
+    - Require every body citation id to have exactly one matching index row whose locator equals the evidence_registry locator, reject duplicate, unknown, missing, empty, or unused index rows, and reject any registry locator repeated in the rendered report body.
+    - Reject when the report has numeric body citations but no valid Evidence index, or when substantive content appears after the Evidence index.
   Test intent:
-    - Accept a report that writes source-a [1] and source-b [2] beside the markers.
-    - Reject a report that only writes [1] and [2] without the registry locators.
-    - Reject a report whose locators exist only far from the [n] marker.
+    - Accept a report whose body uses source [1] and source [2] and whose final Evidence index maps each id to the exact registry locator.
+    - Reject a report that only writes [1] and [2] without an Evidence index.
+    - Reject a report with duplicate, unknown, missing, or mismatched Evidence index rows.
+    - Reject a report with substantive content after the Evidence index.
+    - Reject a report that repeats a registry locator in the body, or hides a citation/index inside Markdown code.
 
 ### `verify_report`
 
 - `report_citation_integrity`: Every numeric inline citation must resolve to grounded evidence, and the report must deterministically preserve the Moderator's complete-or-partial scope decision and all unresolved validation work before a pass can finalize.
-  Signals: `report_path`, `verified_report_path`, `evidence_registry`, `report_ready`, `quality_verdict`, `quality_findings`, `coverage_map`, `coverage_assessment`, `coverage_sufficient`, `next_round_validation_plan`, `report_scope_status`
+  Signals: `report_path`, `verified_report_path`, `report_sections`, `context`, `evidence_registry`, `report_ready`, `quality_verdict`, `quality_findings`, `coverage_map`, `coverage_assessment`, `coverage_sufficient`, `next_round_validation_plan`, `report_scope_status`
   Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
+  Python imports: `workflows.co_storm_autonomous_research.citation_locators`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
   same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Read the repository-relative report path safely under repo_root.
-    - Extract numeric markers such as [1] from the report and parse numeric identifiers from evidence_registry entries.
+    - When context.output_dir is set, require report_path and verified_report_path to remain under that canonical repository-relative output directory.
+    - Verify declared report_sections against at least two substantive rendered Markdown sections when the state carries report_sections.
+    - Extract bounded ASCII numeric markers such as [1] from rendered Markdown and parse bounded numeric identifiers from evidence_registry entries; reject oversized identifiers instead of converting them to integers.
     - Reject unknown markers, missing or empty evidence entries, or a pass verdict with no citation markers.
     - Require verified_report_path to resolve to the same repository-relative regular file as report_path.
     - Require `Report scope: complete` only when state.report_scope_status is complete, coverage_sufficient is true, and next_round_validation_plan is empty.
     - Require `Report scope: partial` when state.report_scope_status is partial and require the report to contain every unresolved topic_id, open_gap, next_validation_metric, and top-level next_round_validation_plan item verbatim.
-    - Reject unresolved critical or blocker findings when quality_verdict is pass, and make a repair verdict fail this verifier so policy enters repair_report.
+    - Ignore citations inside Markdown code and reject unresolved critical or blocker findings when quality_verdict is pass; make a repair verdict fail this verifier so policy enters repair_report.
   Test intent:
     - Accept a report whose [1] and [2] markers exist in the evidence registry.
     - Reject a report containing an unknown [99] marker.
@@ -161,22 +171,29 @@ the right workflow.
     - Reject a partial report that omits its marker or any unresolved validation item.
     - Reject a complete report when coverage_sufficient is false or validation work remains.
     - Reject a repair verdict as a verifier failure so the repair route is taken.
-- `report_quote_in_place_locators`: Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.
-  Signals: `report_path`, `verified_report_path`, `evidence_registry`
+- `report_uses_compact_evidence_index`: The rendered report body may use compact number-only [n] citations for readability, but it must end with exactly one Evidence index containing one exact source-locator-only row for every citation id used in the body.
+  Signals: `report_path`, `verified_report_path`, `report_sections`, `context`, `evidence_registry`
   Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
-  Python imports: `re`
+  Python imports: `re`, `workflows.co_storm_autonomous_research.citation_locators`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
   same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
     - Read the same repository-relative report identified by persisted report_path and verified_report_path.
-    - Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.
-    - Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.
-    - Reject a pass-quality report that uses number-only citations whose locators are absent from the nearby report text.
+    - When context.output_dir is set, require both report paths to remain under that canonical repository-relative output directory.
+    - When report_sections is present, verify it against at least two substantive rendered Markdown sections.
+    - Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
+    - Strip HTML comments, raw HTML blocks, fenced or indented code, and inline code when identifying the rendered report body; reject malformed or unclosed hidden regions.
+    - Identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.
+    - Extract bounded ASCII [n] markers from the rendered body and parse Evidence index rows in the exact form `- [n] locator`; allow one surrounding pair of Markdown backticks around the locator, but reject a claim suffix.
+    - Require every body citation id to have exactly one matching index row whose locator equals the evidence_registry locator, reject duplicate, unknown, missing, empty, or unused index rows, and reject any registry locator repeated in the rendered body.
+    - Reject a pass-quality report with missing or invalid Evidence index content, or with substantive content after the Evidence index.
   Test intent:
-    - Accept a report that writes source-a [1] and source-b [2] beside the markers.
-    - Reject a report that only writes [1] and [2] without the registry locators.
-    - Reject a report whose locators exist only far from the [n] marker.
+    - Accept a report whose body uses source [1] and source [2] and whose final Evidence index maps each id to the exact registry locator.
+    - Reject a report that only writes [1] and [2] without an Evidence index.
+    - Reject a report with duplicate, unknown, missing, or mismatched Evidence index rows.
+    - Reject a report with substantive content after the Evidence index.
+    - Reject a report whose body repeats a registry locator or whose apparent index is hidden in Markdown code.
 
 
 ## What The Script Generated
@@ -306,3 +323,115 @@ source of the issue is an incomplete or ambiguous workflow declaration. Cite
 generated files when they drift from the spec. If edits are needed, update
 `spec.json` first, then regenerate or make matching workflow-file and test edits
 before calling the workflow shipped.
+
+## Review Pass 2026-08-27
+
+- Authorization: received from the user before launching review subagents.
+- Scope: compact body citations, final Evidence index parsing, report structure,
+  report artifact path bounds, expert citation bounds, state promotion, and
+  generator preservation.
+- Implemented safeguards: Markdown fenced/indented/inline-code masking, raw
+  HTML-block rejection, bounded six-digit citation identifiers, repository
+  path byte limits and symlink checks, optional `context.output_dir` artifact
+  containment, and rendered level-two section validation.
+- Canonical citation format: literal `## Evidence index` (numeric prefix and
+  Chinese heading retained only for compatibility); rows are `- [n] locator`,
+  with backticks permitted around the locator only. Registry locators are
+  rejected anywhere in the rendered report body, including unused entries.
+- Verification evidence: 32 semantic tests, 50 generated workflow regression
+  tests, and 136 durable-runtime tests passed; Python compilation and linter
+  checks passed. A forced regeneration after spec changes preserved the
+  completed custom verifier implementations.
+- Remaining assumption: `context.output_dir` is optional for backward
+  compatibility; when omitted, repository-relative regular-file and symlink
+  checks still apply, but the verifier cannot infer a per-run artifact
+  directory from the generic verifier interface.
+
+## Review Pass 2026-08-27 #2
+
+- Authorization: received from the user before launching review subagents.
+- Scope: four parallel subagent angles over `spec.json` and the regenerated
+  surfaces — prompt-contract alignment, custom verifier logic and edge cases,
+  step contracts, and graph/runtime flow (policy, state bookkeeping,
+  flowchart).
+- Findings fixed in this pass:
+  - High: `repair_report` blocked → `repair_and_resume` wiped `return_stage_id`
+    and `repair_context` in `state.apply_transition`, so shared repair could
+    never resume to the originating report stage after a repair-report block
+    (the only escape was the 3-attempt partial handoff). Fixed by clearing
+    declared-recovery bookkeeping only when the recovery returns to a main
+    stage; two-hop regression test added in `tests/test_semantic_coverage.py`.
+  - Medium: spec drift — `missing_verifier_route` was declared null for
+    `warm_start_shared_space`, `autonomous_roundtable`, and
+    `reorganize_knowledge_space` while policy fail-closes all required-verifier
+    stages. Declared the routes explicitly in `spec.json` (spec-first) and
+    regenerated.
+  - Medium: the raw-HTML masker treated HTML void elements (`<hr>`, `<br>`,
+    `<img>`, ...) as unclosed blocks, falsely rejecting legitimate reports.
+    Void elements are now self-contained in `citation_locators.py`.
+  - Medium: the registry-locator body check was a raw substring match,
+    producing false positives when a locator slug appeared inside a longer URL
+    or word. Now uses word-boundary matching with a minimum locator length.
+  - Low: `report_scope_status` had no spec-level `verifier_rules` gate; added a
+    `one_of` rule (in_progress/complete/partial) so the baseline verifier
+    guards it independently of the custom roundtable verifier.
+  - Low: misleading regression-test name `reorganization_returns_to_roundtable`
+    renamed to `reorganization_returns_to_expert_results` (the transition
+    correctly routes to `launch_expert_subagents`).
+  - Low: `verify_report` `expected_artifact` and usage notes no longer claim an
+    "independent" LLM verdict from the same skill that authored the report; the
+    deterministic gate is documented as authoritative and the LLM verdict as
+    advisory input to the repair loop.
+  - Medium: `quality_findings` on a pass verdict rejected any finding that
+    mentions critical/blocker/p0 even when phrased as resolved; the check now
+    follows the spec wording ("reject **unresolved** critical or blocker
+    findings") by allowing findings that also carry a resolved-term
+    (resolved/fixed/addressed/cleared). Unresolved critical mentions still
+    fail the verifier.
+  - Medium: declared test intents that had no regression coverage are now
+    tested — 15 new semantic tests covering unknown-marker verifier runs,
+    uncited pass verdicts, unresolved and resolved critical findings,
+    unresolvable evidence refs, missing expert-result packages, rewritten
+    transcript prefixes, duplicate and out-of-order expert ids, skipped expert
+    rounds, duplicate artifact paths, ungrounded results, unsafe artifact
+    paths, skipped reorganization counters, and reordered registry rows. New
+    fixtures: `unknown_citation_report.md`, `uncited_report.md`,
+    `ungrounded_artifact.md`.
+  - Regression tests added for `repair_report` blocked →
+    `repair_and_resume` and for the `max_steps` degraded terminal (→
+    `finalize_collaborative_report`).
+- Re-generated from `spec.json` with `create_workflow.py --force`; the seven
+  completed custom verifier implementations were preserved, and the custom
+  `state.py` and `citation_locators.py` were carried forward.
+- Verification evidence: 100 workflow regression/semantic tests and 136
+  durable-runtime tests passed; Python compilation passed. Probes confirmed
+  the void-element and token-boundary fixes accept previously false-positive
+  reports and still reject repeated locators.
+- Known/acceptable findings recorded (not changed in this pass):
+  - The roundtable custom verifier forces every `bounded_gap` topic's
+    validation metrics into the plan whenever `coverage_sufficient=false`; the
+    spec wording "the Moderator keeps unresolved" is interpreted
+    conservatively (a bounded_gap topic by definition retains open gaps).
+    Deliberate fail-closed behavior; spec wording may be tightened later
+    without changing the code.
+  - The declared `unmatched_transition` retry paths for `autonomous_roundtable`
+    and `reorganize_knowledge_space` are defensive fallbacks; in production a
+    missing routing flag fails the custom verifier first and routes to
+    `repair_and_resume`.
+  - `request_unblocking_input` is unreachable by this workflow's policy by
+    design ("compatibility fallback only"); its flowchart edges are
+    informational.
+  - `verify_report`'s Evidence-index boundary is thinner than the verifier
+    contract; the deterministic gate enforces the exact format and
+    `repair_report` names missing/mismatched rows. Follow-up: align the
+    boundary wording with synthesize/repair.
+  - The `launch_expert_subagents` action line is slightly procedural; optional
+    tightening in `spec.json` at the next regeneration.
+  - `manifest.json` does not mirror spec `installed` entries; `installed` is a
+    spec-authoring artifact.
+  - The `max_steps` degraded terminal uses `branch_kind` "complete" with
+    degraded metadata; telemetry may prefer a distinct label in a future
+    runtime change.
+  - Bracketed years/ordinals in prose (`[2024]`) are treated as citation
+    markers by design of the compact-citation contract; reports must not use
+    bracket-numbered prose.

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import pathlib
+import workflows.co_storm_autonomous_research.citation_locators
 
 from pathlib import Path
 
@@ -145,7 +146,11 @@ def verify_autonomous_roundtable(
  {'output_key': 'round_decision',
   'operator': 'one_of',
   'value': ['continue', 'reorganize', 'report'],
-  'message': 'round_decision must be continue, reorganize, or report.'}],
+  'message': 'round_decision must be continue, reorganize, or report.'},
+ {'output_key': 'report_scope_status',
+  'operator': 'one_of',
+  'value': ['in_progress', 'complete', 'partial'],
+  'message': 'report_scope_status must be in_progress, complete, or partial.'}],
         verifier_templates=[{'id': 'roundtable_requires_evidence',
   'template': 'min_count_from_constraint',
   'output_key': 'evidence_registry',
@@ -409,11 +414,12 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
     """Require roster-matching expert results and an append-only merged evidence_registry."""
     persisted_state = state if isinstance(state, dict) else {}
     errors: list[str] = []
-    citation_pattern = re.compile(r"\[(\d+)\]")
-    numbered_entry_pattern = re.compile(r"^\s*\[(\d+)\]\s*(.+?)\s*$")
+    citation_pattern = re.compile(r"\[([0-9]+)\]")
+    numbered_entry_pattern = re.compile(r"^[ \t]*\[([0-9]+)\][ \t]*(.+?)[ \t]*$")
     max_registry_entries = 128
     max_unused_per_expert = 3
     max_safe_artifact_bytes = 512 * 1024
+    max_citation_id_digits = 6
 
     if output.get("expert_results_complete") is not True:
         errors.append("expert_results_complete must be true")
@@ -466,6 +472,15 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
             text = text.split(" — ", 1)[0].strip()
         return text.casefold()
 
+    def citation_ids_for_text(text: str, label: str) -> set[int]:
+        citation_ids, parse_error = workflows.co_storm_autonomous_research.citation_locators.extract_citation_ids(
+            text
+        )
+        if parse_error is not None or citation_ids is None:
+            errors.append(f"{label} contains invalid citation markers")
+            return set()
+        return citation_ids
+
     persisted_registry = persisted_state.get("evidence_registry")
     persisted_prefix: list[str] = []
     persisted_ids: set[int] = set()
@@ -482,7 +497,11 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
             if match is None:
                 errors.append(f"persisted evidence_registry[{index}] must contain a citation identifier and claim")
                 continue
-            evidence_id = int(match.group(1))
+            raw_id = match.group(1)
+            if len(raw_id) > max_citation_id_digits:
+                errors.append(f"persisted evidence_registry[{index}] has an oversized citation identifier")
+                continue
+            evidence_id = int(raw_id)
             detail = match.group(2).strip()
             if not detail:
                 errors.append(f"persisted evidence_registry[{index}] must contain a non-empty claim")
@@ -604,7 +623,9 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
     for entry in persisted_prefix:
         match = numbered_entry_pattern.match(entry)
         if match is not None:
-            locator_to_id[locator_key(match.group(2))] = int(match.group(1))
+            raw_id = match.group(1)
+            if len(raw_id) <= max_citation_id_digits:
+                locator_to_id[locator_key(match.group(2))] = int(raw_id)
     for items in ordered_new_evidence:
         for item in items:
             key = locator_key(item)
@@ -635,7 +656,9 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
         for entry in returned_registry:
             match = numbered_entry_pattern.match(entry) if isinstance(entry, str) else None
             if match is not None:
-                merged_ids.add(int(match.group(1)))
+                raw_id = match.group(1)
+                if len(raw_id) <= max_citation_id_digits:
+                    merged_ids.add(int(raw_id))
     elif persisted_ids:
         merged_ids = set(expected_ids_set)
 
@@ -646,11 +669,17 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
             summary = result.get("summary")
             summary_ids: set[int] = set()
             if isinstance(summary, str) and summary.strip():
-                summary_ids = {int(value) for value in citation_pattern.findall(summary)}
+                summary_ids = citation_ids_for_text(
+                    summary,
+                    f"expert_results[{index}].summary",
+                )
             artifact_text = artifact_texts.get(index)
             artifact_ids: set[int] = set()
             if isinstance(artifact_text, str):
-                artifact_ids = {int(value) for value in citation_pattern.findall(artifact_text)}
+                artifact_ids = citation_ids_for_text(
+                    artifact_text,
+                    f"expert_results[{index}].artifact_path",
+                )
             if summary_ids - merged_ids:
                 errors.append(f"expert_results[{index}].summary must cite only merged evidence entries")
             if artifact_ids - merged_ids:
@@ -1169,7 +1198,7 @@ def _run_custom_verifier_requirements_synthesize_report(
     repo_root: str,
 ) -> str | None:
     errors: list[str] = []
-    message = _custom_verifier_requirement_synthesize_report_report_quote_in_place_locators(
+    message = _custom_verifier_requirement_synthesize_report_report_uses_compact_evidence_index(
         output=output,
         state=state,
         repo_root=repo_root,
@@ -1179,11 +1208,11 @@ def _run_custom_verifier_requirements_synthesize_report(
     return "; ".join(errors) if errors else None
 
 # custom_verifier_stage_id: synthesize_report
-# custom_verifier_requirement_id: report_quote_in_place_locators
+# custom_verifier_requirement_id: report_uses_compact_evidence_index
 # template_version: 1
-# spec_fingerprint: bc1b93f9e2a28df0dced1b1b5c704387a65851e05d648ca560c0fb5633bfa0aa
-# implementation_version: none
-def _custom_verifier_requirement_synthesize_report_report_quote_in_place_locators(
+# spec_fingerprint: dfdfa048a8504177622b3d7a3e216c552d19df8c6782014dc34edef89a029ef5
+# implementation_version: 1
+def _custom_verifier_requirement_synthesize_report_report_uses_compact_evidence_index(
     *,
     output: dict,
     state: dict | None,
@@ -1194,28 +1223,54 @@ Self-contained contract: keep this requirement-scoped verifier self-contained wh
 If reuse is needed, import stable helpers from shared modules outside verifiers.py.
 Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
-Requirement: Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.
-Signals: report_path, evidence_registry
+Requirement: The rendered report body may use compact number-only [n] citations for readability, but it must end with exactly one Evidence index containing one exact source-locator-only row for every citation id used in the body.
+Signals: report_path, report_sections, context, evidence_registry
 Implementation surfaces: verifiers.py, workflow-specific regression tests
 Hint pseudocode:
 - Read the repository-relative report_path from structured_output safely under repo_root.
-- Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.
-- Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.
-- Reject when a cited [n] has no in-window locator, when a locator is empty, or when the report has numeric markers but no locators beside them.
+- When context.output_dir is set, require the report artifact to remain under that canonical repository-relative output directory.
+- Verify that report_sections names at least two substantive rendered Markdown sections and matches the report artifact rather than relying only on the LLM-declared count.
+- Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
+- Strip HTML comments and raw HTML blocks, then identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.
+- Extract bounded ASCII numeric [n] markers from the rendered report body, ignoring inline and fenced or indented Markdown code; reject oversized citation identifiers and unclosed comments or code spans.
+- Parse Evidence index rows in the exact form `- [n] locator`; allow one surrounding pair of Markdown backticks around the locator, but reject any ` — claim` suffix.
+- Require every body citation id to have exactly one matching index row whose locator equals the evidence_registry locator, reject duplicate, unknown, missing, empty, or unused index rows, and reject any registry locator repeated in the rendered report body.
+- Reject when the report has numeric body citations but no valid Evidence index, or when substantive content appears after the Evidence index.
 Test intent:
-- Accept a report that writes source-a [1] and source-b [2] beside the markers.
-- Reject a report that only writes [1] and [2] without the registry locators.
-- Reject a report whose locators exist only far from the [n] marker."""
-    from workflows.co_storm_autonomous_research.citation_locators import (
-        load_utf8_report,
-        missing_in_place_locator,
-    )
-
-    report_text, error = load_utf8_report(repo_root, output.get("report_path"))
-    if error:
-        return error
+- Accept a report whose body uses source [1] and source [2] and whose final Evidence index maps each id to the exact registry locator.
+- Reject a report that only writes [1] and [2] without an Evidence index.
+- Reject a report with duplicate, unknown, missing, or mismatched Evidence index rows.
+- Reject a report with substantive content after the Evidence index.
+- Reject a report that repeats a registry locator in the body, or hides a citation/index inside Markdown code."""
     persisted_state = state if isinstance(state, dict) else {}
-    return missing_in_place_locator(report_text, persisted_state.get("evidence_registry"))
+    context = persisted_state.get("context")
+    output_dir = context.get("output_dir") if isinstance(context, dict) else None
+    if not workflows.co_storm_autonomous_research.citation_locators.report_path_is_within_output_dir(
+        repo_root,
+        output.get("report_path"),
+        output_dir,
+    ):
+        return "report_path must remain under the configured context.output_dir"
+    report_text, error = workflows.co_storm_autonomous_research.citation_locators.load_utf8_report(
+        repo_root,
+        output.get("report_path"),
+    )
+    if error is not None:
+        return error
+    if report_text is None:
+        return "report file could not be loaded"
+    section_error = (
+        workflows.co_storm_autonomous_research.citation_locators.missing_substantive_report_sections(
+            report_text,
+            output.get("report_sections"),
+        )
+    )
+    if section_error is not None:
+        return section_error
+    return workflows.co_storm_autonomous_research.citation_locators.missing_evidence_index(
+        report_text,
+        persisted_state.get("evidence_registry"),
+    )
 
 def _run_custom_verifier_requirements_verify_report(
     *,
@@ -1231,7 +1286,7 @@ def _run_custom_verifier_requirements_verify_report(
     )
     if message:
         errors.append(message)
-    message = _custom_verifier_requirement_verify_report_report_quote_in_place_locators(
+    message = _custom_verifier_requirement_verify_report_report_uses_compact_evidence_index(
         output=output,
         state=state,
         repo_root=repo_root,
@@ -1243,8 +1298,8 @@ def _run_custom_verifier_requirements_verify_report(
 # custom_verifier_stage_id: verify_report
 # custom_verifier_requirement_id: report_citation_integrity
 # template_version: 1
-# spec_fingerprint: b344705a34b8601054fe8f7e59367fd248e42be1e3a2fd80d985c2d31e8b5e9d
-# implementation_version: 3
+# spec_fingerprint: b51886277a0c58d744ca85da968abdbe4cebeec336060c8d8c9d209777189ebe
+# implementation_version: 4
 def _custom_verifier_requirement_verify_report_report_citation_integrity(
     *,
     output: dict,
@@ -1257,16 +1312,18 @@ If reuse is needed, import stable helpers from shared modules outside verifiers.
 Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
 Requirement: Every numeric inline citation must resolve to grounded evidence, and the report must deterministically preserve the Moderator's complete-or-partial scope decision and all unresolved validation work before a pass can finalize.
-Signals: report_path, verified_report_path, evidence_registry, report_ready, quality_verdict, quality_findings, coverage_map, coverage_assessment, coverage_sufficient, next_round_validation_plan, report_scope_status
+Signals: report_path, verified_report_path, report_sections, context, evidence_registry, report_ready, quality_verdict, quality_findings, coverage_map, coverage_assessment, coverage_sufficient, next_round_validation_plan, report_scope_status
 Implementation surfaces: verifiers.py, workflow-specific regression tests
 Hint pseudocode:
 - Read the repository-relative report path safely under repo_root.
-- Extract numeric markers such as [1] from the report and parse numeric identifiers from evidence_registry entries.
+- When context.output_dir is set, require report_path and verified_report_path to remain under that canonical repository-relative output directory.
+- Verify declared report_sections against at least two substantive rendered Markdown sections when the state carries report_sections.
+- Extract bounded ASCII numeric markers such as [1] from rendered Markdown and parse bounded numeric identifiers from evidence_registry entries; reject oversized identifiers instead of converting them to integers.
 - Reject unknown markers, missing or empty evidence entries, or a pass verdict with no citation markers.
 - Require verified_report_path to resolve to the same repository-relative regular file as report_path.
 - Require `Report scope: complete` only when state.report_scope_status is complete, coverage_sufficient is true, and next_round_validation_plan is empty.
 - Require `Report scope: partial` when state.report_scope_status is partial and require the report to contain every unresolved topic_id, open_gap, next_validation_metric, and top-level next_round_validation_plan item verbatim.
-- Reject unresolved critical or blocker findings when quality_verdict is pass, and make a repair verdict fail this verifier so policy enters repair_report.
+- Ignore citations inside Markdown code and reject unresolved critical or blocker findings when quality_verdict is pass; make a repair verdict fail this verifier so policy enters repair_report.
 Test intent:
 - Accept a report whose [1] and [2] markers exist in the evidence registry.
 - Reject a report containing an unknown [99] marker.
@@ -1276,167 +1333,181 @@ Test intent:
 - Reject a partial report that omits its marker or any unresolved validation item.
 - Reject a complete report when coverage_sufficient is false or validation work remains.
 - Reject a repair verdict as a verifier failure so the repair route is taken."""
-    import re
-
     persisted_state = state if isinstance(state, dict) else {}
+    if output.get("quality_verdict") == "repair":
+        return "quality_verdict=repair requires report repair before verification"
+
     report_path = persisted_state.get("report_path")
     verified_report_path = output.get("verified_report_path")
-    if not isinstance(report_path, str) or not report_path.strip():
-        return "persisted report_path is missing"
-    if not isinstance(verified_report_path, str) or not verified_report_path.strip():
-        return "verified_report_path is missing"
-
-    resolved_paths = []
-    for label, raw_path in (("report_path", report_path), ("verified_report_path", verified_report_path)):
-        resolved = _safe_repo_file(repo_root, raw_path)
-        if resolved is None:
-            return f"{label} must point to a readable repository-relative regular report file"
-        resolved_paths.append(resolved)
-    if resolved_paths[0] != resolved_paths[1]:
-        return "verified_report_path must identify the same artifact as persisted report_path"
-
-    report_text = _read_safe_repo_text(repo_root, report_path)
-    if report_text is None:
-        return "report file could not be read as UTF-8"
-    visible_report_text = re.sub(r"<!--.*?-->", "", report_text, flags=re.DOTALL)
-    markers = {int(value) for value in re.findall(r"\[(\d+)\]", visible_report_text)}
-    if not markers:
-        return "report must contain at least one numeric inline citation"
-
-    evidence_registry = persisted_state.get("evidence_registry")
-    if not isinstance(evidence_registry, list) or not evidence_registry:
-        return "evidence_registry is missing from persisted state"
-    evidence_ids = set()
-    for entry in evidence_registry:
-        if not isinstance(entry, str):
-            return "evidence_registry entries must be strings"
-        match = re.match(r"^\s*\[(\d+)\]\s*(.+?)\s*$", entry)
-        if match is None or not match.group(2).strip():
-            return "every evidence_registry entry must contain a citation identifier and grounded details"
-        evidence_id = int(match.group(1))
-        if evidence_id in evidence_ids:
-            return "evidence_registry contains duplicate citation identifiers"
-        evidence_ids.add(evidence_id)
-    unknown_markers = sorted(markers - evidence_ids)
-    if unknown_markers:
-        return f"report contains citation identifiers absent from evidence_registry: {unknown_markers}"
-
-    quality_verdict = output.get("quality_verdict")
-    report_ready = output.get("report_ready")
-    if quality_verdict == "repair":
-        if report_ready is not False:
-            return "a repair quality verdict must set report_ready to false"
-        return "quality verifier requested report repair"
-    if quality_verdict != "pass":
-        return None
-    if report_ready is not True:
-        return "a pass quality verdict requires report_ready to be true"
-    findings = output.get("quality_findings") or []
-    if any(
-        isinstance(finding, str)
-        and re.search(r"\b(critical|blocker|p0)\b", finding, re.IGNORECASE)
-        and not re.search(r"\b(resolved|fixed|closed)\b", finding, re.IGNORECASE)
-        for finding in findings
+    context = persisted_state.get("context")
+    output_dir = context.get("output_dir") if isinstance(context, dict) else None
+    if not all(
+        workflows.co_storm_autonomous_research.citation_locators.report_path_is_within_output_dir(
+            repo_root,
+            path,
+            output_dir,
+        )
+        for path in (report_path, verified_report_path)
     ):
-        return "a pass quality verdict cannot contain unresolved critical or blocker findings"
+        return "report_path and verified_report_path must remain under the configured context.output_dir"
+    report_file = workflows.co_storm_autonomous_research.citation_locators.resolve_safe_repo_file(
+        repo_root,
+        report_path,
+    )
+    verified_report_file = workflows.co_storm_autonomous_research.citation_locators.resolve_safe_repo_file(
+        repo_root,
+        verified_report_path,
+    )
+    if report_file is None or verified_report_file is None:
+        return "report_path and verified_report_path must identify readable repository files"
+    if report_file != verified_report_file:
+        return "verified_report_path must resolve to the synthesized report artifact"
+
+    report_text, error = workflows.co_storm_autonomous_research.citation_locators.load_utf8_report(
+        repo_root,
+        report_path,
+    )
+    if error is not None:
+        return error
+    if report_text is None:
+        return "report file could not be loaded"
+    if persisted_state.get("report_sections"):
+        section_error = (
+            workflows.co_storm_autonomous_research.citation_locators.missing_substantive_report_sections(
+                report_text,
+                persisted_state.get("report_sections"),
+            )
+        )
+        if section_error is not None:
+            return section_error
+
+    registry = workflows.co_storm_autonomous_research.citation_locators.parse_registry_locators(
+        persisted_state.get("evidence_registry")
+    )
+    if isinstance(registry, str):
+        return registry
+    citation_ids, error = workflows.co_storm_autonomous_research.citation_locators.extract_citation_ids(
+        report_text
+    )
+    if error is not None:
+        return error
+    if citation_ids is None:
+        return "report citation identifiers could not be parsed"
+    if not citation_ids:
+        return "pass-quality report must contain at least one rendered numeric citation"
+    unknown_ids = sorted(citation_ids - set(registry))
+    if unknown_ids:
+        return f"report contains citation identifiers absent from evidence_registry: {unknown_ids}"
+
+    rendered, error = workflows.co_storm_autonomous_research.citation_locators.rendered_report_text(
+        report_text
+    )
+    if error is not None:
+        return error
+    if rendered is None:
+        return "report could not be rendered"
 
     scope_status = persisted_state.get("report_scope_status")
-    coverage_sufficient = persisted_state.get("coverage_sufficient")
-    validation_plan = persisted_state.get("next_round_validation_plan")
-    coverage_assessment = persisted_state.get("coverage_assessment")
+    scope_marker = f"Report scope: {scope_status}"
     if scope_status not in {"complete", "partial"}:
-        return "passing report requires persisted report_scope_status complete or partial"
-    if not isinstance(coverage_sufficient, bool):
-        return "passing report requires a boolean persisted coverage_sufficient"
-    if not isinstance(validation_plan, list) or any(
-        not isinstance(item, str) or not item.strip() for item in validation_plan
-    ):
-        return "persisted next_round_validation_plan must be a list of meaningful strings"
-    if not isinstance(coverage_assessment, list) or not coverage_assessment:
-        return "passing report requires a non-empty persisted coverage_assessment"
+        return "persisted report_scope_status must be complete or partial"
+    if scope_marker not in rendered:
+        return f"report must contain the exact `{scope_marker}` line"
 
-    report_lines = {line.strip() for line in visible_report_text.splitlines()}
-    if scope_status == "complete":
-        if coverage_sufficient is not True:
-            return "complete report requires coverage_sufficient=true"
-        if validation_plan:
-            return "complete report must not retain next-round validation work"
-        if "Report scope: complete" not in report_lines:
-            return "complete report must contain the exact `Report scope: complete` marker"
-        if "Report scope: partial" in report_lines:
-            return "complete report must not contain a partial scope marker"
-        return None
-
-    if coverage_sufficient is not False:
-        return "partial report requires coverage_sufficient=false"
-    if not validation_plan:
-        return "partial report requires persisted next-round validation work"
-    if "Report scope: partial" not in report_lines:
-        return "partial report must contain the exact `Report scope: partial` marker"
-    if "Report scope: complete" in report_lines:
-        return "partial report must not contain a complete scope marker"
-    report_summary = persisted_state.get("report_summary")
-    if not isinstance(report_summary, str) or "partial" not in report_summary.casefold():
-        return "partial report summary must explicitly identify the report as partial"
-
-    disclosure_items: list[str] = []
-    for index, item in enumerate(coverage_assessment):
-        if not isinstance(item, dict):
-            return f"coverage_assessment[{index}] must be an object"
-        status = item.get("status")
+    raw_assessment = persisted_state.get("coverage_assessment")
+    if not isinstance(raw_assessment, list) or not raw_assessment:
+        return "coverage_assessment must contain at least one structured topic record"
+    assessment = []
+    topic_ids: set[str] = set()
+    for record in raw_assessment:
+        if not isinstance(record, dict):
+            return "coverage_assessment records must be objects"
+        topic_id = record.get("topic_id")
+        status = record.get("status")
+        if not isinstance(topic_id, str) or not topic_id.strip():
+            return "coverage_assessment topic_id must be a non-empty string"
+        if topic_id in topic_ids:
+            return "coverage_assessment contains duplicate topic_id values"
         if status not in {"covered", "bounded_gap", "missing"}:
-            return f"coverage_assessment[{index}].status is invalid"
+            return f"coverage_assessment has an invalid status for topic {topic_id!r}"
+        topic_ids.add(topic_id)
+        assessment.append((topic_id, status, record))
+
+    raw_coverage_map = persisted_state.get("coverage_map")
+    if raw_coverage_map:
+        if not isinstance(raw_coverage_map, list) or any(
+            not isinstance(item, str) or not item.strip()
+            for item in raw_coverage_map
+        ):
+            return "coverage_map must contain non-empty topic identifiers"
+        if set(raw_coverage_map) != topic_ids:
+            return "coverage_assessment topic ids must match coverage_map"
+
+    unresolved = []
+    for topic_id, status, record in assessment:
         if status == "covered":
             continue
-        topic_id = item.get("topic_id")
-        open_gaps = item.get("open_gaps")
-        metrics = item.get("next_validation_metrics")
-        if not isinstance(topic_id, str) or not topic_id.strip():
-            return f"coverage_assessment[{index}].topic_id is invalid"
-        if not isinstance(open_gaps, list) or not isinstance(metrics, list):
-            return f"coverage_assessment[{index}] unresolved details must be lists"
-        disclosure_items.append(topic_id.strip())
-        disclosure_items.extend(open_gaps)
-        disclosure_items.extend(metrics)
-    disclosure_items.extend(validation_plan)
-    for item in disclosure_items:
-        if not isinstance(item, str) or not item.strip():
-            return "partial report disclosure items must be meaningful strings"
-        if item.strip() not in report_lines:
-            return f"partial report omits required coverage disclosure: {item!r}"
-    return None
-    # Implementation notes retained from the generated requirement scaffold.
-    # Intended implementation surfaces: verifiers.py, workflow-specific regression tests.
-    # Verifier scaffolding is provided as context only; implement the
-    # primary logic in the declared non-verifier surfaces as well.
-    # Hint pseudocode:
-    # - Read the repository-relative report path safely under repo_root.
-    # - Extract numeric markers such as [1] from the report and parse numeric identifiers from evidence_registry entries.
-    # - Reject unknown markers, missing or empty evidence entries, or a pass verdict with no citation markers.
-    # - Require verified_report_path to resolve to the same repository-relative regular file as report_path.
-    # - Require `Report scope: complete` only when state.report_scope_status is complete, coverage_sufficient is true, and next_round_validation_plan is empty.
-    # - Require `Report scope: partial` when state.report_scope_status is partial and require the report to contain every unresolved topic_id, open_gap, next_validation_metric, and top-level next_round_validation_plan item verbatim.
-    # - Reject unresolved critical or blocker findings when quality_verdict is pass, and make a repair verdict fail this verifier so policy enters repair_report.
-    # Test intent:
-    # - Accept a report whose [1] and [2] markers exist in the evidence registry.
-    # - Reject a report containing an unknown [99] marker.
-    # - Reject a pass verdict for an uncited report.
-    # - Reject a pass verdict with an unresolved critical finding.
-    # - Accept a partial report that explicitly discloses every unresolved topic, gap, metric, and plan item.
-    # - Reject a partial report that omits its marker or any unresolved validation item.
-    # - Reject a complete report when coverage_sufficient is false or validation work remains.
-    # - Reject a repair verdict as a verifier failure so the repair route is taken.
-    # This scaffold is generated during initial workflow authoring so the
-    # review pass can validate or refine concrete verifier logic instead
-    # of creating it from scratch.
+        open_gaps = record.get("open_gaps")
+        next_metrics = record.get("next_validation_metrics")
+        if (
+            not isinstance(open_gaps, list)
+            or not open_gaps
+            or any(not isinstance(item, str) or not item.strip() for item in open_gaps)
+            or not isinstance(next_metrics, list)
+            or not next_metrics
+            or any(not isinstance(item, str) or not item.strip() for item in next_metrics)
+        ):
+            return f"unresolved coverage topic {topic_id!r} must include gaps and validation metrics"
+        unresolved.append((topic_id, open_gaps, next_metrics))
+
+    if scope_status == "complete":
+        if persisted_state.get("coverage_sufficient") is not True:
+            return "complete report requires coverage_sufficient=true"
+        if persisted_state.get("next_round_validation_plan"):
+            return "complete report cannot retain next-round validation work"
+        if unresolved:
+            return "complete report cannot contain unresolved coverage topics"
+    else:
+        if persisted_state.get("coverage_sufficient") is True:
+            return "partial report cannot claim coverage_sufficient=true"
+        plan = persisted_state.get("next_round_validation_plan")
+        if not isinstance(plan, list) or not plan or any(
+            not isinstance(item, str) or not item.strip() for item in plan
+        ):
+            return "partial report requires a non-empty next-round validation plan"
+        required_disclosures = [topic_id for topic_id, _, _ in unresolved]
+        for _, open_gaps, next_metrics in unresolved:
+            required_disclosures.extend(open_gaps)
+            required_disclosures.extend(next_metrics)
+        required_disclosures.extend(plan)
+        for disclosure in required_disclosures:
+            if disclosure not in rendered:
+                return f"partial report must disclose unresolved item verbatim: {disclosure}"
+
+    unresolved_finding_terms = ("critical", "blocker", "p0")
+    resolved_finding_terms = ("resolved", "fixed", "addressed", "cleared")
+    for finding in output.get("quality_findings") or []:
+        if not isinstance(finding, str) or not finding.strip():
+            return "quality_findings must contain meaningful strings"
+        lowered = finding.lower()
+        mentions_unresolved = any(
+            re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lowered)
+            for term in unresolved_finding_terms
+        )
+        mentions_resolved = any(
+            re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lowered)
+            for term in resolved_finding_terms
+        )
+        if mentions_unresolved and not mentions_resolved:
+            return "pass-quality report cannot retain unresolved critical, blocker, or P0 findings"
     return None
 
 # custom_verifier_stage_id: verify_report
-# custom_verifier_requirement_id: report_quote_in_place_locators
+# custom_verifier_requirement_id: report_uses_compact_evidence_index
 # template_version: 1
-# spec_fingerprint: 66ff8e86660bcdc84c0d379ff0eb34dd5cca5b2987c522390ac2e60610006bc7
-# implementation_version: none
-def _custom_verifier_requirement_verify_report_report_quote_in_place_locators(
+# spec_fingerprint: 2632d06f62e49475c9ff35c337ddcdf611ead1b0295dc93220e864c91c3630b0
+# implementation_version: 1
+def _custom_verifier_requirement_verify_report_report_uses_compact_evidence_index(
     *,
     output: dict,
     state: dict | None,
@@ -1447,45 +1518,74 @@ Self-contained contract: keep this requirement-scoped verifier self-contained wh
 If reuse is needed, import stable helpers from shared modules outside verifiers.py.
 Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
 
-Requirement: Each numeric [n] citation in the report file must appear with that evidence_registry entry's source locator in a nearby window so readers are not left with number-only markers whose locators live only in workflow state.
-Signals: report_path, verified_report_path, evidence_registry
+Requirement: The rendered report body may use compact number-only [n] citations for readability, but it must end with exactly one Evidence index containing one exact source-locator-only row for every citation id used in the body.
+Signals: report_path, verified_report_path, report_sections, context, evidence_registry
 Implementation surfaces: verifiers.py, workflow-specific regression tests
 Hint pseudocode:
 - Read the same repository-relative report identified by persisted report_path and verified_report_path.
-- Parse evidence_registry rows as [n] locator — optional claim; locator is the text after [n] and before an em-dash separator, else the remainder of the row.
-- Strip HTML comments from the report, find each [n] marker, and require that marker's locator substring to appear within 200 characters of that marker.
-- Reject a pass-quality report that uses number-only citations whose locators are absent from the nearby report text.
+- When context.output_dir is set, require both report paths to remain under that canonical repository-relative output directory.
+- When report_sections is present, verify it against at least two substantive rendered Markdown sections.
+- Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
+- Strip HTML comments, raw HTML blocks, fenced or indented code, and inline code when identifying the rendered report body; reject malformed or unclosed hidden regions.
+- Identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.
+- Extract bounded ASCII [n] markers from the rendered body and parse Evidence index rows in the exact form `- [n] locator`; allow one surrounding pair of Markdown backticks around the locator, but reject a claim suffix.
+- Require every body citation id to have exactly one matching index row whose locator equals the evidence_registry locator, reject duplicate, unknown, missing, empty, or unused index rows, and reject any registry locator repeated in the rendered body.
+- Reject a pass-quality report with missing or invalid Evidence index content, or with substantive content after the Evidence index.
 Test intent:
-- Accept a report that writes source-a [1] and source-b [2] beside the markers.
-- Reject a report that only writes [1] and [2] without the registry locators.
-- Reject a report whose locators exist only far from the [n] marker."""
-    from workflows.co_storm_autonomous_research.citation_locators import (
-        load_utf8_report,
-        missing_in_place_locator,
-        resolve_safe_repo_file,
-    )
-
+- Accept a report whose body uses source [1] and source [2] and whose final Evidence index maps each id to the exact registry locator.
+- Reject a report that only writes [1] and [2] without an Evidence index.
+- Reject a report with duplicate, unknown, missing, or mismatched Evidence index rows.
+- Reject a report with substantive content after the Evidence index.
+- Reject a report whose body repeats a registry locator or whose apparent index is hidden in Markdown code."""
     if output.get("quality_verdict") == "repair":
         return None
     persisted_state = state if isinstance(state, dict) else {}
     report_path = persisted_state.get("report_path")
     verified_report_path = output.get("verified_report_path")
-    if not isinstance(report_path, str) or not report_path.strip():
-        return "persisted report_path is missing"
-    if not isinstance(verified_report_path, str) or not verified_report_path.strip():
-        return "verified_report_path is missing"
-    resolved_report = resolve_safe_repo_file(repo_root, report_path)
-    resolved_verified = resolve_safe_repo_file(repo_root, verified_report_path)
-    if resolved_report is None:
-        return "report_path must point to a readable repository-relative regular report file"
-    if resolved_verified is None:
-        return "verified_report_path must point to a readable repository-relative regular report file"
-    if resolved_report != resolved_verified:
-        return "verified_report_path must identify the same artifact as persisted report_path"
-    report_text, error = load_utf8_report(repo_root, report_path)
-    if error:
+    context = persisted_state.get("context")
+    output_dir = context.get("output_dir") if isinstance(context, dict) else None
+    if not all(
+        workflows.co_storm_autonomous_research.citation_locators.report_path_is_within_output_dir(
+            repo_root,
+            path,
+            output_dir,
+        )
+        for path in (report_path, verified_report_path)
+    ):
+        return "report_path and verified_report_path must remain under the configured context.output_dir"
+    report_file = workflows.co_storm_autonomous_research.citation_locators.resolve_safe_repo_file(
+        repo_root,
+        report_path,
+    )
+    verified_report_file = workflows.co_storm_autonomous_research.citation_locators.resolve_safe_repo_file(
+        repo_root,
+        verified_report_path,
+    )
+    if report_file is None or verified_report_file is None:
+        return "report_path and verified_report_path must identify readable repository files"
+    if report_file != verified_report_file:
+        return "verified_report_path must resolve to the synthesized report artifact"
+    report_text, error = workflows.co_storm_autonomous_research.citation_locators.load_utf8_report(
+        repo_root,
+        report_path,
+    )
+    if error is not None:
         return error
-    return missing_in_place_locator(report_text, persisted_state.get("evidence_registry"))
+    if report_text is None:
+        return "report file could not be loaded"
+    if persisted_state.get("report_sections"):
+        section_error = (
+            workflows.co_storm_autonomous_research.citation_locators.missing_substantive_report_sections(
+                report_text,
+                persisted_state.get("report_sections"),
+            )
+        )
+        if section_error is not None:
+            return section_error
+    return workflows.co_storm_autonomous_research.citation_locators.missing_evidence_index(
+        report_text,
+        persisted_state.get("evidence_registry"),
+    )
 
 def _verify_structured_output_schema(
     *,
@@ -1799,6 +1899,7 @@ def _no_unresolved_findings_error(output: dict, template: dict, message: str) ->
 
 
 _MAX_SAFE_REPO_TEXT_BYTES = 512 * 1024
+_MAX_SAFE_REPO_PATH_BYTES = 2048
 
 
 def _safe_repo_path(repo_root: str, raw_path: str) -> Path | None:
@@ -1807,19 +1908,19 @@ def _safe_repo_path(repo_root: str, raw_path: str) -> Path | None:
     try:
         repo = Path(repo_root).expanduser().resolve()
         normalized = raw_path
-        if normalized != normalized.strip() or "\\" in normalized or any(ord(char) < 32 for char in normalized) or normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
+        if normalized != normalized.strip() or len(normalized.encode("utf-8")) > _MAX_SAFE_REPO_PATH_BYTES or "\\" in normalized or any(ord(char) < 32 for char in normalized) or normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
             return None
         parts = normalized.split("/")
         if any(part in ("", ".", "..") for part in parts):
             return None
-        candidate = repo.joinpath(*parts)
-        resolved = candidate.resolve(strict=False)
-        relative = resolved.relative_to(repo)
         current = repo
-        for part in relative.parts:
+        for part in parts:
             current = current / part
             if current.is_symlink():
                 return None
+        candidate = repo.joinpath(*parts)
+        resolved = candidate.resolve(strict=False)
+        resolved.relative_to(repo)
         return resolved
     except (OSError, RuntimeError, ValueError):
         return None
