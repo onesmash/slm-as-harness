@@ -1003,6 +1003,116 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         )
         self.assertIs(result["passed"], True, result["message"])
 
+    def test_verify_report_accepts_bounded_gap_in_complete_sufficient_report(self):
+        """B1 regression: a bounded_gap topic is handled when complete + coverage_sufficient + empty plan."""
+        state = self._complete_report_state()
+        assessment = state.get("coverage_assessment") or []
+        assessment.append({
+            "topic_id": "mechanism-gap",
+            "status": "bounded_gap",
+            "evidence_refs": ["[1]"],
+            "open_gaps": ["Causal evidence still thin."],
+            "next_validation_metrics": ["Find two independent causal sources."],
+        })
+        state["coverage_assessment"] = assessment
+        output = self._report_output(f"{FIXTURE_ROOT}/complete_report.md")
+        result = verifiers.verify_verify_report(
+            repo_root=str(REPO_ROOT),
+            run_id="semantic-coverage-review",
+            step_id="verify_report",
+            observation={
+                "status": "succeeded",
+                "summary": "Moderator judged the bounded gap immaterial with an empty plan.",
+                "structured_output": output,
+            },
+            state=state,
+        )
+        self.assertIs(result["passed"], True, result["message"])
+
+    def test_verify_report_accepts_assessed_topics_beyond_coverage_map(self):
+        """B2 regression: assessed topic ids may be a superset of coverage_map."""
+        state = self._complete_report_state()
+        assessment = state.get("coverage_assessment") or []
+        assessment.append({
+            "topic_id": "extra-topic",
+            "status": "covered",
+            "evidence_refs": ["[1]"],
+            "open_gaps": [],
+            "next_validation_metrics": [],
+        })
+        state["coverage_assessment"] = assessment
+        output = self._report_output(f"{FIXTURE_ROOT}/complete_report.md")
+        result = verifiers.verify_verify_report(
+            repo_root=str(REPO_ROOT),
+            run_id="semantic-coverage-review",
+            step_id="verify_report",
+            observation={
+                "status": "succeeded",
+                "summary": "Assessment covers the map and one extra topic.",
+                "structured_output": output,
+            },
+            state=state,
+        )
+        self.assertIs(result["passed"], True, result["message"])
+
+    def test_verify_report_accepts_negated_critical_finding(self):
+        """M1 regression: negated wording like 'No critical issues were found' is a pass, not an unresolved finding."""
+        output = self._report_output(f"{FIXTURE_ROOT}/complete_report.md")
+        output["quality_findings"] = ["No critical issues were found in the report."]
+        result = verifiers.verify_verify_report(
+            repo_root=str(REPO_ROOT),
+            run_id="semantic-coverage-review",
+            step_id="verify_report",
+            observation={
+                "status": "succeeded",
+                "summary": "No critical issues found.",
+                "structured_output": output,
+            },
+            state=self._complete_report_state(),
+        )
+        self.assertIs(result["passed"], True, result["message"])
+
+    def test_expert_results_accepts_em_dash_inside_claim(self):
+        """M2 regression: claim text may itself contain ' — '; only the first separator matters."""
+        from workflows.co_storm_autonomous_research import verifiers as wf_verifiers
+        state = {
+            "expert_roster": [
+                {"id": "historian", "role": "historian", "brief": "Trace origins."},
+                {"id": "systems_analyst", "role": "systems analyst", "brief": "Trace mechanisms."},
+            ],
+            "round_index": 0,
+            "constraints": {"max_rounds": 3, "max_reorganizations": 1},
+            "evidence_registry": ["[1] source-a", "[2] source-b"],
+        }
+        output = {
+            "expert_round_index": 1,
+            "expert_results": [
+                {
+                    "expert_id": "historian",
+                    "summary": "History complete [1].",
+                    "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/historian.md",
+                    "new_evidence": ["source-b — the main result — was replicated"],
+                },
+                {
+                    "expert_id": "systems_analyst",
+                    "summary": "Mechanism complete [1].",
+                    "artifact_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/systems_analyst.md",
+                    "new_evidence": [],
+                },
+            ],
+            "expert_results_complete": True,
+            "evidence_registry": ["[1] source-a", "[2] source-b"],
+        }
+        result = wf_verifiers.verify_launch_expert_subagents(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id="launch_expert_subagents",
+            observation={"status": "succeeded", "summary": "Experts done.", "structured_output": output},
+            state=state,
+        )
+        self.assertIs(result["passed"], True, result["message"])
+
+
 
 if __name__ == "__main__":
     unittest.main()

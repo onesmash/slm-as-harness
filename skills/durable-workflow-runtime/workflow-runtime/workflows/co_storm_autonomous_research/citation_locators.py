@@ -323,7 +323,13 @@ def missing_substantive_report_sections(
     heading_names = [name for _, _, name in headings]
     declared_names = [_normalize_section_name(section) for section in declared_sections]
     if heading_names != declared_names:
-        return "report_sections must match the report's rendered Markdown section headings"
+        missing_headings = [h for h in heading_names if h not in declared_names]
+        extra_headings = [h for h in declared_names if h not in heading_names]
+        return (
+            "report_sections must match the report's rendered Markdown section headings; "
+            f"rendered headings not declared: {missing_headings}; "
+            f"declared headings not rendered: {extra_headings}"
+        )
 
     for start, end, name in headings:
         next_starts = [heading_start for heading_start, _, _ in all_headings if heading_start > start]

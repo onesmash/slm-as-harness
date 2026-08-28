@@ -31,7 +31,7 @@ MAX_ARTIFACT_JOURNAL_BYTES = 64 * 1024
 MAX_ARTIFACT_PATH_BYTES = 2048
 MAX_WORKFLOW_TEXT_BYTES = 16 * 1024
 MAX_WORKFLOW_LIST_ITEM_BYTES = 8 * 1024
-MAX_WORKFLOW_LIST_BYTES = 64 * 1024
+MAX_WORKFLOW_LIST_BYTES = 256 * 1024
 
 _RECOVERY_OUTPUT_SCHEMAS = {'repair_report': {'report_repair_summary': 'string',
                    'repair_actions': 'string[]',
@@ -177,12 +177,27 @@ def _select_workflow_goal(task_input: dict) -> str | None:
 
 
 def serialize_state(state: CoStormAutonomousResearchWorkflowState) -> dict:
-    payload = _compact_value(asdict(state))
+    raw = asdict(state)
+    payload = _compact_value(raw)
     if not isinstance(payload, dict):
         payload = {}
     payload["artifacts_by_stage"] = _normalize_artifact_journal(
         payload.get("artifacts_by_stage")
     )
+    # Serialization diagnostics: if a top-level field vanished during compaction,
+    # record which one so verifiers and hosts can distinguish a real state loss
+    # from a schema mismatch instead of guessing across repair rounds.
+    dropped = [key for key in raw if key not in payload]
+    if dropped:
+        payload["serialization_diagnostics"] = {
+            "dropped_fields": dropped,
+            "dropped_at": "graph_state_serialize",
+            "hint": (
+                "fields exceeded graph_state compaction budget "
+                f"({MAX_WORKFLOW_LIST_BYTES} bytes); reduce observation payload "
+                "size or raise MAX_WORKFLOW_LIST_BYTES"
+            ),
+        }
     return payload
 
 
@@ -654,8 +669,12 @@ def _compact_value(value: object, *, depth: int = 0):
                 continue
             compact_dict[key] = _compact_value(value[key], depth=depth + 1)
             if _json_size(compact_dict) > MAX_WORKFLOW_LIST_BYTES:
+                # Drop only the oversized field and keep later keys; a hard break
+                # here silently discards every subsequent field (including small
+                # int fields like round_index) once one large field exceeds the
+                # cumulative budget.
                 compact_dict.pop(key, None)
-                break
+                continue
         return compact_dict
     return None
 

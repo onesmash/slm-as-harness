@@ -1,6 +1,6 @@
 {
   "workflow_id": "co_storm_autonomous_research",
-  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff.",
+  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff. NOTE: constraints.coverage_threshold is the minimum NUMBER of distinct assessed topics (not a percentage); set it to the realistic topic count, e.g. 2-10 for a focused study, or the roundtable will demand that many distinct topic ids.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -232,14 +232,16 @@
           "Delegate exactly one independent subagent for every expert in expert_roster; do not substitute one response for multiple experts.",
           "Give every subagent its role-specific brief and the same immutable shared-space snapshot; subagents must not read or coordinate through sibling outputs or assign global citation numbers.",
           "Each expert may retrieve new sources via research-nex/search-nex; return them as unnumbered new_evidence strings of the form source-locator — claim.",
-          "After all subagents finish, merge new_evidence in roster order, skip locators already in the persisted registry, assign contiguous ids starting at max(persisted id)+1, and return the full evidence_registry as persisted prefix plus those numbered entries.",
+          "Merge new_evidence in roster order into evidence_registry with the following deterministic algorithm: start from the persisted registry as the exact prefix; maintain a seen-locator set initialized from every persisted row's locator (the text before the first ' — ' separator, casefolded); for each expert's new_evidence in roster order, skip any item whose locator is already in the seen set (including duplicates introduced by later experts or repeated within one expert), otherwise append `[<next_id>] <item>` verbatim, add the locator to the seen set, and increment next_id starting at max(persisted id)+1. Return the full registry as persisted prefix plus those numbered entries; do not merge, abbreviate, or rewrite any item text.",
           "Return expert_round_index equal to the persisted {{round_index}} plus one, and do not exceed constraints.max_rounds.",
           "Return expert_results as objects with exactly expert_id, summary, artifact_path, and new_evidence fields.",
-          "Summaries and artifacts may cite persisted or newly merged citation numbers; they must not cite unknown numbers or invent registry rows the merge did not produce.",
+          "Every expert summary or artifact must cite at least one persisted or newly merged citation number, and no expert may cite unknown numbers or invent registry rows the merge did not produce. IMPORTANT: reference new_evidence items in the summary with their ASSIGNED numeric ids in the form [n] (e.g. '新证据引用：[25][26][27]'); bare locator strings are NOT recognized as citations. Keep at most 3 new_evidence items per expert unreferenced by the summary or artifact.",
           "Each expert may include at most three unused retrieved items that are not cited in that expert's summary or artifact; the merged registry must contain at most 128 entries.",
           "Keep expert results focused on the assigned perspective; the later Moderator stage makes the round decision.",
           "Do not request user participation, approval, or checkpoints.",
-          "Do not build or persist a hierarchical knowledge graph in this stage."
+          "Do not build or persist a hierarchical knowledge graph in this stage.",
+          "Compress expert payloads so graph_state serialization stays within runtime limits: keep every new_evidence claim (the part after the locator, never the locator itself) to at most 120 characters and never abbreviate or truncate the source locator, keep expert summaries under 800 characters, and keep per-expert artifacts focused on the assigned perspective.",
+          "artifact_path must be a repository-relative path — no leading '/', no '\\\\', no '.' or '..' path segments — identifying a real, non-empty, non-symlink regular file inside the repository; never return absolute paths."
         ],
         "blocked_conditions": [
           "Block when any expert result or artifact is missing.",
@@ -376,7 +378,7 @@
             "Require persisted expert_roster to contain unique records with exactly non-empty id, role, and brief string fields, and use those ids as the exact expected result order.",
             "Require expert_round_index to be a positive integer equal to persisted state.round_index + 1 and no greater than constraints.max_rounds.",
             "Require expert_results to have exactly one object per roster id; each object must contain exactly expert_id, summary, artifact_path, and new_evidence, with unique expert ids and paths.",
-            "Require each new_evidence item to be an unnumbered non-empty string with exactly one ' — ' separator, a non-empty locator, and a non-empty claim; reject entries that contain [n] citation markers.",
+            "Require each new_evidence item to be an unnumbered non-empty string with at least one ' — ' separator (split on the FIRST occurrence; the claim may itself contain ' — '), a non-empty locator, and a non-empty claim; reject entries that contain [n] citation markers.",
             "Treat returned evidence_registry as the exact persisted list (same strings and order) plus newly numbered entries; do not normalize whitespace in the persisted prefix.",
             "Merge new_evidence in roster order, skip locators already present in the persisted prefix or earlier experts, and require new citation ids to start at max(persisted id)+1 with no gaps.",
             "Reject a rewritten persisted prefix, duplicate locators, more than three unused new_evidence items per expert, or a merged registry longer than 128 entries.",
@@ -429,12 +431,14 @@
           "Produce exactly one new research or moderation turn and preserve prior turns in the returned transcript.",
           "Return the structured decision flags and select exactly one of continue, reorganize, or report.",
           "The Moderator is the semantic authority for coverage. Return coverage_assessment records with exactly topic_id, status, evidence_refs, open_gaps, and next_validation_metrics; status must be covered, bounded_gap, or missing.",
-          "Use each trimmed coverage_map topic verbatim as its stable topic_id, keep topic_id stable across rounds, and do not silently drop a warm-start or previously assessed topic. Cite evidence_refs only with identifiers present in evidence_registry.",
+          "Use each persisted coverage_map topic verbatim as its stable topic_id, keep topic_id stable across rounds, and do not silently drop a warm-start or previously assessed topic. WARNING: the persisted coverage_map rows are the required topic_ids — copy them EXACTLY including any '状态：…' suffixes; do not rewrite, trim, or modernize their text even if outdated. Add new topics only as additional rows. Cite evidence_refs only with identifiers present in evidence_registry.",
           "coverage_threshold is only a deterministic lower bound on the number of distinct assessed topics. Meeting it never proves semantic completion by itself.",
-          "Set coverage_sufficient true only when the threshold guardrail is met, no topic is missing, every covered topic has evidence and no gaps or metrics, and every bounded_gap topic records evidence, open gaps, and measurable validation metrics. These are one-way eligibility guards: the Moderator may still judge a bounded gap material and keep coverage_sufficient false.",
-          "When coverage_sufficient is false, return next_round_validation_plan as the exact set of `topic_id — metric` strings derived from every missing or materially unresolved bounded_gap topic. For report with complete scope, coverage_sufficient must be true and that plan must be empty.",
+          "Set coverage_sufficient true only when the threshold guardrail is met, no topic is missing, every covered topic has evidence and no gaps or metrics, and every bounded_gap topic records evidence, open gaps, and measurable validation metrics.",
+          "When coverage_sufficient is false, return next_round_validation_plan as the exact set of `topic_id — metric` strings derived from every missing topic and every bounded_gap topic. For report with complete scope, coverage_sufficient must be true and that plan must be empty.",
           "When max_rounds is reached with unresolved coverage, report is allowed only as report_scope_status=partial with coverage_sufficient=false and an explicit non-empty next_round_validation_plan; never present forced stopping as complete coverage.",
-          "Cite only the already merged {{evidence_registry}}; do not assign new global citation numbers, rewrite persisted rows, or drop merged ids. Send new source retrieval back through another expert-result round."
+          "Cite only the already merged {{evidence_registry}}; do not assign new global citation numbers, rewrite persisted rows, or drop merged ids. Send new source retrieval back through another expert-result round.",
+          "Keep the returned coverage_assessment compact so graph_state serialization stays within runtime limits: cite at most two core evidence ids per topic and keep open_gaps and next_validation_metrics entries under 200 characters each.",
+          "Return round_index equal to the persisted round_index plus one, and do not exceed constraints.max_rounds."
         ],
         "blocked_conditions": [
           "Block when the current knowledge map, expert roster, or evidence registry cannot be carried forward.",
@@ -758,7 +762,8 @@
           "Preserve every merged citation identifier; mark duplicates in the knowledge-map summary instead of deleting, renumbering, or rewriting evidence_registry rows. New numbered evidence comes only from expert-result merge.",
           "Do not generate the final report in this stage.",
           "Return the reorganized evidence and completion decision without selecting a subsequent research activity.",
-          "Keep the knowledge map aligned with actual evidence and observed coverage gaps."
+          "Keep the knowledge map aligned with actual evidence and observed coverage gaps.",
+          "Return reorganization_count equal to the persisted reorganization_count plus one, and never exceed constraints.max_reorganizations."
         ],
         "blocked_conditions": [
           "Block when the knowledge map cannot be reconstructed from the carried-forward evidence and transcript.",
@@ -950,7 +955,11 @@
           "Do not fabricate locators, URLs, or citation identifiers.",
           "Return the report artifact and its path before handoff.",
           "Do not declare final quality approval in this stage; return the report for an independent quality check.",
-          "Include an exact `Report scope: complete` or `Report scope: partial` line. When partial, preserve every unresolved topic_id, open gap, validation metric, and top-level next-round plan item verbatim in a limitations and next-validation section; do not imply complete coverage."
+          "Include an exact `Report scope: complete` or `Report scope: partial` line. When partial, preserve every unresolved topic_id, open gap, validation metric, and top-level next-round plan item verbatim in a limitations and next-validation section; do not imply complete coverage.",
+          "context.output_dir is a repository-relative path (never absolute, never starting with '/'). report_path must be repository-relative and must resolve inside context.output_dir; write the report artifact under that directory and return its repo-relative path.",
+          "report_sections must equal the report's rendered Markdown ## headings, normalized: strip a leading numeric prefix like '1. ', strip any trailing parenthesized note, and keep punctuation exactly (顿号 included). Compare ONLY the headings that appear in the report body BEFORE the final '## Evidence index' heading — never include 'Evidence index' itself in report_sections.",
+          "The report must contain exactly one literal line, either `Report scope: complete` or `Report scope: partial` matching report_scope_status, somewhere before the Evidence index.",
+          "Never repeat any evidence_registry locator text in the report body — not even inside a narrative sentence such as mentioning a filename that happens to equal a locator (e.g. 'Cargo.toml'); the body may only use compact [n] markers. The Evidence index is the only place locators appear."
         ],
         "blocked_conditions": [
           "Block when the knowledge map or evidence registry is empty or internally inconsistent.",
@@ -1347,12 +1356,12 @@
           "hint_pseudocode": [
             "Read the repository-relative report path safely under repo_root.",
             "When context.output_dir is set, require report_path and verified_report_path to remain under that canonical repository-relative output directory.",
-            "Verify declared report_sections against at least two substantive rendered Markdown sections when the state carries report_sections.",
+            "Require every coverage_map topic to appear among assessed topic ids; the assessment may include extra topics beyond the coverage_map (subset check, not equality).",
             "Extract bounded ASCII numeric markers such as [1] from rendered Markdown and parse bounded numeric identifiers from evidence_registry entries; reject oversized identifiers instead of converting them to integers.",
             "Reject unknown markers, missing or empty evidence entries, or a pass verdict with no citation markers.",
             "Require verified_report_path to resolve to the same repository-relative regular file as report_path.",
             "Require `Report scope: complete` only when state.report_scope_status is complete, coverage_sufficient is true, and next_round_validation_plan is empty.",
-            "Require `Report scope: partial` when state.report_scope_status is partial and require the report to contain every unresolved topic_id, open_gap, next_validation_metric, and top-level next_round_validation_plan item verbatim.",
+            "Treat only missing topics as unresolved when the report scope is complete and coverage_sufficient is true: a bounded_gap topic is considered handled in that state (matching the Moderator's immaterial-gap allowance with an empty next-round plan), so it must not block a complete report. For a partial report, every missing and bounded_gap topic remains unresolved and must be disclosed verbatim.",
             "Ignore citations inside Markdown code and reject unresolved critical or blocker findings when quality_verdict is pass; make a repair verdict fail this verifier so policy enters repair_report."
           ],
           "test_intent": [
@@ -1607,7 +1616,8 @@
         ],
         "boundaries": [
           "Keep the repair scoped to the failed activity and the persisted repair requirements.",
-          "Return a concrete retry plan rather than a generic retry."
+          "Return a concrete retry plan rather than a generic retry.",
+          "The returned Observation.step_id MUST equal the current repair node step_id (the stage that yielded this repair request); submitting an observation for the original stage before this repair node is accepted causes a protocol_error."
         ],
         "blocked_conditions": [
           "Return blocked when repair still cannot proceed."
@@ -4362,6 +4372,242 @@
       },
       "expected_next_node": "finalize_collaborative_report",
       "expected_branch_kind": "complete"
+    },
+    {
+      "name": "roundtable_diagnostics_hint_on_truncated_expert_results",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Round with truncated persisted expert package.",
+        "structured_output": {
+          "last_turn_summary": "turn",
+          "conversation_transcript": [
+            "turn1",
+            "turn2"
+          ],
+          "evidence_registry": [
+            "[1] loc — claim one",
+            "[2] loc — claim two",
+            "[3] loc — claim three"
+          ],
+          "coverage_map": [
+            "软件栈与控制架构",
+            "致动器选型"
+          ],
+          "coverage_assessment": [
+            {
+              "topic_id": "软件栈与控制架构",
+              "status": "covered",
+              "evidence_refs": [
+                "[1]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            },
+            {
+              "topic_id": "致动器选型",
+              "status": "covered",
+              "evidence_refs": [
+                "[2]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            }
+          ],
+          "coverage_decision_rationale": "coverage ok",
+          "next_round_validation_plan": [],
+          "report_scope_status": "complete",
+          "knowledge_map_summary": "map",
+          "expert_roster": [
+            {
+              "id": "e1",
+              "role": "r",
+              "brief": "b"
+            }
+          ],
+          "round_index": 2,
+          "round_decision": "report",
+          "continue_roundtable": false,
+          "should_reorganize": false,
+          "coverage_sufficient": true,
+          "ready_for_report": true
+        }
+      },
+      "expected_passed": false,
+      "state": {
+        "round_index": 1,
+        "constraints": {
+          "max_rounds": 4,
+          "coverage_threshold": 2,
+          "min_evidence_items": 3
+        },
+        "expert_results_complete": true,
+        "expert_roster": [
+          {
+            "id": "e1",
+            "role": "r",
+            "brief": "b"
+          }
+        ],
+        "conversation_transcript": [
+          "turn1"
+        ],
+        "evidence_registry": [
+          "[1] loc — claim one",
+          "[2] loc — claim two",
+          "[3] loc — claim three"
+        ],
+        "coverage_map": [
+          "软件栈与控制架构",
+          "致动器选型"
+        ],
+        "coverage_assessment": [
+          {
+            "topic_id": "软件栈与控制架构",
+            "status": "covered",
+            "evidence_refs": [
+              "[1]"
+            ],
+            "open_gaps": [],
+            "next_validation_metrics": []
+          },
+          {
+            "topic_id": "致动器选型",
+            "status": "covered",
+            "evidence_refs": [
+              "[2]"
+            ],
+            "open_gaps": [],
+            "next_validation_metrics": []
+          }
+        ],
+        "serialization_diagnostics": {
+          "dropped_fields": [
+            "expert_results"
+          ],
+          "dropped_at": "graph_state_serialize"
+        }
+      }
+    },
+    {
+      "name": "roundtable_accepts_completed_expert_package",
+      "type": "verifier",
+      "step_id": "autonomous_roundtable",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Round with a complete persisted expert package.",
+        "structured_output": {
+          "last_turn_summary": "turn",
+          "conversation_transcript": [
+            "turn1",
+            "turn2"
+          ],
+          "evidence_registry": [
+            "[1] loc — claim one",
+            "[2] loc — claim two",
+            "[3] loc — claim three"
+          ],
+          "coverage_map": [
+            "软件栈与控制架构",
+            "致动器选型"
+          ],
+          "coverage_assessment": [
+            {
+              "topic_id": "软件栈与控制架构",
+              "status": "covered",
+              "evidence_refs": [
+                "[1]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            },
+            {
+              "topic_id": "致动器选型",
+              "status": "covered",
+              "evidence_refs": [
+                "[2]"
+              ],
+              "open_gaps": [],
+              "next_validation_metrics": []
+            }
+          ],
+          "coverage_decision_rationale": "coverage ok",
+          "next_round_validation_plan": [],
+          "report_scope_status": "complete",
+          "knowledge_map_summary": "map",
+          "expert_roster": [
+            {
+              "id": "e1",
+              "role": "r",
+              "brief": "b"
+            }
+          ],
+          "round_index": 2,
+          "round_decision": "report",
+          "continue_roundtable": false,
+          "should_reorganize": false,
+          "coverage_sufficient": true,
+          "ready_for_report": true
+        }
+      },
+      "expected_passed": true,
+      "state": {
+        "round_index": 1,
+        "constraints": {
+          "max_rounds": 4,
+          "coverage_threshold": 2,
+          "min_evidence_items": 3
+        },
+        "expert_results_complete": true,
+        "expert_results": [
+          {
+            "expert_id": "e1",
+            "summary": "ok",
+            "artifact_path": "a",
+            "new_evidence": []
+          }
+        ],
+        "expert_roster": [
+          {
+            "id": "e1",
+            "role": "r",
+            "brief": "b"
+          }
+        ],
+        "conversation_transcript": [
+          "turn1"
+        ],
+        "evidence_registry": [
+          "[1] loc — claim one",
+          "[2] loc — claim two",
+          "[3] loc — claim three"
+        ],
+        "coverage_map": [
+          "软件栈与控制架构",
+          "致动器选型"
+        ],
+        "coverage_assessment": [
+          {
+            "topic_id": "软件栈与控制架构",
+            "status": "covered",
+            "evidence_refs": [
+              "[1]"
+            ],
+            "open_gaps": [],
+            "next_validation_metrics": []
+          },
+          {
+            "topic_id": "致动器选型",
+            "status": "covered",
+            "evidence_refs": [
+              "[2]"
+            ],
+            "open_gaps": [],
+            "next_validation_metrics": []
+          }
+        ]
+      }
     }
   ]
 }

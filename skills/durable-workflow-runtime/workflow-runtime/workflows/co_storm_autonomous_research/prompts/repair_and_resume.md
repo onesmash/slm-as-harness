@@ -13,6 +13,7 @@ Stage Boundaries:
 
 - Keep the repair scoped to the failed activity and the persisted repair requirements.
 - Return a concrete retry plan rather than a generic retry.
+- The returned Observation.step_id MUST equal the current repair node step_id (the stage that yielded this repair request); submitting an observation for the original stage before this repair node is accepted causes a protocol_error.
 
 Blocked Conditions:
 

@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "workflow_id": "co_storm_autonomous_research",
-  "description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff.",
+  "description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff. NOTE: constraints.coverage_threshold is the minimum NUMBER of distinct assessed topics (not a percentage); set it to the realistic topic count, e.g. 2-10 for a focused study, or the roundtable will demand that many distinct topic ids.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",

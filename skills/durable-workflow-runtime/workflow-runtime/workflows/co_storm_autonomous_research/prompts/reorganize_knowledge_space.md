@@ -15,6 +15,7 @@ Stage Boundaries:
 - Do not generate the final report in this stage.
 - Return the reorganized evidence and completion decision without selecting a subsequent research activity.
 - Keep the knowledge map aligned with actual evidence and observed coverage gaps.
+- Return reorganization_count equal to the persisted reorganization_count plus one, and never exceed constraints.max_reorganizations.
 
 Blocked Conditions:
 

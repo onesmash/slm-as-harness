@@ -25,6 +25,10 @@ Stage Boundaries:
 - Return the report artifact and its path before handoff.
 - Do not declare final quality approval in this stage; return the report for an independent quality check.
 - Include an exact `Report scope: complete` or `Report scope: partial` line. When partial, preserve every unresolved topic_id, open gap, validation metric, and top-level next-round plan item verbatim in a limitations and next-validation section; do not imply complete coverage.
+- context.output_dir is a repository-relative path (never absolute, never starting with '/'). report_path must be repository-relative and must resolve inside context.output_dir; write the report artifact under that directory and return its repo-relative path.
+- report_sections must equal the report's rendered Markdown ## headings, normalized: strip a leading numeric prefix like '1. ', strip any trailing parenthesized note, and keep punctuation exactly (顿号 included). Compare ONLY the headings that appear in the report body BEFORE the final '## Evidence index' heading — never include 'Evidence index' itself in report_sections.
+- The report must contain exactly one literal line, either `Report scope: complete` or `Report scope: partial` matching report_scope_status, somewhere before the Evidence index.
+- Never repeat any evidence_registry locator text in the report body — not even inside a narrative sentence such as mentioning a filename that happens to equal a locator (e.g. 'Cargo.toml'); the body may only use compact [n] markers. The Evidence index is the only place locators appear.
 
 Blocked Conditions:
 

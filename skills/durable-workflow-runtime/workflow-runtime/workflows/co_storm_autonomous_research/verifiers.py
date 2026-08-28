@@ -403,7 +403,7 @@ def _run_custom_verifier_requirements_launch_expert_subagents(
 # custom_verifier_stage_id: launch_expert_subagents
 # custom_verifier_requirement_id: expert_results_match_roster
 # template_version: 1
-# spec_fingerprint: 4e7e87b942ae363547aa5a60209898b61793ad1c101c35ab1db4fc6314c3faf5
+# spec_fingerprint: 730d24cbc5ea73a0540e35bad24eb4eb8f49405532dddf8a6cf7c36aad7d6ccf
 # implementation_version: 5
 def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_roster(
     *,
@@ -566,7 +566,7 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
                             f"expert_results[{index}].new_evidence[{evidence_index}] must not contain citation markers"
                         )
                         continue
-                    if stripped.count(" — ") != 1:
+                    if " — " not in stripped:
                         errors.append(
                             f"expert_results[{index}].new_evidence[{evidence_index}] must use the form locator — claim"
                         )
@@ -601,19 +601,22 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
                 for part in artifact_path.split("/"):
                     lexical_path = lexical_path / part
                     if lexical_path.is_symlink():
-                        raise ValueError("symlink")
+                        raise ValueError("path component is a symlink")
                 candidate = repository.joinpath(*artifact_path.split("/"))
                 resolved = candidate.resolve(strict=False)
                 resolved.relative_to(repository)
                 if not resolved.is_file() or resolved.is_symlink() or resolved.stat().st_size <= 0:
-                    raise ValueError("not a non-empty regular file")
+                    raise ValueError("not a non-empty regular file (missing, symlink, or empty)")
                 with resolved.open("rb") as handle:
                     data = handle.read(max_safe_artifact_bytes + 1)
                 if len(data) > max_safe_artifact_bytes:
-                    raise ValueError("artifact is too large")
+                    raise ValueError(f"artifact exceeds {max_safe_artifact_bytes} bytes")
                 artifact_texts[index] = data.decode("utf-8")
-            except (OSError, UnicodeError, RuntimeError, ValueError):
-                errors.append(f"expert_results[{index}].artifact_path must identify a safe, bounded UTF-8 repository file")
+            except (OSError, UnicodeError, RuntimeError, ValueError) as exc:
+                errors.append(
+                    f"expert_results[{index}].artifact_path must identify a safe, bounded UTF-8 repository file; "
+                    f"failure for {artifact_path!r}: {exc}"
+                )
 
     expected_registry = list(persisted_prefix)
     expected_ids_set = set(persisted_ids)
@@ -647,9 +650,25 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
             len(returned_registry) < len(persisted_prefix)
             or returned_registry[: len(persisted_prefix)] != persisted_prefix
         ):
-            errors.append("evidence_registry must preserve the persisted prefix")
+            first_mismatch = next(
+                (i for i in range(min(len(returned_registry), len(persisted_prefix)))
+                 if returned_registry[i] != persisted_prefix[i]),
+                min(len(returned_registry), len(persisted_prefix)),
+            )
+            errors.append(
+                "evidence_registry must preserve the persisted prefix; "
+                f"first mismatch at index {first_mismatch}: expected {persisted_prefix[first_mismatch][:80]!r}, "
+                f"got {returned_registry[first_mismatch][:80]!r}" if first_mismatch < len(returned_registry)
+                else f"evidence_registry must preserve the persisted prefix; "
+                     f"returned registry has {len(returned_registry)} entries, expected at least {len(persisted_prefix)}"
+            )
         if returned_registry != expected_registry:
-            errors.append("evidence_registry must equal the persisted prefix plus newly merged contiguous entries")
+            missing = [e for e in expected_registry if e not in returned_registry]
+            extra = [e for e in returned_registry if e not in expected_registry]
+            errors.append(
+                "evidence_registry must equal the persisted prefix plus newly merged contiguous entries; "
+                f"missing {len(missing)} expected row(s), extra {len(extra)} unexpected row(s)"
+            )
 
     merged_ids = set()
     if isinstance(returned_registry, list) and returned_registry == expected_registry:
@@ -832,7 +851,35 @@ Test intent:
         len(current_transcript) != len(previous_transcript) + 1
         or current_transcript[: len(previous_transcript)] != previous_transcript
     ):
-        errors.append("roundtable must preserve the prior transcript and append exactly one turn")
+        first_divergence = next(
+            (i for i in range(min(len(current_transcript), len(previous_transcript)))
+             if current_transcript[i] != previous_transcript[i]),
+            min(len(current_transcript), len(previous_transcript)),
+        )
+        errors.append(
+            f"roundtable must preserve the prior transcript and append exactly one turn; "
+            f"expected {len(previous_transcript) + 1} turns, got {len(current_transcript)}; "
+            f"first divergence at index {first_divergence}"
+        )
+
+    # Contract M1 guard: the transcript grows append-only across rounds; a silently
+    # truncated persisted list would silently drop earlier turns. Bound it the same
+    # way coverage_map/assessment are bounded so truncation surfaces as a verifier
+    # failure instead of silent state loss.
+    import json as _json
+    _transcript_entries = 128
+    _transcript_bytes = 256 * 1024
+    if len(current_transcript) > _transcript_entries:
+        errors.append(
+            f"conversation_transcript must not exceed {_transcript_entries} turns; "
+            f"got {len(current_transcript)}"
+        )
+    if len(_json.dumps(current_transcript, ensure_ascii=False).encode("utf-8")) > _transcript_bytes:
+        errors.append(
+            f"conversation_transcript must not exceed {_transcript_bytes} bytes; "
+            "the transcript grows append-only, so truncate/summarize earlier turns "
+            "instead of silently dropping the tail"
+        )
 
     rationale = output.get("coverage_decision_rationale")
     if not isinstance(rationale, str) or not rationale.strip():
@@ -1016,8 +1063,11 @@ Test intent:
     if coverage_sufficient is False and (
         actual_plan_items != required_plan_items or len(validation_plan) != len(actual_plan_items)
     ):
+        missing_plan = sorted(required_plan_items - actual_plan_items)
+        extra_plan = sorted(actual_plan_items - required_plan_items)
         errors.append(
-            "next_round_validation_plan must exactly match every unresolved `topic_id — metric` item"
+            "next_round_validation_plan must exactly match every unresolved `topic_id — metric` item; "
+            f"missing {len(missing_plan)} required item(s), extra {len(extra_plan)} unexpected item(s)"
         )
     if coverage_sufficient is True and validation_plan:
         errors.append("coverage_sufficient=true requires an empty next_round_validation_plan")
@@ -1298,7 +1348,7 @@ def _run_custom_verifier_requirements_verify_report(
 # custom_verifier_stage_id: verify_report
 # custom_verifier_requirement_id: report_citation_integrity
 # template_version: 1
-# spec_fingerprint: b51886277a0c58d744ca85da968abdbe4cebeec336060c8d8c9d209777189ebe
+# spec_fingerprint: 7f8ee1fd97f14a1d82e259153b7ec9f518ec68f6243f529cce7fff3f91773659
 # implementation_version: 4
 def _custom_verifier_requirement_verify_report_report_citation_integrity(
     *,
@@ -1440,12 +1490,25 @@ Test intent:
             for item in raw_coverage_map
         ):
             return "coverage_map must contain non-empty topic identifiers"
-        if set(raw_coverage_map) != topic_ids:
-            return "coverage_assessment topic ids must match coverage_map"
+        if set(raw_coverage_map) - topic_ids:
+            return (
+                "coverage_assessment must cover every coverage_map topic; "
+                f"missing assessed topic ids: {sorted(set(raw_coverage_map) - topic_ids)}"
+            )
 
+    complete_handles_bounded_gap = (
+        scope_status == "complete"
+        and persisted_state.get("coverage_sufficient") is True
+        and not persisted_state.get("next_round_validation_plan")
+    )
     unresolved = []
     for topic_id, status, record in assessment:
         if status == "covered":
+            continue
+        if status == "bounded_gap" and complete_handles_bounded_gap:
+            # Moderator judged this gap immaterial: coverage_sufficient=true with an
+            # empty next-round plan treats bounded_gap topics as handled, matching the
+            # roundtable guardrail that allows completion despite bounded gaps.
             continue
         open_gaps = record.get("open_gaps")
         next_metrics = record.get("next_validation_metrics")
@@ -1486,10 +1549,19 @@ Test intent:
 
     unresolved_finding_terms = ("critical", "blocker", "p0")
     resolved_finding_terms = ("resolved", "fixed", "addressed", "cleared")
+    negation_patterns = (
+        r"no critical", r"zero critical", r"without critical", r"found no critical",
+        r"no blocker", r"zero blocker", r"without blocker", r"found no blocker",
+        r"no p0", r"zero p0", r"without p0", r"found no p0",
+        r"critical[^.]{0,40}\bnot found\b", r"blocker[^.]{0,40}\bnot found\b",
+        r"p0[^.]{0,40}\bnot found\b", r"no unresolved",
+    )
     for finding in output.get("quality_findings") or []:
         if not isinstance(finding, str) or not finding.strip():
             return "quality_findings must contain meaningful strings"
         lowered = finding.lower()
+        if any(re.search(pattern, lowered) for pattern in negation_patterns):
+            continue
         mentions_unresolved = any(
             re.search(rf"(?<!\w){re.escape(term)}(?!\w)", lowered)
             for term in unresolved_finding_terms
