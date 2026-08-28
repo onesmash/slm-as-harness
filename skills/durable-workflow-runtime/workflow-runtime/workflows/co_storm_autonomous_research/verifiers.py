@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import json
 import pathlib
 import workflows.co_storm_autonomous_research.citation_locators
 
@@ -398,6 +399,13 @@ def _run_custom_verifier_requirements_launch_expert_subagents(
     )
     if message:
         errors.append(message)
+    message = _custom_verifier_requirement_launch_expert_subagents_evidence_registry_byte_budget(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
     return "; ".join(errors) if errors else None
 
 # custom_verifier_stage_id: launch_expert_subagents
@@ -721,6 +729,45 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
                     )
     return "; ".join(errors) if errors else None
 
+# custom_verifier_stage_id: launch_expert_subagents
+# custom_verifier_requirement_id: evidence_registry_byte_budget
+# template_version: 1
+# spec_fingerprint: 9cf27f3130fa631319849a8873ba9942252240ac3267b8b4b4fbce828abc0b11
+# implementation_version: none
+def _custom_verifier_requirement_launch_expert_subagents_evidence_registry_byte_budget(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
+
+Requirement: The merged evidence_registry must stay within a serialization-safe byte budget: the full list serialized as UTF-8 must not exceed 192 KiB even when the 128-entry count cap is met, so the workflow state never approaches the runtime MAX_WORKFLOW_LIST_BYTES limit.
+Signals: evidence_registry
+Implementation surfaces: verifier, workflow-specific regression tests
+Hint pseudocode:
+- Read the merged evidence_registry from the observation output; if it is not a list of strings, return None (shape is enforced elsewhere).
+- Serialize the list with json.dumps(registry, ensure_ascii=False) and compute the UTF-8 byte length.
+- If the byte length exceeds 192 * 1024, return an error naming the actual size and the budget.
+Test intent:
+- Accept a merged registry whose UTF-8 serialization stays under the byte budget.
+- Reject a merged registry whose UTF-8 serialization exceeds 192 KiB even when the entry count is at or under 128."""
+    _ = state, repo_root
+    registry = output.get("evidence_registry")
+    if not isinstance(registry, list) or not all(isinstance(entry, str) for entry in registry):
+        return None  # shape is enforced by expert_results_match_roster
+    budget_bytes = 192 * 1024
+    size = len(json.dumps(registry, ensure_ascii=False).encode("utf-8"))
+    if size > budget_bytes:
+        return (
+            f"merged evidence_registry serializes to {size} bytes, exceeding the "
+            f"{budget_bytes}-byte serialization budget; reduce claim length or entry count"
+        )
+    return None
+
 def _run_custom_verifier_requirements_autonomous_roundtable(
     *,
     output: dict,
@@ -747,7 +794,7 @@ def _run_custom_verifier_requirements_autonomous_roundtable(
 # custom_verifier_stage_id: autonomous_roundtable
 # custom_verifier_requirement_id: roundtable_flags_match_decision
 # template_version: 1
-# spec_fingerprint: 6fee3be45117ff26f7ce42d0b28037a3d26fb9b9407e34e52d8751f31a3c9ac6
+# spec_fingerprint: c92dd49aca59b92cc1c7fdfbb2671387a5e7f9d5ed4a50745f8cf85dc1f95a6d
 # implementation_version: 6
 def _custom_verifier_requirement_autonomous_roundtable_roundtable_flags_match_decision(
     *,
@@ -1048,14 +1095,14 @@ Test intent:
         if not threshold_met:
             errors.append(f"coverage_assessment must contain at least {coverage_threshold} distinct topics")
 
-    guardrails_allow_completion = assessment_semantics_valid and threshold_met and not missing_topic_ids
+    guardrails_allow_completion = assessment_semantics_valid and threshold_met and not missing_topic_ids and not bounded_gap_topic_ids
     coverage_sufficient = output.get("coverage_sufficient")
     if not isinstance(coverage_sufficient, bool):
         errors.append("coverage_sufficient must be a boolean")
     elif coverage_sufficient and not guardrails_allow_completion:
         errors.append("coverage_sufficient=true violates deterministic semantic guardrails")
 
-    unresolved_topic_ids = missing_topic_ids | (bounded_gap_topic_ids if coverage_sufficient is False else set())
+    unresolved_topic_ids = missing_topic_ids | bounded_gap_topic_ids
     required_plan_items = expected_plan_items if coverage_sufficient is False else set()
     actual_plan_items = {
         item.strip() for item in validation_plan if isinstance(item, str) and item.strip()

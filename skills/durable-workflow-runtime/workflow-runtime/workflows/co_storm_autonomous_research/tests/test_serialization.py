@@ -101,14 +101,14 @@ class SerializationCapacityTests(unittest.TestCase):
         dropped individually; later fields (including a small one that fits
         after the oversized one) survive because compaction continues."""
         big = "x" * (15 * 1024)  # bounded_text keeps strings under 16 KiB
-        # 17 big fields (~255 KiB) fit; the 18th pushes over the 256 KiB budget
+        # 34 big fields (~522 KiB) fit; the 35th pushes over the 512 KiB budget
         # and is dropped; the small field after it fits again and survives.
-        fields = {f"f_{i:02d}": big for i in range(18)}
-        fields["f_18"] = "kept-after-overflow"
+        fields = {f"f_{i:02d}": big for i in range(35)}
+        fields["f_35"] = "kept-after-overflow"
         fields["round_index"] = 7
         payload = _compact_value(fields)
-        self.assertNotIn("f_17", payload, "overflowing field must be dropped")
-        self.assertEqual(payload.get("f_18"), "kept-after-overflow",
+        self.assertNotIn("f_34", payload, "overflowing field must be dropped")
+        self.assertEqual(payload.get("f_35"), "kept-after-overflow",
                          "fields after the dropped one must survive (no hard break)")
         self.assertEqual(payload.get("round_index"), 7)
 
@@ -117,7 +117,7 @@ class SerializationCapacityTests(unittest.TestCase):
         # A large coverage_assessment fills most of the budget; expert_results
         # then pushes the cumulative dict over the limit and is dropped, while
         # the small round_index field later in key order survives.
-        big_gap = "g" * (15 * 1024)  # bounded_text keeps strings under 16 KiB
+        big_gap = "g" * (14 * 1024)  # 14 KiB strings; 18 topics fill ~505 KiB
         payload = _roundtrip({
             "round_index": 3,
             "expert_results_complete": True,
@@ -130,7 +130,7 @@ class SerializationCapacityTests(unittest.TestCase):
                     "open_gaps": [big_gap],
                     "next_validation_metrics": [big_gap],
                 }
-                for i in range(88)
+                for i in range(18)
             ],
             "expert_results": [
                 {"expert_id": "e", "summary": "s" * 3000, "artifact_path": "a",

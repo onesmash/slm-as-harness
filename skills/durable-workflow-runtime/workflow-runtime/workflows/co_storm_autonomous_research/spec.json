@@ -1,6 +1,6 @@
 {
-  "workflow_id": "co_storm_autonomous_research",
-  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff. NOTE: constraints.coverage_threshold is the minimum NUMBER of distinct assessed topics (not a percentage); set it to the realistic topic count, e.g. 2-10 for a focused study, or the roundtable will demand that many distinct topic ids.",
+  "workflow_id": "co-storm-autonomous-research",
+  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff. NOTE: the warm-start stage seeds the planned topic set (4-8 topics) and every seeded topic must be assessed before the report can be complete; set constraints.max_rounds (default 8) and constraints.max_steps (default 24) large enough to cover the planned topics, otherwise the run ends as an explicitly partial report. constraints.coverage_threshold remains only a deterministic lower bound on distinct assessed topics.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -59,10 +59,13 @@
           "Every evidence entry must use the form [n] source-locator — supported claim or question, preserving a stable citation number, source locator, and claim.",
           "Keep expert perspectives complementary rather than duplicating the same general-background role.",
           "Return expert_roster as records with exactly id, role, and brief string fields; ids must be stable and unique and later bindings must reference only id.",
-          "Give every expert a stable, unique identifier that can be passed to an independent subagent in later rounds."
+          "Give every expert a stable, unique identifier that can be passed to an independent subagent in later rounds.",
+          "Create 3 to 5 expert perspectives with genuinely distinct, non-overlapping roles (for example technical implementer, historical or ecosystem evolution, security and risk, adoption and business, and future-trend perspectives); fewer than three perspectives is acceptable only when the research scope genuinely cannot support more.",
+          "Seed coverage_map with the full planned topic decomposition of the research goal: derive 4 to 8 concise, stable topic ids from research_scope in task_input_json (falling back to the goal itself), so the Moderator rounds must adjudicate the entire planned topic set instead of stopping at the deterministic floor; keep the seeded set small enough for the configured round budget to cover.",
+          "Record at least two grounded evidence entries per perspective and capture each perspective's key open question in the conversation transcript, so the expert subagents and the Moderator have concrete material to work from."
         ],
         "blocked_conditions": [
-          "Block when the research goal or retrieval scope is missing.",
+          "Block when the research goal cannot be resolved into a retrievable scope and no source materials are supplied.",
           "Block when grounded retrieval is unavailable and no source materials are supplied.",
           "Block when fewer than two distinct expert perspectives or a traceable evidence registry can be produced."
         ]
@@ -240,8 +243,10 @@
           "Keep expert results focused on the assigned perspective; the later Moderator stage makes the round decision.",
           "Do not request user participation, approval, or checkpoints.",
           "Do not build or persist a hierarchical knowledge graph in this stage.",
-          "Compress expert payloads so graph_state serialization stays within runtime limits: keep every new_evidence claim (the part after the locator, never the locator itself) to at most 120 characters and never abbreviate or truncate the source locator, keep expert summaries under 800 characters, and keep per-expert artifacts focused on the assigned perspective.",
-          "artifact_path must be a repository-relative path — no leading '/', no '\\\\', no '.' or '..' path segments — identifying a real, non-empty, non-symlink regular file inside the repository; never return absolute paths."
+          "Compress expert payloads so graph_state serialization stays within runtime limits: keep every new_evidence claim (the part after the locator, never the locator itself) to at most 300 characters and never abbreviate or truncate the source locator, keep expert summaries under 2000 characters, and keep per-expert artifacts focused on the assigned perspective.",
+          "artifact_path must be a repository-relative path — no leading '/', no '\\\\', no '.' or '..' path segments — identifying a real, non-empty, non-symlink regular file inside the repository; never return absolute paths.",
+          "Write each expert summary as substantive prose: the perspective's core findings with [n] citations, the strongest counter-evidence or caveats, and 1 to 3 open questions the next round should target; telegraphic fragments and bare claim lists are not acceptable.",
+          "Prefer deeper retrieval over breadth: each expert should retrieve at least two new sources (when available) that directly address the perspective's assigned questions, and every new_evidence item should carry a claim specific enough to be quoted in the final report."
         ],
         "blocked_conditions": [
           "Block when any expert result or artifact is missing.",
@@ -394,6 +399,29 @@
             "Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, an unknown citation, or an unsafe or missing artifact."
           ],
           "implementation_version": 5
+        },
+        {
+          "id": "evidence_registry_byte_budget",
+          "description": "The merged evidence_registry must stay within a serialization-safe byte budget: the full list serialized as UTF-8 must not exceed 192 KiB even when the 128-entry count cap is met, so the workflow state never approaches the runtime MAX_WORKFLOW_LIST_BYTES limit.",
+          "signals": [
+            "evidence_registry"
+          ],
+          "python_imports": [
+            "json"
+          ],
+          "implementation_surface": [
+            "verifier",
+            "workflow-specific regression tests"
+          ],
+          "hint_pseudocode": [
+            "Read the merged evidence_registry from the observation output; if it is not a list of strings, return None (shape is enforced elsewhere).",
+            "Serialize the list with json.dumps(registry, ensure_ascii=False) and compute the UTF-8 byte length.",
+            "If the byte length exceeds 192 * 1024, return an error naming the actual size and the budget."
+          ],
+          "test_intent": [
+            "Accept a merged registry whose UTF-8 serialization stays under the byte budget.",
+            "Reject a merged registry whose UTF-8 serialization exceeds 192 KiB even when the entry count is at or under 128."
+          ]
         }
       ]
     },
@@ -438,7 +466,10 @@
           "When max_rounds is reached with unresolved coverage, report is allowed only as report_scope_status=partial with coverage_sufficient=false and an explicit non-empty next_round_validation_plan; never present forced stopping as complete coverage.",
           "Cite only the already merged {{evidence_registry}}; do not assign new global citation numbers, rewrite persisted rows, or drop merged ids. Send new source retrieval back through another expert-result round.",
           "Keep the returned coverage_assessment compact so graph_state serialization stays within runtime limits: cite at most two core evidence ids per topic and keep open_gaps and next_validation_metrics entries under 200 characters each.",
-          "Return round_index equal to the persisted round_index plus one, and do not exceed constraints.max_rounds."
+          "Return round_index equal to the persisted round_index plus one, and do not exceed constraints.max_rounds.",
+          "Do not declare coverage_sufficient while any planned topic is missing, remains a bounded_gap with unresolved open gaps or validation metrics, or has fewer than two distinct evidence_refs (a covered topic therefore carries exactly the two core evidence ids allowed by the compactness cap); depth beats topic count.",
+          "Prefer continue when the last expert round produced no new evidence or when any planned topic remains thin; meeting coverage_threshold is never by itself a reason to route to report.",
+          "When continuing, order next_round_validation_plan entries from the thinnest topics first, but include every missing and bounded_gap topic, and name the exact `topic_id — metric` targets for the next expert round."
         ],
         "blocked_conditions": [
           "Block when the current knowledge map, expert roster, or evidence registry cannot be carried forward.",
@@ -664,7 +695,7 @@
       "custom_verifier_requirements": [
         {
           "id": "roundtable_flags_match_decision",
-          "description": "The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, require a completed expert-result package, and provide a deterministic topic-level semantic coverage assessment.",
+          "description": "The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, require a completed expert-result package, and provide a deterministic topic-level semantic coverage assessment. A bounded_gap topic always carries unresolved open gaps and validation metrics, so any bounded_gap topic keeps coverage_sufficient=false; a complete report therefore contains only covered topics and an empty next_round_validation_plan.",
           "signals": [
             "round_decision",
             "continue_roundtable",
@@ -959,7 +990,14 @@
           "context.output_dir is a repository-relative path (never absolute, never starting with '/'). report_path must be repository-relative and must resolve inside context.output_dir; write the report artifact under that directory and return its repo-relative path.",
           "report_sections must equal the report's rendered Markdown ## headings, normalized: strip a leading numeric prefix like '1. ', strip any trailing parenthesized note, and keep punctuation exactly (顿号 included). Compare ONLY the headings that appear in the report body BEFORE the final '## Evidence index' heading — never include 'Evidence index' itself in report_sections.",
           "The report must contain exactly one literal line, either `Report scope: complete` or `Report scope: partial` matching report_scope_status, somewhere before the Evidence index.",
-          "Never repeat any evidence_registry locator text in the report body — not even inside a narrative sentence such as mentioning a filename that happens to equal a locator (e.g. 'Cargo.toml'); the body may only use compact [n] markers. The Evidence index is the only place locators appear."
+          "Never repeat any evidence_registry locator text in the report body — not even inside a narrative sentence such as mentioning a filename that happens to equal a locator (e.g. 'Cargo.toml'); the body may only use compact [n] markers. The Evidence index is the only place locators appear.",
+          "Produce a substantive report: 4 to 8 Markdown sections before the Evidence index (executive summary plus at least three deep sections), each section developing its claims in prose with at least two [n] citations; bullet-only sections and reports that merely restate registry rows are defective deliverables.",
+          "Start with an executive summary as a level-2 Markdown `## Executive summary` heading (so it counts as a substantive section), under one page, stating the research question, the main conclusions with [n] citations, and the overall confidence level.",
+          "Synthesize across the expert perspectives recorded in {{conversation_transcript}}: when experts disagree, present both positions with their evidence and note the disagreement; when they agree, state the convergence explicitly.",
+          "Where {{evidence_registry}} and {{coverage_map}} support comparing approaches, options, or versions, use a comparison table with [n]-cited factual cells; keep table cells to prose, data, and [n] markers only — never place registry locators, URLs, or file paths in cells, and never use bare bracketed numbers in tables unless they are registry citation ids.",
+          "Match language and depth to the requested deliverable: comply with language and length requirements expressed in {{deliverable_type}} or {{workflow_goal}} (for example 中文, 5000字); when none are given, write in the language of {{workflow_goal}} and aim for 1200-3000 words for standard overviews and 3000-8000 words for deep deliverables.",
+          "Flag uncertainty inline where evidence is thin or contested (for example '证据较弱', '存在争议'), and keep every open gap in the limitations section when the report scope is partial.",
+          "Begin the report with exactly one top-level `# ` H1 title heading (the research question or deliverable title), followed by the executive summary; all other sections use `##` headings."
         ],
         "blocked_conditions": [
           "Block when the knowledge map or evidence registry is empty or internally inconsistent.",
@@ -1155,7 +1193,7 @@
       "expected_artifact": "report quality and citation-integrity verdict under deterministic gate authority, with advisory LLM quality findings, a citation coverage summary, and repair findings if needed",
       "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{next_round_validation_plan}}, {{report_scope_status}}, and {{output_dir}}; independently verify section coverage, citation referential integrity, the final literal Evidence index for compact [n] markers, unsupported claims, duplication, coherence, and faithful disclosure of the Moderator's complete-or-partial scope decision, then return a structured pass or repair verdict.",
       "prompt_sections": {
-        "stage_goal": "Apply the final deterministic quality gate and prove that body citations resolve to evidence_registry through one complete final Evidence index without requiring long locators beside every claim.",
+        "stage_goal": "Apply the final deterministic quality gate, prove that body citations resolve to evidence_registry through one complete final Evidence index without requiring long locators beside every claim, and audit report substance (executive summary, prose depth, and cross-expert synthesis) so weak deliverables are sent back for repair.",
         "context": [
           "Report path: {{report_path}}",
           "Report summary: {{report_summary}}",
@@ -1178,7 +1216,9 @@
           "A pass requires a report artifact, traceable citations, and no unresolved critical quality findings.",
           "A partial report may pass only when it contains the exact `Report scope: partial` marker and faithfully lists every unresolved topic id, open gap, validation metric, and next-round plan item; reject any partial report that presents itself as complete.",
           "A complete report may pass only when coverage_sufficient is true, next_round_validation_plan is empty, and the report contains the exact `Report scope: complete` marker.",
-          "Return concrete findings and a pass or repair verdict without rewriting the report."
+          "Return concrete findings and a pass or repair verdict without rewriting the report.",
+          "Audit substance in addition to mechanics: the report must contain an executive summary; every substantive section must contain prose argumentation with at least two cited claims (bullet-only sections are a defect); the body must synthesize expert positions rather than list registry rows; depth and language must match the requirements expressed in {{workflow_goal}}.",
+          "Return quality_verdict=repair with concrete quality_findings whenever the substance audit fails, even if citation mechanics pass, so the repair loop drives a substance-improving re-synthesis."
         ],
         "blocked_conditions": [
           "Block when the report artifact, evidence registry, or report sections are unavailable.",
@@ -1191,7 +1231,8 @@
         "The audit confirms that complete reports have sufficient semantic coverage and partial reports disclose all unresolved coverage work.",
         "Quality findings and the citation coverage summary are recorded.",
         "The report is explicitly marked ready for finalization or repair.",
-        "quality_verdict is pass only when the report body uses compact [n] markers and the final Evidence index satisfies the exact locator mapping."
+        "quality_verdict is pass only when the report body uses compact [n] markers and the final Evidence index satisfies the exact locator mapping.",
+        "The audit covers both citation mechanics and report substance (executive summary, prose depth, cross-expert synthesis)."
       ],
       "output_schema": {
         "quality_verdict": "string",

@@ -29,6 +29,13 @@ Stage Boundaries:
 - report_sections must equal the report's rendered Markdown ## headings, normalized: strip a leading numeric prefix like '1. ', strip any trailing parenthesized note, and keep punctuation exactly (顿号 included). Compare ONLY the headings that appear in the report body BEFORE the final '## Evidence index' heading — never include 'Evidence index' itself in report_sections.
 - The report must contain exactly one literal line, either `Report scope: complete` or `Report scope: partial` matching report_scope_status, somewhere before the Evidence index.
 - Never repeat any evidence_registry locator text in the report body — not even inside a narrative sentence such as mentioning a filename that happens to equal a locator (e.g. 'Cargo.toml'); the body may only use compact [n] markers. The Evidence index is the only place locators appear.
+- Produce a substantive report: 4 to 8 Markdown sections before the Evidence index (executive summary plus at least three deep sections), each section developing its claims in prose with at least two [n] citations; bullet-only sections and reports that merely restate registry rows are defective deliverables.
+- Start with an executive summary as a level-2 Markdown `## Executive summary` heading (so it counts as a substantive section), under one page, stating the research question, the main conclusions with [n] citations, and the overall confidence level.
+- Synthesize across the expert perspectives recorded in {{conversation_transcript}}: when experts disagree, present both positions with their evidence and note the disagreement; when they agree, state the convergence explicitly.
+- Where {{evidence_registry}} and {{coverage_map}} support comparing approaches, options, or versions, use a comparison table with [n]-cited factual cells; keep table cells to prose, data, and [n] markers only — never place registry locators, URLs, or file paths in cells, and never use bare bracketed numbers in tables unless they are registry citation ids.
+- Match language and depth to the requested deliverable: comply with language and length requirements expressed in {{deliverable_type}} or {{workflow_goal}} (for example 中文, 5000字); when none are given, write in the language of {{workflow_goal}} and aim for 1200-3000 words for standard overviews and 3000-8000 words for deep deliverables.
+- Flag uncertainty inline where evidence is thin or contested (for example '证据较弱', '存在争议'), and keep every open gap in the limitations section when the report scope is partial.
+- Begin the report with exactly one top-level `# ` H1 title heading (the research question or deliverable title), followed by the executive summary; all other sections use `##` headings.
 
 Blocked Conditions:
 

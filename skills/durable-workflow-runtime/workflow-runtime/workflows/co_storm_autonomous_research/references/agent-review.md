@@ -1,4 +1,4 @@
-# Agent Review for `co_storm_autonomous_research`
+# Agent Review for `co-storm-autonomous-research`
 
 This workflow was generated from `spec.json` by `workflow-creator`. Treat
 `spec.json` as the source of truth for the review. The generated files prove the
@@ -51,10 +51,24 @@ the right workflow.
     - Reject an unknown, missing, duplicate, or out-of-order expert id.
     - Reject a rewritten persisted registry prefix, a skipped citation id, a duplicated locator, more than three unused retrieved items for one expert, or a new_evidence item that is not locator — claim.
     - Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, an unknown citation, or an unsafe or missing artifact.
+- `evidence_registry_byte_budget`: The merged evidence_registry must stay within a serialization-safe byte budget: the full list serialized as UTF-8 must not exceed 192 KiB even when the 128-entry count cap is met, so the workflow state never approaches the runtime MAX_WORKFLOW_LIST_BYTES limit.
+  Signals: `evidence_registry`
+  Implementation surfaces: `verifier`, `workflow-specific regression tests`
+  Python imports: `json`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
+  Hint pseudocode:
+    - Read the merged evidence_registry from the observation output; if it is not a list of strings, return None (shape is enforced elsewhere).
+    - Serialize the list with json.dumps(registry, ensure_ascii=False) and compute the UTF-8 byte length.
+    - If the byte length exceeds 192 * 1024, return an error naming the actual size and the budget.
+  Test intent:
+    - Accept a merged registry whose UTF-8 serialization stays under the byte budget.
+    - Reject a merged registry whose UTF-8 serialization exceeds 192 KiB even when the entry count is at or under 128.
 
 ### `autonomous_roundtable`
 
-- `roundtable_flags_match_decision`: The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, require a completed expert-result package, and provide a deterministic topic-level semantic coverage assessment.
+- `roundtable_flags_match_decision`: The autonomous roundtable must select exactly one routing decision, preserve the prior transcript, advance exactly one round, require a completed expert-result package, and provide a deterministic topic-level semantic coverage assessment. A bounded_gap topic always carries unresolved open gaps and validation metrics, so any bounded_gap topic keeps coverage_sufficient=false; a complete report therefore contains only covered topics and an empty next_round_validation_plan.
   Signals: `round_decision`, `continue_roundtable`, `should_reorganize`, `ready_for_report`, `coverage_assessment`, `coverage_decision_rationale`, `next_round_validation_plan`, `report_scope_status`, `expert_results`, `expert_results_complete`
   Implementation surfaces: `verifiers.py`, `policy.py`, `workflow-specific regression tests`
   Self-contained contract: keep this requirement-scoped verifier self-contained when practical.

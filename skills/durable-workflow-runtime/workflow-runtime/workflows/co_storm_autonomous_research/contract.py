@@ -1,7 +1,7 @@
 from workflows.common.contracts import (SkillRoute, SkillUseWhen, StepContract, StepVerifier, WorkflowInputContract)
 
 
-WORKFLOW_ID = 'co_storm_autonomous_research'
+WORKFLOW_ID = 'co-storm-autonomous-research'
 
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     task_input_schema={'goal': 'string',
@@ -224,7 +224,9 @@ VERIFY_REPORT = StepContract(
  'Quality findings and the citation coverage summary are recorded.',
  'The report is explicitly marked ready for finalization or repair.',
  'quality_verdict is pass only when the report body uses compact [n] markers and the final '
- 'Evidence index satisfies the exact locator mapping.'],
+ 'Evidence index satisfies the exact locator mapping.',
+ 'The audit covers both citation mechanics and report substance (executive summary, prose depth, '
+ 'cross-expert synthesis).'],
     output_schema={'quality_verdict': 'string',
  'quality_findings': 'string[]',
  'citation_coverage_summary': 'string',

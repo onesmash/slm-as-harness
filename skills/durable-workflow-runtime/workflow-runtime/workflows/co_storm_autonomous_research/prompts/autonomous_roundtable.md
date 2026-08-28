@@ -28,6 +28,9 @@ Stage Boundaries:
 - Cite only the already merged {{evidence_registry}}; do not assign new global citation numbers, rewrite persisted rows, or drop merged ids. Send new source retrieval back through another expert-result round.
 - Keep the returned coverage_assessment compact so graph_state serialization stays within runtime limits: cite at most two core evidence ids per topic and keep open_gaps and next_validation_metrics entries under 200 characters each.
 - Return round_index equal to the persisted round_index plus one, and do not exceed constraints.max_rounds.
+- Do not declare coverage_sufficient while any planned topic is missing, remains a bounded_gap with unresolved open gaps or validation metrics, or has fewer than two distinct evidence_refs (a covered topic therefore carries exactly the two core evidence ids allowed by the compactness cap); depth beats topic count.
+- Prefer continue when the last expert round produced no new evidence or when any planned topic remains thin; meeting coverage_threshold is never by itself a reason to route to report.
+- When continuing, order next_round_validation_plan entries from the thinnest topics first, but include every missing and bounded_gap topic, and name the exact `topic_id — metric` targets for the next expert round.
 
 Blocked Conditions:
 

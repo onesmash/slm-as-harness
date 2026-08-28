@@ -25,6 +25,8 @@ Stage Boundaries:
 - A partial report may pass only when it contains the exact `Report scope: partial` marker and faithfully lists every unresolved topic id, open gap, validation metric, and next-round plan item; reject any partial report that presents itself as complete.
 - A complete report may pass only when coverage_sufficient is true, next_round_validation_plan is empty, and the report contains the exact `Report scope: complete` marker.
 - Return concrete findings and a pass or repair verdict without rewriting the report.
+- Audit substance in addition to mechanics: the report must contain an executive summary; every substantive section must contain prose argumentation with at least two cited claims (bullet-only sections are a defect); the body must synthesize expert positions rather than list registry rows; depth and language must match the requirements expressed in {{workflow_goal}}.
+- Return quality_verdict=repair with concrete quality_findings whenever the substance audit fails, even if citation mechanics pass, so the repair loop drives a substance-improving re-synthesis.
 
 Blocked Conditions:
 

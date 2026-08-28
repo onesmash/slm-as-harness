@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_id": "co_storm_autonomous_research",
+  "workflow_id": "co-storm-autonomous-research",
   "installed": [
     {
       "id": "research-nex",

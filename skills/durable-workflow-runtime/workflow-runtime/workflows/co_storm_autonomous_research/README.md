@@ -12,7 +12,7 @@ Copy this directory into:
 Then make these replacements first:
 
 1. Rename the directory from `co_storm_autonomous_research` to your real `workflow_id`.
-2. Replace `co_storm_autonomous_research` in:
+2. Replace `co-storm-autonomous-research` in:
    - `contract.py`
    - verifier `ref` strings
    - any prompt wording that should mention the real workflow name

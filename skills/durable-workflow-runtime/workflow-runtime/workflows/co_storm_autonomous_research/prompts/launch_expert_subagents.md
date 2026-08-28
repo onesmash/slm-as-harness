@@ -23,8 +23,10 @@ Stage Boundaries:
 - Keep expert results focused on the assigned perspective; the later Moderator stage makes the round decision.
 - Do not request user participation, approval, or checkpoints.
 - Do not build or persist a hierarchical knowledge graph in this stage.
-- Compress expert payloads so graph_state serialization stays within runtime limits: keep every new_evidence claim (the part after the locator, never the locator itself) to at most 120 characters and never abbreviate or truncate the source locator, keep expert summaries under 800 characters, and keep per-expert artifacts focused on the assigned perspective.
+- Compress expert payloads so graph_state serialization stays within runtime limits: keep every new_evidence claim (the part after the locator, never the locator itself) to at most 300 characters and never abbreviate or truncate the source locator, keep expert summaries under 2000 characters, and keep per-expert artifacts focused on the assigned perspective.
 - artifact_path must be a repository-relative path — no leading '/', no '\\', no '.' or '..' path segments — identifying a real, non-empty, non-symlink regular file inside the repository; never return absolute paths.
+- Write each expert summary as substantive prose: the perspective's core findings with [n] citations, the strongest counter-evidence or caveats, and 1 to 3 open questions the next round should target; telegraphic fragments and bare claim lists are not acceptable.
+- Prefer deeper retrieval over breadth: each expert should retrieve at least two new sources (when available) that directly address the perspective's assigned questions, and every new_evidence item should carry a claim specific enough to be quoted in the final report.
 
 Blocked Conditions:
 
