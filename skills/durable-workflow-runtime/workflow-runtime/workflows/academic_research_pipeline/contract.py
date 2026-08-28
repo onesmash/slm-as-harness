@@ -7,7 +7,7 @@ from workflows.common.contracts import (
 )
 
 
-WORKFLOW_ID = "academic_research_pipeline"
+WORKFLOW_ID = "academic-research-pipeline"
 
 ACADEMIC_PIPELINE_ROUTE = SkillRoute(
     skill="academic-pipeline",

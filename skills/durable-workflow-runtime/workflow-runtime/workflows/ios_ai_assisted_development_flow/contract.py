@@ -1,7 +1,7 @@
 from workflows.common.contracts import (SkillRoute, SkillUseWhen, StepContract, StepVerifier, WorkflowInputContract)
 
 
-WORKFLOW_ID = 'ios_ai_assisted_development_flow'
+WORKFLOW_ID = 'ios-ai-assisted-development-flow'
 
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     task_input_schema={'goal': 'string', 'preferred_change_name': 'string?'},

@@ -767,7 +767,7 @@ class PerformanceOptimizationCycleWorkflowGeneratedTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        response = engine.start('performance_optimization_cycle', {
+        response = engine.start('performance-optimization-cycle', {
             "task_input": {"goal": "generated workflow regression"},
             "context": {"repo_root": str(REPO_ROOT)},
             "constraints": {"max_steps": 5},

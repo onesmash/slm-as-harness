@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_id": "academic_research_pipeline",
+  "workflow_id": "academic-research-pipeline",
   "installed": [
     {
       "id": "academic-pipeline",

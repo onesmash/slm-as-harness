@@ -77,10 +77,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self._hidden_project_skill_dirs: list[tuple[Path, Path]] = []
         self._write_binding_config(
             {
-                "default_workflow_id": "demo_prompt_loop",
+                "default_workflow_id": "demo-prompt-loop",
                 "workflows": [
                     {
-                        "workflow_id": "demo_prompt_loop",
+                        "workflow_id": "demo-prompt-loop",
                         "flow_description": "demo",
                     },
                     *(
@@ -104,7 +104,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                         else []
                     ),
                     {
-                        "workflow_id": "academic_research_pipeline",
+                        "workflow_id": "academic-research-pipeline",
                         "flow_description": "academic research pipeline",
                     },
                     *(
@@ -179,10 +179,12 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         return set(PLACEHOLDER_PATTERN.findall(path.read_text(encoding="utf-8")))
 
     def _workflow_manifest_path(self, workflow_id: str) -> Path:
-        return RUNTIME_ROOT / "workflows" / workflow_id / "manifest.json"
+        module_name = workflow_id.replace("-", "_")
+        return RUNTIME_ROOT / "workflows" / module_name / "manifest.json"
 
     def _workflow_lockfile_path(self, workflow_id: str) -> Path:
-        return RUNTIME_ROOT / "workflows" / workflow_id / ".workflow-lock.json"
+        module_name = workflow_id.replace("-", "_")
+        return RUNTIME_ROOT / "workflows" / module_name / ".workflow-lock.json"
 
     def _contract_start_input_schema(self, workflow_id: str) -> dict:
         from runtime.module_loader import load_workflow_modules
@@ -207,7 +209,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self,
         payload: dict,
         *,
-        workflow_id: str = "demo_prompt_loop",
+        workflow_id: str = "demo-prompt-loop",
     ) -> tuple[Path, Path]:
         import host_io
 
@@ -308,7 +310,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         (runtime_root / "workflow-binding.json").write_text(
             json.dumps(
                 {
-                    "default_workflow_id": "demo_prompt_loop",
+                    "default_workflow_id": "demo-prompt-loop",
                     "workflows": [],
                 },
                 ensure_ascii=False,
@@ -450,10 +452,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         skill_host = self._load_skill_host()
         self._write_binding_config(
             {
-                "default_workflow_id": "demo_prompt_loop",
+                "default_workflow_id": "demo-prompt-loop",
                 "workflows": [
                     {
-                        "workflow_id": "demo_prompt_loop",
+                        "workflow_id": "demo-prompt-loop",
                         "flow_description": "demo",
                     }
                 ],
@@ -464,17 +466,17 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
         self.assertEqual(
             response["prompt_envelope"]["metadata"]["workflow_id"],
-            "demo_prompt_loop",
+            "demo-prompt-loop",
         )
 
     def test_start_registers_workflow_start_input_schema_in_binding_config(self) -> None:
         skill_host = self._load_skill_host()
         self._write_binding_config(
             {
-                "default_workflow_id": "demo_prompt_loop",
+                "default_workflow_id": "demo-prompt-loop",
                 "workflows": [
                     {
-                        "workflow_id": "demo_prompt_loop",
+                        "workflow_id": "demo-prompt-loop",
                         "flow_description": "demo",
                     }
                 ],
@@ -487,17 +489,17 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         workflow_entry = binding_payload["workflows"][0]
         self.assertEqual(
             workflow_entry["start_input_schema"],
-            self._contract_start_input_schema("demo_prompt_loop"),
+            self._contract_start_input_schema("demo-prompt-loop"),
         )
 
     def test_start_rejects_binding_start_input_schema_that_drifted_from_contract(self) -> None:
         skill_host = self._load_skill_host()
         self._write_binding_config(
             {
-                "default_workflow_id": "demo_prompt_loop",
+                "default_workflow_id": "demo-prompt-loop",
                 "workflows": [
                     {
-                        "workflow_id": "demo_prompt_loop",
+                        "workflow_id": "demo-prompt-loop",
                         "flow_description": "demo",
                         "start_input_schema": {
                             "task_input": {"unexpected": "string"},
@@ -530,10 +532,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         skill_host = self._load_skill_host()
         self._write_binding_config(
             {
-                "default_workflow_id": "demo_prompt_loop",
+                "default_workflow_id": "demo-prompt-loop",
                 "workflows": [
                     {
-                        "workflow_id": "demo_prompt_loop",
+                        "workflow_id": "demo-prompt-loop",
                         "flow_description": "demo only",
                     }
                 ],
@@ -549,7 +551,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
     def test_preflight_registers_workflow_start_input_schema_in_manifest(self) -> None:
         skill_host = self._load_skill_host()
-        manifest_path = self._workflow_manifest_path("demo_prompt_loop")
+        manifest_path = self._workflow_manifest_path("demo-prompt-loop")
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest_payload.pop("start_input_schema", None)
         manifest_path.write_text(
@@ -557,18 +559,18 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        response = skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+        response = skill_host.preflight(str(REPO_ROOT), "demo-prompt-loop")
 
         self.assertEqual(response["status"], "ready")
         updated_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(
             updated_manifest["start_input_schema"],
-            self._contract_start_input_schema("demo_prompt_loop"),
+            self._contract_start_input_schema("demo-prompt-loop"),
         )
 
     def test_preflight_rejects_manifest_start_input_schema_that_drifted_from_contract(self) -> None:
         skill_host = self._load_skill_host()
-        manifest_path = self._workflow_manifest_path("demo_prompt_loop")
+        manifest_path = self._workflow_manifest_path("demo-prompt-loop")
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         manifest_payload["start_input_schema"] = {
             "task_input": {"unexpected": "string"},
@@ -580,24 +582,24 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             encoding="utf-8",
         )
 
-        response = skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+        response = skill_host.preflight(str(REPO_ROOT), "demo-prompt-loop")
 
         self.assertEqual(response["status"], "invalid_manifest")
         self.assertIn("start_input_schema", response["message"])
 
     def test_preflight_cache_avoids_rewriting_unchanged_lockfile(self) -> None:
         skill_host = self._load_skill_host()
-        lockfile_path = self._workflow_lockfile_path("demo_prompt_loop")
+        lockfile_path = self._workflow_lockfile_path("demo-prompt-loop")
         cache_path = (
             REPO_ROOT
             / ".durable-workflow-runtime"
             / "cache"
             / "preflight"
-            / "demo_prompt_loop.json"
+            / "demo-prompt-loop.json"
         )
-        first = skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+        first = skill_host.preflight(str(REPO_ROOT), "demo-prompt-loop")
         first_mtime = lockfile_path.stat().st_mtime_ns
-        second = skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+        second = skill_host.preflight(str(REPO_ROOT), "demo-prompt-loop")
 
         self.assertEqual(first["status"], "ready")
         self.assertFalse(first["cache_hit"])
@@ -608,15 +610,15 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
     def test_preflight_cache_invalidates_when_manifest_source_changes(self) -> None:
         skill_host = self._load_skill_host()
-        manifest_path = self._workflow_manifest_path("demo_prompt_loop")
+        manifest_path = self._workflow_manifest_path("demo-prompt-loop")
         cache_path = (
             REPO_ROOT
             / ".durable-workflow-runtime"
             / "cache"
             / "preflight"
-            / "demo_prompt_loop.json"
+            / "demo-prompt-loop.json"
         )
-        skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+        skill_host.preflight(str(REPO_ROOT), "demo-prompt-loop")
         first_fingerprint = json.loads(cache_path.read_text(encoding="utf-8"))["fingerprint"]
 
         manifest_payload = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -625,7 +627,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             json.dumps(manifest_payload, ensure_ascii=False, indent=2) + "\n",
             encoding="utf-8",
         )
-        skill_host.preflight(str(REPO_ROOT), "demo_prompt_loop")
+        skill_host.preflight(str(REPO_ROOT), "demo-prompt-loop")
 
         second_fingerprint = json.loads(cache_path.read_text(encoding="utf-8"))["fingerprint"]
         self.assertNotEqual(second_fingerprint, first_fingerprint)
@@ -709,7 +711,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
     def test_demo_prompts_match_available_template_context(self) -> None:
         from workflows.demo_prompt_loop import graphbuilder_runtime
 
-        prompts_dir = SKILL_ROOT / "workflow-runtime" / "workflows" / "demo_prompt_loop" / "prompts"
+        prompts_dir = SKILL_ROOT / "workflow-runtime" / "workflows" / "demo-prompt-loop" / "prompts"
         start_context_keys = {"runtime_root_path"}
         runtime_context_keys = set(
             graphbuilder_runtime.build_template_context(
@@ -1049,7 +1051,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         workflow_dir = RUNTIME_ROOT / "workflows" / "ios_ai_assisted_development_flow"
         workflow_spec = create_workflow._load_workflow_spec(
             spec_file=workflow_dir / "spec.json",
-            workflow_id="ios_ai_assisted_development_flow",
+            workflow_id="ios-ai-assisted-development-flow",
             flow_description=None,
         )
 
@@ -1884,7 +1886,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
 
-        response = engine.start("demo_prompt_loop", self._start_request())
+        response = engine.start("demo-prompt-loop", self._start_request())
 
         self.assertEqual(response["kind"], "yield")
         self.assertEqual(response["step_id"], "collect_context")
@@ -1909,7 +1911,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        start_response = engine.start("demo_prompt_loop", self._start_request())
+        start_response = engine.start("demo-prompt-loop", self._start_request())
 
         response = engine.resume(
             start_response["run_id"],
@@ -1944,7 +1946,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        start_response = engine.start("demo_prompt_loop", self._start_request())
+        start_response = engine.start("demo-prompt-loop", self._start_request())
         runtime_entries = sorted(
             path.name
             for path in RUNTIME_ROOT.iterdir()
@@ -1981,7 +1983,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        start_response = engine.start("demo_prompt_loop", self._start_request())
+        start_response = engine.start("demo-prompt-loop", self._start_request())
 
         response = engine.resume(
             start_response["run_id"],
@@ -2013,7 +2015,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        start_response = engine.start("ios_ai_assisted_development_flow", self._start_request())
+        start_response = engine.start("ios-ai-assisted-development-flow", self._start_request())
 
         response = engine.resume(
             start_response["run_id"],
@@ -2051,7 +2053,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        start_response = engine.start("ios_ai_assisted_development_flow", self._start_request())
+        start_response = engine.start("ios-ai-assisted-development-flow", self._start_request())
 
         response = engine.resume(
             start_response["run_id"],
@@ -2088,7 +2090,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine1 = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        start_response = engine1.start("demo_prompt_loop", self._start_request())
+        start_response = engine1.start("demo-prompt-loop", self._start_request())
 
         engine2 = GraphBuilderRuntimeEngine(str(REPO_ROOT))
         response = engine2.resume(
@@ -2120,7 +2122,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine1 = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        start_response = engine1.start("demo_prompt_loop", self._start_request())
+        start_response = engine1.start("demo-prompt-loop", self._start_request())
         runtime_entries = sorted(
             path.name
             for path in RUNTIME_ROOT.iterdir()
@@ -2153,9 +2155,9 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
     def test_shared_module_loader_returns_demo_workflow_modules(self) -> None:
         from runtime.module_loader import load_workflow_modules
 
-        modules = load_workflow_modules("demo_prompt_loop")
+        modules = load_workflow_modules("demo-prompt-loop")
 
-        self.assertEqual(modules["contract"].WORKFLOW_ID, "demo_prompt_loop")
+        self.assertEqual(modules["contract"].WORKFLOW_ID, "demo-prompt-loop")
         self.assertTrue(hasattr(modules["graphbuilder_runtime"], "build_graph"))
         self.assertTrue(hasattr(modules["state"], "make_initial_state"))
 
@@ -2165,7 +2167,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.validation import validate_workflow_input
         from runtime.errors import WorkflowExecutionError
 
-        modules = load_workflow_modules("demo_prompt_loop")
+        modules = load_workflow_modules("demo-prompt-loop")
         request = StartRequest.from_dict(
             {
                 "task_input": {"goal": "检查仓库里是否已有 workflow-runtime 骨架"},
@@ -2281,10 +2283,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.verifier_runner import run_step_verifier
         from workflows.common.contracts import StepVerifier
 
-        modules = load_workflow_modules("demo_prompt_loop")
+        modules = load_workflow_modules("demo-prompt-loop")
         run_state = RunState(
             run_id="run_test",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",
@@ -2402,7 +2404,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         )
         recommendations = response["next_step_recommendations"]
         self.assertEqual(recommendations["kind"], "workflow_catalog_lookup")
-        self.assertEqual(recommendations["source_workflow_id"], "demo_prompt_loop")
+        self.assertEqual(recommendations["source_workflow_id"], "demo-prompt-loop")
         self.assertNotIn("workflow_binding_ref", recommendations)
         self.assertNotIn("reference_scope", recommendations)
         self.assertNotIn("workflow_binding_path", recommendations)
@@ -2581,14 +2583,14 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         manifest_path = host_io.write_manifest(
             REPO_ROOT,
             "run_manifest",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             extra={"current_step": "collect_context"},
         )
 
         payload = json.loads(manifest_path.read_text(encoding="utf-8"))
         self.assertEqual(payload["layout_version"], 1)
         self.assertEqual(payload["run_id"], "run_manifest")
-        self.assertEqual(payload["workflow_id"], "demo_prompt_loop")
+        self.assertEqual(payload["workflow_id"], "demo-prompt-loop")
         self.assertEqual(payload["current_step"], "collect_context")
         self.assertIn("/host-io/run_manifest", payload["paths"]["run_dir"])
 
@@ -2613,7 +2615,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 "--repo-root",
                 str(REPO_ROOT),
                 "--workflow-id",
-                "demo_prompt_loop",
+                "demo-prompt-loop",
             ],
             cwd=REPO_ROOT,
             capture_output=True,
@@ -2625,18 +2627,18 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(payload["kind"], "pending_start_request_path")
         self.assertEqual(
             Path(payload["path"]),
-            WORKSPACE_ROOT / "host-io" / "pending" / "demo_prompt_loop-start-request.json",
+            WORKSPACE_ROOT / "host-io" / "pending" / "demo-prompt-loop-start-request.json",
         )
 
     def test_pack_cli_creates_flow_archive_for_published_workflow(self) -> None:
-        output_file = WORKSPACE_ROOT / "packages" / "demo_prompt_loop.flow"
+        output_file = WORKSPACE_ROOT / "packages" / "demo-prompt-loop.flow"
 
         result = subprocess.run(
             [
                 sys.executable,
                 str(PACK_PATH),
                 "--workflow-id",
-                "demo_prompt_loop",
+                "demo-prompt-loop",
                 "--output-file",
                 str(output_file),
             ],
@@ -2648,7 +2650,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, msg=result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["kind"], "flow_package")
-        self.assertEqual(payload["workflow_id"], "demo_prompt_loop")
+        self.assertEqual(payload["workflow_id"], "demo-prompt-loop")
         self.assertEqual(Path(payload["output_file"]), output_file)
         self.assertTrue(output_file.exists())
 
@@ -2668,11 +2670,11 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertFalse(any("__pycache__" in name for name in names))
         self.assertFalse(any(name.endswith(".pyc") for name in names))
         self.assertEqual(package_manifest["package_type"], "durable-workflow-runtime.flow")
-        self.assertEqual(package_manifest["workflow_id"], "demo_prompt_loop")
-        self.assertEqual(binding_entry["workflow_id"], "demo_prompt_loop")
+        self.assertEqual(package_manifest["workflow_id"], "demo-prompt-loop")
+        self.assertEqual(binding_entry["workflow_id"], "demo-prompt-loop")
         self.assertEqual(
             binding_entry["start_input_schema"],
-            self._contract_start_input_schema("demo_prompt_loop"),
+            self._contract_start_input_schema("demo-prompt-loop"),
         )
 
     def test_pack_cli_rejects_unpublished_workflow(self) -> None:
@@ -2706,7 +2708,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             binding_path.write_text(
                 json.dumps(
                     {
-                        "default_workflow_id": "demo_prompt_loop",
+                        "default_workflow_id": "demo-prompt-loop",
                         "workflows": [],
                     },
                     ensure_ascii=False,
@@ -2782,7 +2784,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             binding_path.write_text(
                 json.dumps(
                     {
-                        "default_workflow_id": "demo_prompt_loop",
+                        "default_workflow_id": "demo-prompt-loop",
                         "workflows": [
                             {
                                 "workflow_id": "registered_demo",
@@ -4451,7 +4453,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn("workflow already exists", result.stderr)
 
-    def test_workflow_creator_cli_rejects_non_importable_workflow_id(self) -> None:
+    def test_workflow_creator_cli_accepts_kebab_case_workflow_id(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
             runtime_root = tmpdir_path / "durable-workflow-runtime"
@@ -4473,8 +4475,59 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 text=True,
             )
 
-            self.assertEqual(result.returncode, 1)
-            self.assertIn("Python package identifier", result.stderr)
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["workflow_id"], "paper-review-flow")
+            # The on-disk package uses the derived module name.
+            workflow_dir = runtime_root / "workflow-runtime" / "workflows" / "paper_review_flow"
+            self.assertTrue(workflow_dir.is_dir())
+            contract_text = (workflow_dir / "contract.py").read_text(encoding="utf-8")
+            self.assertIn('WORKFLOW_ID = "paper-review-flow"', contract_text)
+            self.assertIn(
+                'ref="workflows.paper_review_flow.verifiers:verify_run_primary_stage"',
+                contract_text,
+            )
+            manifest_payload = json.loads(
+                (workflow_dir / "manifest.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(manifest_payload["workflow_id"], "paper-review-flow")
+            binding_payload = json.loads(
+                (runtime_root / "workflow-binding.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(
+                binding_payload["workflows"][0]["workflow_id"],
+                "paper-review-flow",
+            )
+            shortcut_skill = (
+                runtime_root / "workflow-shortcuts" / "paper-review-flow" / "SKILL.md"
+            )
+            self.assertTrue(shortcut_skill.is_file())
+            self.assertIn("name: paper-review-flow", shortcut_skill.read_text(encoding="utf-8"))
+
+    def test_workflow_creator_cli_rejects_invalid_workflow_id(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            runtime_root = tmpdir_path / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+
+            for invalid_workflow_id in ("9-paper-review", "paper..review", "paper review"):
+                result = subprocess.run(
+                    [
+                        sys.executable,
+                        str(CREATE_WORKFLOW_PATH),
+                        "--runtime-skill-root",
+                        str(runtime_root),
+                        "--workflow-id",
+                        invalid_workflow_id,
+                        "--flow-description",
+                        "Review academic paper drafts through structured reviewer stages.",
+                    ],
+                    cwd=REPO_ROOT,
+                    capture_output=True,
+                    text=True,
+                )
+                self.assertEqual(result.returncode, 1)
+                self.assertIn("workflow_id must match", result.stderr)
 
     def test_bridge_start_writes_response_file(self) -> None:
         request_file, response_file = self._write_host_io_start_request(self._start_request())
@@ -4795,10 +4848,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.verifier_runner import run_step_verifier
         from workflows.common.contracts import StepVerifier
 
-        modules = load_workflow_modules("demo_prompt_loop")
+        modules = load_workflow_modules("demo-prompt-loop")
         run_state = RunState(
             run_id="run_shell_ok",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",
@@ -4838,10 +4891,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         from runtime.verifier_runner import run_step_verifier
         from workflows.common.contracts import StepVerifier
 
-        modules = load_workflow_modules("demo_prompt_loop")
+        modules = load_workflow_modules("demo-prompt-loop")
         run_state = RunState(
             run_id="run_shell_fail",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",

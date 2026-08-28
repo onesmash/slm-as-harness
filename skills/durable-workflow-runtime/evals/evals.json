@@ -3,7 +3,7 @@
   "evals": [
     {
       "id": 1,
-      "prompt": "/durable-workflow-runtime demo_prompt_loop implement a menu item, then start the workflow without creating any files in the repo root",
+      "prompt": "/durable-workflow-runtime demo-prompt-loop implement a menu item, then start the workflow without creating any files in the repo root",
       "expected_output": "The agent allocates the start request and response under .durable-workflow-runtime/host-io/ by using scripts/host_io.py before calling bridge.py start.",
       "files": []
     },

@@ -1,4 +1,4 @@
-向用户总结 `academic_research_pipeline` 当前执行结果。
+向用户总结 `academic-research-pipeline` 当前执行结果。
 
 研究目标：{{research_goal}}
 

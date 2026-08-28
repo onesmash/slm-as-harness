@@ -1,12 +1,12 @@
-# performance_optimization_cycle Flowchart
+# performance-optimization-cycle Flowchart
 
-Developer-facing overview for `performance_optimization_cycle`.
+Developer-facing overview for `performance-optimization-cycle`.
 
 The Mermaid diagram shows the durable route; the table below explains what each stage does.
 
 ```mermaid
 flowchart TD
-    start([start performance_optimization_cycle]) --> diagnose_performance[diagnose_performance]
+    start([start performance-optimization-cycle]) --> diagnose_performance[diagnose_performance]
     diagnose_performance -->|success| brainstorm_optimization[brainstorm_optimization]
     brainstorm_optimization -->|success| research_optimization[research_optimization]
     research_optimization -->|success| implement_optimization[implement_optimization]

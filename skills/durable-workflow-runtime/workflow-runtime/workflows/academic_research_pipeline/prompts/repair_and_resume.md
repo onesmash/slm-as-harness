@@ -1,4 +1,4 @@
-修复 `academic_research_pipeline` 的当前阶段，并判断是可以直接重试，还是必须先请求外部输入后再继续修复。
+修复 `academic-research-pipeline` 的当前阶段，并判断是可以直接重试，还是必须先请求外部输入后再继续修复。
 
 研究目标：
 {{research_goal}}

@@ -110,8 +110,8 @@ On success, `pack.py` prints a JSON object:
 ```json
 {
   "kind": "flow_package",
-  "workflow_id": "demo_prompt_loop",
-  "output_file": "/abs/path/demo_prompt_loop.flow",
+  "workflow_id": "demo-prompt-loop",
+  "output_file": "/abs/path/demo-prompt-loop.flow",
   "included_files": 12,
   "size_bytes": 4096,
   "package_manifest": "package-manifest.json"

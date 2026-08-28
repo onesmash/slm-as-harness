@@ -11,8 +11,8 @@ Copy this directory into:
 
 Then make these replacements first:
 
-1. Rename the directory from `ios_ai_assisted_development_flow` to your real `workflow_id`.
-2. Replace `ios_ai_assisted_development_flow` in:
+1. Rename the directory from `ios-ai-assisted-development-flow` to your real `workflow_id`.
+2. Replace `ios-ai-assisted-development-flow` in:
    - `contract.py`
    - verifier `ref` strings
    - any prompt wording that should mention the real workflow name

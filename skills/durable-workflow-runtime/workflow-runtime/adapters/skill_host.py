@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import tempfile
 from pathlib import Path
@@ -11,7 +10,6 @@ SKILL_RUNTIME_ROOT = Path(__file__).resolve().parents[1]
 SKILL_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_BINDING_CONFIG_PATH = SKILL_ROOT / "workflow-binding.json"
 BINDING_CONFIG_ENV_VAR = "DURABLE_WORKFLOW_RUNTIME_BINDING_CONFIG_PATH"
-_WORKFLOW_ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 if str(SKILL_RUNTIME_ROOT) not in sys.path:
     sys.path.insert(0, str(SKILL_RUNTIME_ROOT))
 
@@ -25,6 +23,7 @@ from runtime.errors import (
 )
 from runtime.transport import canonicalize_observation
 from runtime.telemetry import RuntimeTelemetry
+from runtime.workflow_identity import is_valid_workflow_id, workflow_module_name
 
 
 def _binding_config_path() -> Path:
@@ -160,7 +159,7 @@ def _validate_workflow_is_available(runtime_root: Path, *, workflow_id: str, pay
     if workflow_id not in published_ids:
         raise BootstrapError(f"workflow is not published in binding catalog: {workflow_id}")
 
-    workflow_dir = runtime_root / "workflows" / workflow_id
+    workflow_dir = runtime_root / "workflows" / workflow_module_name(workflow_id)
     if not workflow_dir.is_dir():
         raise BootstrapError(f"configured workflow does not exist: {workflow_id}")
 
@@ -178,8 +177,11 @@ def _validate_workflow_is_available(runtime_root: Path, *, workflow_id: str, pay
 
 
 def _validate_workflow_id(workflow_id: str) -> None:
-    if not _WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
-        raise BootstrapError("workflow_id must be a safe Python module identifier")
+    if not is_valid_workflow_id(workflow_id):
+        raise BootstrapError(
+            "workflow_id must match [A-Za-z_][A-Za-z0-9_-]* "
+            "(use hyphen-separated kebab-case for new workflows, e.g. pdf-processing)"
+        )
 
 
 def _bootstrap_runtime_imports(runtime_root: Path) -> None:

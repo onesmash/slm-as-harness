@@ -120,11 +120,17 @@ A good workflow boundary is:
 - broad enough that the runtime, not chat history, owns the whole loop
 - stable enough that downstream tests can assert exact step IDs and branch semantics
 
-Use a stable directory name and `workflow_id`, for example:
+Use a stable `workflow_id`; new workflows use hyphen-separated (kebab-case)
+ids, for example:
 
 ```text
-superpowers_delivery_chain
+superpowers-delivery-chain
 ```
+
+The on-disk package under `workflow-runtime/workflows/<module_name>/` uses the
+derived underscore form (`superpowers_delivery_chain`) because Python module
+names cannot contain hyphens; the runtime derives it from the workflow_id
+automatically, so keep the two in sync when authoring by hand.
 
 Avoid IDs that encode temporary experiments or prompt wording.
 
@@ -140,7 +146,7 @@ Minimum shape:
 
 ```json
 {
-  "workflow_id": "your_workflow_id",
+  "workflow_id": "your-workflow-id",
   "flow_description": "一句话说明这个 workflow 适合什么任务，以及它和相邻 workflow 的边界。",
   "start_input_schema": {
     "task_input": {},

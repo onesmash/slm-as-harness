@@ -129,13 +129,13 @@ On success, `register.py` prints a JSON object:
 ```json
 {
   "kind": "flow_registration",
-  "workflow_id": "demo_prompt_loop",
+  "workflow_id": "demo-prompt-loop",
   "workflow_dir": "/abs/path/workflow-runtime/workflows/demo_prompt_loop",
   "binding_file": "/abs/path/workflow-binding.json",
-  "shortcut_skill_name": "demo_prompt_loop",
-  "shortcut_skill_dir": "/abs/path/workflow-shortcuts/demo_prompt_loop",
-  "shortcut_skill_file": "/abs/path/workflow-shortcuts/demo_prompt_loop/SKILL.md",
-  "claude_shortcut_skill_dir": "/abs/path/.claude/skills/demo_prompt_loop",
+  "shortcut_skill_name": "demo-prompt-loop",
+  "shortcut_skill_dir": "/abs/path/workflow-shortcuts/demo-prompt-loop",
+  "shortcut_skill_file": "/abs/path/workflow-shortcuts/demo-prompt-loop/SKILL.md",
+  "claude_shortcut_skill_dir": "/abs/path/.claude/skills/demo-prompt-loop",
   "created_claude_shortcut_skill": true,
   "replaced_existing": false,
   "installed_files": 12

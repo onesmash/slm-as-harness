@@ -9,6 +9,8 @@ import shutil
 import tempfile
 from pathlib import Path
 
+from runtime.workflow_identity import is_valid_workflow_id, workflow_module_name
+
 
 SUPPORTED_DEPENDENCY_TYPES = {"skill", "cli", "python_package", "mcp"}
 SUPPORTED_SCOPES = {"project", "global", "either"}
@@ -21,7 +23,6 @@ GLOBAL_SKILL_RECURSIVE_ROOTS = [
     "~/.codex/plugins/cache/openai-primary-runtime",
 ]
 RECORDED_BY = "bridge.py preflight"
-_WORKFLOW_ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _DEPENDENCY_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,200}$")
 _PYTHON_MODULE_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$")
 _CLI_COMMAND_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,128}$")
@@ -39,12 +40,13 @@ def build_preflight_result(
     workflow_id: str,
     binding_path: str | Path | None = None,
 ) -> dict:
-    if not isinstance(workflow_id, str) or not _WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+    if not is_valid_workflow_id(workflow_id):
         raise ValueError("invalid workflow_id for preflight")
     repo_path = Path(repo_root).resolve()
     runtime_path = Path(runtime_root).resolve()
-    manifest_path = runtime_path / "workflows" / workflow_id / "manifest.json"
-    lockfile_path = runtime_path / "workflows" / workflow_id / ".workflow-lock.json"
+    module_name = workflow_module_name(workflow_id)
+    manifest_path = runtime_path / "workflows" / module_name / "manifest.json"
+    lockfile_path = runtime_path / "workflows" / module_name / ".workflow-lock.json"
     base_result = {
         "kind": "preflight_result",
         "workflow_id": workflow_id,
@@ -677,7 +679,7 @@ def _write_lockfile(path: Path, payload: dict) -> None:
 
 
 def _preflight_cache_path(repo_root: Path, workflow_id: str) -> Path:
-    if not _WORKFLOW_ID_PATTERN.fullmatch(workflow_id):
+    if not is_valid_workflow_id(workflow_id):
         raise ValueError("invalid workflow_id for preflight cache")
     return (
         repo_root
@@ -747,7 +749,7 @@ def _preflight_fingerprint(
     )
     if binding_path is not None:
         _hash_path_contents(digest, Path(binding_path).expanduser().resolve(strict=False))
-    workflow_dir = (runtime_root / "workflows" / workflow_id).resolve()
+    workflow_dir = (runtime_root / "workflows" / workflow_module_name(workflow_id)).resolve()
     if workflow_dir.is_dir():
         for path in sorted(workflow_dir.rglob("*")):
             if not path.is_file() or path.is_symlink() or "__pycache__" in path.parts:

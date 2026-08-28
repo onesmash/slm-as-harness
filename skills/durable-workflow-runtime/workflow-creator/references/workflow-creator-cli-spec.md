@@ -588,8 +588,9 @@ the generated suite should make it easy to verify:
 
 `create_workflow.py` validates scaffold and spec concerns:
 
-- `workflow_id` is a Python-package-safe identifier matching
-  `[A-Za-z_][A-Za-z0-9_]*`
+- `workflow_id` matches `[A-Za-z_][A-Za-z0-9_-]*`; new workflows should use
+  hyphen-separated (kebab-case) ids such as `pdf-processing`, while snake_case
+  ids remain accepted for regenerating existing workflows
 - the runtime skill root exists
 - `workflow_skeleton` exists
 - existing workflow directories or binding entries are rejected unless

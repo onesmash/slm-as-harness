@@ -1,12 +1,12 @@
-# earnings_reviewer Flowchart
+# earnings-reviewer Flowchart
 
-Developer-facing overview for `earnings_reviewer`.
+Developer-facing overview for `earnings-reviewer`.
 
 The Mermaid diagram shows the durable route; the table below explains what each stage does.
 
 ```mermaid
 flowchart TD
-    start([start earnings_reviewer]) --> collect_earnings_packet[collect_earnings_packet]
+    start([start earnings-reviewer]) --> collect_earnings_packet[collect_earnings_packet]
     collect_earnings_packet -->|default success| analyze_earnings_call[analyze_earnings_call]
     analyze_earnings_call -->|default success| update_coverage_model[update_coverage_model]
     update_coverage_model -->|success| audit_coverage_model[audit_coverage_model]

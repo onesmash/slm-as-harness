@@ -99,8 +99,13 @@ regeneration.
 
 ## Authoring Contract
 
-- Use a Python-package-safe `workflow_id`, such as `pdf_processing`, not
-  `pdf-processing`.
+- Use a hyphen-separated (kebab-case) `workflow_id` for new workflows, such
+  as `pdf-processing`. The on-disk package under
+  `workflow-runtime/workflows/<module_name>/` keeps the underscore form
+  (`pdf_processing`) because Python module names cannot contain hyphens; the
+  creator derives it automatically.
+- Snake_case ids remain accepted so existing workflows can be regenerated with
+  `--force`, but new workflows should use kebab-case.
 - Create concrete stage IDs, step contracts, prompt files, policy transitions,
   verifier functions, and the flowchart from the user's business workflow.
 - Write each stage `prompt` as the rendered first line of the prompt asset, not

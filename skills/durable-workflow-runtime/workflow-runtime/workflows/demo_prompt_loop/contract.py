@@ -1,7 +1,7 @@
 from workflows.common.contracts import StepContract, StepVerifier, WorkflowInputContract
 
 
-WORKFLOW_ID = "demo_prompt_loop"
+WORKFLOW_ID = "demo-prompt-loop"
 
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     task_input_schema={

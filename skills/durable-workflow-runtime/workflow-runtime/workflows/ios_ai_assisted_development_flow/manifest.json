@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_id": "ios_ai_assisted_development_flow",
+  "workflow_id": "ios-ai-assisted-development-flow",
   "description": "Run the AI-assisted development path from brainstorming-nex through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
   "start_input_schema": {
     "task_input": {

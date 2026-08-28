@@ -1,6 +1,6 @@
-# demo_prompt_loop Flowchart
+# demo-prompt-loop Flowchart
 
-Developer-facing overview for `demo_prompt_loop`.
+Developer-facing overview for `demo-prompt-loop`.
 
 Derived from:
 
@@ -14,7 +14,7 @@ truth, and host agents must not choose branches from this diagram.
 
 ```mermaid
 flowchart TD
-    start([start demo_prompt_loop]) --> collect_context[collect_context]
+    start([start demo-prompt-loop]) --> collect_context[collect_context]
     collect_context --> outcome{context usable?}
     outcome -->|yes| finalize_summary([finalize_summary])
     outcome -->|needs access| request_missing_access[request_missing_access]

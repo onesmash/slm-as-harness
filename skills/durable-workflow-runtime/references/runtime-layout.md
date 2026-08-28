@@ -65,9 +65,9 @@ Real step prompt bodies live under:
 
 The shipped binding catalog now includes at least:
 
-- `demo_prompt_loop`
+- `demo-prompt-loop`
 - `superpowers_delivery_chain`
-- `academic_research_pipeline`
+- `academic-research-pipeline`
 
 Selection happens at `start`:
 

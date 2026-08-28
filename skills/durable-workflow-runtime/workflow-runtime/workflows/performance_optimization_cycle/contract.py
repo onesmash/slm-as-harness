@@ -1,7 +1,7 @@
 from workflows.common.contracts import (SkillRoute, SkillUseWhen, StepContract, StepVerifier, WorkflowInputContract)
 
 
-WORKFLOW_ID = 'performance_optimization_cycle'
+WORKFLOW_ID = 'performance-optimization-cycle'
 
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     task_input_schema={'goal': 'string', 'baseline_cycles': 'integer?'},

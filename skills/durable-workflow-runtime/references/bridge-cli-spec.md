@@ -197,7 +197,7 @@ The runtime needs host execution before it can continue.
     "failure_schema": {},
     "resume_instructions": "...",
     "metadata": {
-      "workflow_id": "demo_prompt_loop",
+      "workflow_id": "demo-prompt-loop",
       "workflow_version": "v1"
     }
   }
@@ -258,13 +258,13 @@ The workflow has reached its terminal step.
     "failure_schema": {},
     "resume_instructions": "No further resume.",
     "metadata": {
-      "workflow_id": "demo_prompt_loop",
+      "workflow_id": "demo-prompt-loop",
       "workflow_version": "v1"
     }
   },
   "next_step_recommendations": {
     "kind": "workflow_catalog_lookup",
-    "source_workflow_id": "demo_prompt_loop",
+    "source_workflow_id": "demo-prompt-loop",
     "instructions": [
       "Read workflow-binding.json from the durable-workflow-runtime skill root before recommending the next workflow.",
       "Use catalog entry flow_description and start_input_schema to select a suitable workflow_id.",

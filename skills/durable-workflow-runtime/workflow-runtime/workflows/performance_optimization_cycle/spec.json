@@ -1,5 +1,5 @@
 {
-  "workflow_id": "performance_optimization_cycle",
+  "workflow_id": "performance-optimization-cycle",
   "state_mode": "custom",
   "flow_description": "适用于性能敏感内核的通用、可恢复优化闭环：从头脑风暴、研究、直接实现与评审到知识库更新，并将已验证结果带入下一轮优化。",
   "start_input_schema": {

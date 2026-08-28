@@ -1,8 +1,8 @@
 {
-  "default_workflow_id": "demo_prompt_loop",
+  "default_workflow_id": "demo-prompt-loop",
   "workflows": [
     {
-      "workflow_id": "demo_prompt_loop",
+      "workflow_id": "demo-prompt-loop",
       "flow_description": "demo",
       "start_input_schema": {
         "task_input": {
@@ -17,7 +17,7 @@
       }
     },
     {
-      "workflow_id": "academic_research_pipeline",
+      "workflow_id": "academic-research-pipeline",
       "flow_description": "academic research pipeline",
       "start_input_schema": {
         "task_input": {
@@ -46,7 +46,7 @@
       }
     },
     {
-      "workflow_id": "ios_ai_assisted_development_flow",
+      "workflow_id": "ios-ai-assisted-development-flow",
       "flow_description": "Run the AI-assisted development path from brainstorming-nex through planning, implementation, release QA, and pre-merge verification, with knowledge-base available as supporting context throughout.",
       "start_input_schema": {
         "task_input": {
@@ -72,7 +72,7 @@
       }
     },
     {
-      "workflow_id": "performance_optimization_cycle",
+      "workflow_id": "performance-optimization-cycle",
       "flow_description": "适用于性能敏感内核的通用、可恢复优化闭环：从头脑风暴、研究、直接实现与评审到知识库更新，并将已验证结果带入下一轮优化。",
       "start_input_schema": {
         "task_input": {
@@ -89,8 +89,8 @@
       }
     },
     {
-      "workflow_id": "co_storm_autonomous_research",
-      "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff. NOTE: constraints.coverage_threshold is the minimum NUMBER of distinct assessed topics (not a percentage); set it to the realistic topic count, e.g. 2-10 for a focused study, or the roundtable will demand that many distinct topic ids.",
+      "workflow_id": "co-storm-autonomous-research",
+      "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff. NOTE: the warm-start stage seeds the planned topic set (4-8 topics) and every seeded topic must be assessed before the report can be complete; set constraints.max_rounds (default 8) and constraints.max_steps (default 24) large enough to cover the planned topics, otherwise the run ends as an explicitly partial report. constraints.coverage_threshold remains only a deterministic lower bound on distinct assessed topics.",
       "start_input_schema": {
         "task_input": {
           "goal": "string",
@@ -113,7 +113,7 @@
       }
     },
     {
-      "workflow_id": "earnings_reviewer",
+      "workflow_id": "earnings-reviewer",
       "flow_description": "Process a covered name's earnings event: pull the print, transcript, and filings; analyze the call; update and audit the coverage model; then stage a post-earnings note draft for senior-analyst review without publishing.",
       "start_input_schema": {
         "task_input": {

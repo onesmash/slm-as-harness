@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_id": "earnings_reviewer",
+  "workflow_id": "earnings-reviewer",
   "installed": [
     {
       "id": "earnings-analysis",

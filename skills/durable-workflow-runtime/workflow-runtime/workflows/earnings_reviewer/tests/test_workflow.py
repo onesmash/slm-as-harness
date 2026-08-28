@@ -658,7 +658,7 @@ class EarningsReviewerWorkflowGeneratedTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        response = engine.start('earnings_reviewer', {
+        response = engine.start('earnings-reviewer', {
             "task_input": {"goal": "generated workflow regression"},
             "context": {"repo_root": str(REPO_ROOT)},
             "constraints": {"max_steps": 5},

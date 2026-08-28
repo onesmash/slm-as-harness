@@ -37,7 +37,7 @@ def delete_workflow(
     _validate_confirmation(resolved_workflow_id, confirm)
     binding_path = runtime_root / "workflow-binding.json"
     workflows_root = runtime_root / "workflow-runtime" / "workflows"
-    workflow_dir = workflows_root / resolved_workflow_id
+    workflow_dir = workflows_root / resolved_workflow_id.replace("-", "_")
 
     binding_payload = _load_json_object(binding_path, "workflow binding config")
     workflows = _get_workflows(binding_payload)

@@ -54,10 +54,10 @@ Current binding config shape:
 
 ```json
 {
-  "default_workflow_id": "demo_prompt_loop",
+  "default_workflow_id": "demo-prompt-loop",
   "workflows": [
     {
-      "workflow_id": "demo_prompt_loop",
+      "workflow_id": "demo-prompt-loop",
       "flow_description": "...",
       "start_input_schema": {
         "task_input": {},
@@ -75,7 +75,7 @@ Current binding config shape:
       }
     },
     {
-      "workflow_id": "academic_research_pipeline",
+      "workflow_id": "academic-research-pipeline",
       "flow_description": "...",
       "start_input_schema": {
         "task_input": {},

@@ -11,8 +11,8 @@ Copy this directory into:
 
 Then make these replacements first:
 
-1. Rename the directory from `performance_optimization_cycle` to your real `workflow_id`.
-2. Replace `performance_optimization_cycle` in:
+1. Rename the directory from `performance-optimization-cycle` to your real `workflow_id`.
+2. Replace `performance-optimization-cycle` in:
    - `contract.py`
    - verifier `ref` strings
    - any prompt wording that should mention the real workflow name

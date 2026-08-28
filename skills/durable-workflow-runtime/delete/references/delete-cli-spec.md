@@ -145,16 +145,16 @@ On success, `delete_workflow.py` prints a JSON object:
 ```json
 {
   "kind": "workflow_deletion",
-  "workflow_id": "demo_prompt_loop",
+  "workflow_id": "demo-prompt-loop",
   "workflow_dir": "/abs/path/workflow-runtime/workflows/demo_prompt_loop",
   "binding_file": "/abs/path/workflow-binding.json",
   "removed_binding": true,
   "removed_workflow_dir": true,
   "default_workflow_id": "superpowers_delivery_chain",
-  "shortcut_skill_name": "demo_prompt_loop",
-  "shortcut_skill_dir": "/abs/path/workflow-shortcuts/demo_prompt_loop",
-  "shortcut_skill_file": "/abs/path/workflow-shortcuts/demo_prompt_loop/SKILL.md",
-  "claude_shortcut_skill_dir": "/abs/path/.claude/skills/demo_prompt_loop",
+  "shortcut_skill_name": "demo-prompt-loop",
+  "shortcut_skill_dir": "/abs/path/workflow-shortcuts/demo-prompt-loop",
+  "shortcut_skill_file": "/abs/path/workflow-shortcuts/demo-prompt-loop/SKILL.md",
+  "claude_shortcut_skill_dir": "/abs/path/.claude/skills/demo-prompt-loop",
   "removed_shortcut_skill": true,
   "removed_claude_shortcut_skill": true
 }

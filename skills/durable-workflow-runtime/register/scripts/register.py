@@ -38,7 +38,8 @@ def register_flow_package(
 
     package = _read_flow_package(flow_path)
     workflow_id = package["workflow_id"]
-    target_workflow_dir = workflows_root / workflow_id
+    module_name = workflow_id.replace("-", "_")
+    target_workflow_dir = workflows_root / module_name
     binding_payload = _load_json_object(binding_path, "workflow binding config")
     existing_binding_index = _find_binding_index(binding_payload, workflow_id)
     target_exists = target_workflow_dir.exists()
@@ -48,8 +49,8 @@ def register_flow_package(
             f"workflow already exists; pass --force to replace: {workflow_id}"
         )
 
-    temp_workflow_dir = workflows_root / f".{workflow_id}.register-tmp"
-    backup_workflow_dir = workflows_root / f".{workflow_id}.register-backup"
+    temp_workflow_dir = workflows_root / f".{module_name}.register-tmp"
+    backup_workflow_dir = workflows_root / f".{module_name}.register-backup"
     _remove_path(temp_workflow_dir)
     _remove_path(backup_workflow_dir)
 

@@ -1,7 +1,7 @@
 from workflows.common.contracts import (SkillRoute, SkillUseWhen, StepContract, StepVerifier, WorkflowInputContract)
 
 
-WORKFLOW_ID = 'earnings_reviewer'
+WORKFLOW_ID = 'earnings-reviewer'
 
 WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
     task_input_schema={'ticker': 'string?', 'reporting_period': 'string?', 'goal': 'string?', 'skip_note': 'boolean?'},

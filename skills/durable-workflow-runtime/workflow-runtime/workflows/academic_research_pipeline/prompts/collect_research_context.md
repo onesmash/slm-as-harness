@@ -1,4 +1,4 @@
-收集 `academic_research_pipeline` 的入口上下文。
+收集 `academic-research-pipeline` 的入口上下文。
 
 用户目标：
 {{research_goal}}

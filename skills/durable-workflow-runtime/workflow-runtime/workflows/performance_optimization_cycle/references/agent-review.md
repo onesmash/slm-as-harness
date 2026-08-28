@@ -1,4 +1,4 @@
-# Agent Review for `performance_optimization_cycle`
+# Agent Review for `performance-optimization-cycle`
 
 This workflow was generated from `spec.json` by `workflow-creator`. Treat
 `spec.json` as the source of truth for the review. The generated files prove the

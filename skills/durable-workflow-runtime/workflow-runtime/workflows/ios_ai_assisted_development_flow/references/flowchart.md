@@ -1,12 +1,12 @@
-# ios_ai_assisted_development_flow Flowchart
+# ios-ai-assisted-development-flow Flowchart
 
-Developer-facing overview for `ios_ai_assisted_development_flow`.
+Developer-facing overview for `ios-ai-assisted-development-flow`.
 
 The Mermaid diagram shows the durable route; the table below explains what each stage does.
 
 ```mermaid
 flowchart TD
-    start([start ios_ai_assisted_development_flow]) --> run_brainstorming[run_brainstorming]
+    start([start ios-ai-assisted-development-flow]) --> run_brainstorming[run_brainstorming]
     run_brainstorming -->|success| approve_subagent_review[approve_subagent_review]
     approve_subagent_review -->|default success| run_spec_review[run_spec_review]
     run_spec_review -->|default success| write_implementation_plan[write_implementation_plan]

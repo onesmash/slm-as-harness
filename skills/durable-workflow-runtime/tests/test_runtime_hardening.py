@@ -32,7 +32,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             store = FileRunStateStore(tmpdir)
             initial = RunState(
                 run_id="run_atomic_cas",
-                workflow_id="demo_prompt_loop",
+                workflow_id="demo-prompt-loop",
                 workflow_version="v1",
                 status="waiting_for_host",
                 current_node="collect_context",
@@ -53,7 +53,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             def writer() -> None:
                 candidate = RunState(
                     run_id="run_atomic_cas",
-                    workflow_id="demo_prompt_loop",
+                    workflow_id="demo-prompt-loop",
                     workflow_version="v1",
                     status="waiting_for_host",
                     current_node="collect_context",
@@ -86,7 +86,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             store = FileRunStateStore(tmpdir)
             state = RunState(
                 run_id="run_retention_lock",
-                workflow_id="demo_prompt_loop",
+                workflow_id="demo-prompt-loop",
                 workflow_version="v1",
                 status="done",
                 current_node="finalize_summary",
@@ -122,7 +122,7 @@ class RuntimeHardeningTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             engine = GraphBuilderRuntimeEngine(tmpdir)
             started = engine.start(
-                "demo_prompt_loop",
+                "demo-prompt-loop",
                 {
                     "task_input": {"goal": "terminal guard"},
                     "context": {"repo_root": tmpdir},
@@ -154,7 +154,7 @@ class RuntimeHardeningTests(unittest.TestCase):
 
         state = RunState(
             run_id="run_replay_retention",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",
@@ -202,7 +202,7 @@ class RuntimeHardeningTests(unittest.TestCase):
         malformed_duplicate = {**reference, "relative_path": "../escape"}
         payload = RunState(
             run_id="run_duplicate_artifact",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",
@@ -249,7 +249,7 @@ class RuntimeHardeningTests(unittest.TestCase):
 
             state = RunState(
                 run_id="run_safe",
-                workflow_id="demo_prompt_loop",
+                workflow_id="demo-prompt-loop",
                 workflow_version="v1",
                 status="waiting_for_host",
                 current_node="collect_context",
@@ -283,7 +283,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             store = FileRunStateStore(tmpdir)
             state = RunState(
                 run_id="run_cas",
-                workflow_id="demo_prompt_loop",
+                workflow_id="demo-prompt-loop",
                 workflow_version="v1",
                 status="waiting_for_host",
                 current_node="collect_context",
@@ -323,7 +323,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             repo_root = Path(tmpdir)
             engine = GraphBuilderRuntimeEngine(repo_root)
             started = engine.start(
-                "demo_prompt_loop",
+                "demo-prompt-loop",
                 {
                     "task_input": {"goal": "idempotency"},
                     "context": {"repo_root": str(repo_root)},
@@ -358,7 +358,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             repo_root = Path(tmpdir)
             engine = GraphBuilderRuntimeEngine(repo_root)
             started = engine.start(
-                "demo_prompt_loop",
+                "demo-prompt-loop",
                 {
                     "task_input": {"goal": "idempotency conflict"},
                     "context": {"repo_root": str(repo_root)},
@@ -412,7 +412,7 @@ class RuntimeHardeningTests(unittest.TestCase):
         from runtime.module_loader import load_workflow_modules
 
         with self.assertRaisesRegex(WorkflowExecutionError, "invalid workflow_id"):
-            load_workflow_modules("demo_prompt_loop.__class__")
+            load_workflow_modules("demo-prompt-loop.__class__")
 
     def test_observation_payload_limits_reject_large_raw_output(self) -> None:
         from runtime.errors import ObservationValidationError
@@ -422,7 +422,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             repo_root = Path(tmpdir)
             engine = GraphBuilderRuntimeEngine(repo_root)
             started = engine.start(
-                "demo_prompt_loop",
+                "demo-prompt-loop",
                 {
                     "task_input": {"goal": "payload limit"},
                     "context": {"repo_root": str(repo_root)},
@@ -482,7 +482,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             repo_root = Path(tmpdir)
             engine = GraphBuilderRuntimeEngine(repo_root)
             started = engine.start(
-                "demo_prompt_loop",
+                "demo-prompt-loop",
                 {
                     "task_input": {"goal": "budget"},
                     "context": {"repo_root": str(repo_root)},
@@ -547,7 +547,7 @@ class RuntimeHardeningTests(unittest.TestCase):
 
             async def run() -> dict:
                 started = await engine.start_async(
-                    "demo_prompt_loop",
+                    "demo-prompt-loop",
                     {
                         "task_input": {"goal": "async"},
                         "context": {"repo_root": str(repo_root)},
@@ -583,10 +583,10 @@ class RuntimeHardeningTests(unittest.TestCase):
         from runtime.verifier_runner import run_step_verifier
         from workflows.common.contracts import StepVerifier
 
-        modules = load_workflow_modules("demo_prompt_loop")
+        modules = load_workflow_modules("demo-prompt-loop")
         run_state = RunState(
             run_id="run_shell_safe",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",
@@ -620,10 +620,10 @@ class RuntimeHardeningTests(unittest.TestCase):
         from runtime.verifier_runner import run_step_verifier
         from workflows.common.contracts import StepVerifier
 
-        modules = load_workflow_modules("demo_prompt_loop")
+        modules = load_workflow_modules("demo-prompt-loop")
         run_state = RunState(
             run_id="run_shell_output",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",
@@ -658,10 +658,10 @@ class RuntimeHardeningTests(unittest.TestCase):
         from runtime.verifier_runner import run_step_verifier
         from workflows.common.contracts import StepVerifier
 
-        modules = load_workflow_modules("demo_prompt_loop")
+        modules = load_workflow_modules("demo-prompt-loop")
         run_state = RunState(
             run_id="run_shell_timeout",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",
@@ -698,7 +698,7 @@ class RuntimeHardeningTests(unittest.TestCase):
 
         state = RunState(
             run_id="run_history",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",
@@ -727,7 +727,7 @@ class RuntimeHardeningTests(unittest.TestCase):
 
         state = RunState(
             run_id="run_history_redaction",
-            workflow_id="demo_prompt_loop",
+            workflow_id="demo-prompt-loop",
             workflow_version="v1",
             status="waiting_for_host",
             current_node="collect_context",
@@ -780,7 +780,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             repo_root = Path(tmpdir)
             engine = GraphBuilderRuntimeEngine(repo_root)
             started = engine.start(
-                "demo_prompt_loop",
+                "demo-prompt-loop",
                 {
                     "task_input": {"goal": "artifact ref"},
                     "context": {"repo_root": str(repo_root)},
@@ -909,7 +909,7 @@ class RuntimeHardeningTests(unittest.TestCase):
             store = FileRunStateStore(repo_root)
             state = RunState(
                 run_id="run_expired",
-                workflow_id="demo_prompt_loop",
+                workflow_id="demo-prompt-loop",
                 workflow_version="v1",
                 status="done",
                 current_node="finalize_summary",

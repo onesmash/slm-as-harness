@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_id": "ios_ai_assisted_development_flow",
+  "workflow_id": "ios-ai-assisted-development-flow",
   "installed": [
     {
       "id": "brainstorming-nex",

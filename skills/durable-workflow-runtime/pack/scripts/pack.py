@@ -127,7 +127,8 @@ def _resolve_binding_entry(binding_payload: dict[str, Any], workflow_id: str) ->
 
 
 def _resolve_workflow_dir(workflows_root: Path, workflow_id: str) -> Path:
-    workflow_dir = workflows_root / workflow_id
+    module_name = workflow_id.replace("-", "_")
+    workflow_dir = workflows_root / module_name
     if not workflow_dir.is_dir():
         raise PackError(f"configured workflow does not exist: {workflow_id}")
     manifest_path = workflow_dir / "manifest.json"

@@ -1,4 +1,4 @@
-当前 `academic_research_pipeline` 需要外部输入或授权才能解除阻塞；如果修复阶段仍拥有重试决策权，解除阻塞后应先返回修复阶段。
+当前 `academic-research-pipeline` 需要外部输入或授权才能解除阻塞；如果修复阶段仍拥有重试决策权，解除阻塞后应先返回修复阶段。
 
 研究目标：
 {{research_goal}}

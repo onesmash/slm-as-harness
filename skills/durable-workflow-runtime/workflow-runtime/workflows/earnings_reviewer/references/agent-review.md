@@ -1,4 +1,4 @@
-# Agent Review for `earnings_reviewer`
+# Agent Review for `earnings-reviewer`
 
 This workflow was generated from `spec.json` by `workflow-creator`. Treat
 `spec.json` as the source of truth for the review. The generated files prove the

@@ -15,7 +15,11 @@ from typing import Any
 
 WORKFLOW_CREATOR_SKILL_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RUNTIME_SKILL_ROOT = WORKFLOW_CREATOR_SKILL_ROOT.parent
-_WORKFLOW_ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+# Published workflow_id: hyphen-separated (kebab-case) for new workflows, e.g.
+# `pdf-processing`. Snake_case ids remain valid so existing workflows keep
+# working during migration. The on-disk Python package uses the derived module
+# name (hyphens replaced by underscores), see _workflow_module_name().
+_WORKFLOW_ID_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]*$")
 _PYTHON_IMPORT_PATTERN = re.compile(
     r"^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$"
 )
@@ -225,12 +229,13 @@ def create_workflow_scaffold(
 ) -> dict[str, Any]:
     runtime_root = _resolve_runtime_skill_root(runtime_skill_root)
     requested_workflow_id = _validate_workflow_id(str(workflow_id or ""))
+    requested_module_name = _workflow_module_name(requested_workflow_id)
     binding_path = runtime_root / "workflow-binding.json"
     workflows_root = runtime_root / "workflow-runtime" / "workflows"
     skeleton_dir = runtime_root / "workflow-runtime" / "templates" / "workflow_skeleton"
-    target_workflow_dir = workflows_root / requested_workflow_id
-    temp_workflow_dir = workflows_root / f".{requested_workflow_id}.creator-tmp"
-    backup_workflow_dir = workflows_root / f".{requested_workflow_id}.creator-backup"
+    target_workflow_dir = workflows_root / requested_module_name
+    temp_workflow_dir = workflows_root / f".{requested_module_name}.creator-tmp"
+    backup_workflow_dir = workflows_root / f".{requested_module_name}.creator-backup"
 
     binding_payload = _load_json_object(binding_path, "workflow binding config")
     original_binding_bytes = binding_path.read_bytes()
@@ -353,7 +358,7 @@ def create_workflow_scaffold(
         "regression_tests_file": str(regression_tests_file) if regression_tests_file else None,
         "next_actions": [
             "Use spec.json as the workflow blueprint before making future workflow changes.",
-            f"Edit workflow-runtime/workflows/{resolved_workflow_id}/spec.json, then rerun create_workflow.py with --workflow-id {resolved_workflow_id} --force to regenerate workflow files.",
+            f"Edit workflow-runtime/workflows/{_workflow_module_name(resolved_workflow_id)}/spec.json, then rerun create_workflow.py with --workflow-id {resolved_workflow_id} --force to regenerate workflow files.",
             "Translate any generated custom verifier scaffolds and domain-specific routing needs into concrete workflow code before review sign-off.",
             "Run the required subagent-backed agent review using references/agent-review.md before treating the workflow as shipped.",
             "Tighten generated verifiers, business repair routing, state promotion, and tests based on that review.",
@@ -384,7 +389,7 @@ def migrate_legacy_custom_verifier_metadata(
     all_warnings: list[str] = []
 
     for current_workflow_id in requested_workflow_ids:
-        workflow_dir = workflows_root / current_workflow_id
+        workflow_dir = workflows_root / _workflow_module_name(current_workflow_id)
         if not workflow_dir.exists():
             raise WorkflowCreatorError(f"workflow does not exist: {current_workflow_id}")
 
@@ -477,11 +482,23 @@ def _validate_workflow_id(workflow_id: str) -> str:
     resolved = workflow_id.strip()
     if not _WORKFLOW_ID_PATTERN.fullmatch(resolved):
         raise WorkflowCreatorError(
-            "workflow_id must be a Python package identifier: [A-Za-z_][A-Za-z0-9_]*"
+            "workflow_id must match [A-Za-z_][A-Za-z0-9_-]* "
+            "(use hyphen-separated kebab-case for new workflows, e.g. pdf-processing)"
         )
     if resolved in {"_", "__"}:
         raise WorkflowCreatorError("workflow_id must be descriptive")
     return resolved
+
+
+def _workflow_module_name(workflow_id: str) -> str:
+    """Import-safe package name for a workflow_id (hyphens become underscores).
+
+    The published workflow_id may use kebab-case, but Python module names
+    cannot contain hyphens, so the on-disk package under
+    `workflow-runtime/workflows/<module_name>/` and all `workflows.<module_name>`
+    import references use this derived name.
+    """
+    return workflow_id.replace("-", "_")
 
 
 def _validate_flow_description(flow_description: str) -> str:
@@ -1859,6 +1876,7 @@ def _find_binding_index(binding_payload: dict[str, Any], workflow_id: str) -> in
 
 
 def _rewrite_scaffold_identifiers(workflow_dir: Path, workflow_id: str) -> None:
+    module_name = _workflow_module_name(workflow_id)
     class_prefix = _workflow_class_prefix(workflow_id)
     for path in workflow_dir.rglob("*"):
         if not path.is_file():
@@ -1867,14 +1885,28 @@ def _rewrite_scaffold_identifiers(workflow_dir: Path, workflow_id: str) -> None:
             text = path.read_text(encoding="utf-8")
         except UnicodeDecodeError:
             continue
-        text = text.replace("example_workflow", workflow_id)
+        if path.suffix == ".md":
+            # Documentation prose shows the published kebab-case workflow_id.
+            text = text.replace("example_workflow", workflow_id)
+        else:
+            # Python sources and other files need import-safe identifiers, so
+            # the derived module name is used; the contract constant is the one
+            # place that carries the published workflow_id.
+            text = text.replace(
+                'WORKFLOW_ID = "example_workflow"',
+                f'WORKFLOW_ID = "{workflow_id}"',
+            )
+            text = text.replace("example_workflow", module_name)
+        text = text.replace("workflow_skeleton", module_name)
         text = text.replace("ExampleWorkflow", class_prefix)
-        text = text.replace("workflow_skeleton", workflow_id)
         path.write_text(text, encoding="utf-8")
 
 
 def _workflow_class_prefix(workflow_id: str) -> str:
-    return "".join(part.capitalize() for part in workflow_id.split("_") if part) + "Workflow"
+    return (
+        "".join(part.capitalize() for part in re.split(r"[-_]", workflow_id) if part)
+        + "Workflow"
+    )
 
 
 def _render_business_workflow(
@@ -2008,6 +2040,7 @@ def _repair_prompt() -> str:
 
 def _render_contract_py(workflow_spec: dict[str, Any]) -> str:
     workflow_id = workflow_spec["workflow_id"]
+    module_name = _workflow_module_name(workflow_id)
     shared_helpers = workflow_spec["shared_repair_helpers"]
     has_skill_routes = any(stage["skill_routing"] for stage in workflow_spec["stages"]) or any(
         helper["skill_routing"] for helper in shared_helpers.values()
@@ -2064,7 +2097,7 @@ def _render_contract_py(workflow_spec: dict[str, Any]) -> str:
                 ),
                 "    verifier=StepVerifier(",
                 '        kind="python_callable",',
-                f'        ref="workflows.{workflow_id}.verifiers:verify_{stage["step_id"]}",',
+                f'        ref="workflows.{module_name}.verifiers:verify_{stage["step_id"]}",',
                 "        timeout_seconds=15,",
                 '        run_on_status=["succeeded"],',
                 "    ),",
@@ -3365,6 +3398,7 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
 
 def _render_graphbuilder_runtime_py(workflow_spec: dict[str, Any]) -> str:
     workflow_id = workflow_spec["workflow_id"]
+    module_name = _workflow_module_name(workflow_id)
     class_name = _workflow_class_prefix(workflow_id) + "State"
     main_stages = [stage for stage in workflow_spec["stages"] if stage["stage_kind"] == "main"]
     first_stage = main_stages[0]["step_id"]
@@ -3486,7 +3520,7 @@ NODE_DEFINITIONS = {{
 
 
 BUILDER = GraphBuilder(
-    name="{workflow_id}_graphbuilder_runtime",
+    name="{module_name}_graphbuilder_runtime",
     state_type=workflow_state.{class_name},
     input_type=GraphBuilderPreviewInputs,
     output_type=GraphBuilderPreviewResult,
@@ -3546,7 +3580,7 @@ WORKFLOW_GRAPH = BUILDER.build()
 
 
 START_BUILDER = GraphBuilder(
-    name="{workflow_id}_graphbuilder_runtime_start",
+    name="{module_name}_graphbuilder_runtime_start",
     state_type=workflow_state.{class_name},
     input_type=GraphBuilderStartInputs,
     output_type=YieldResponse,
@@ -5167,6 +5201,7 @@ before calling the workflow shipped.
 
 def _render_regression_tests_py(workflow_spec: dict[str, Any]) -> str:
     workflow_id = workflow_spec["workflow_id"]
+    module_name = _workflow_module_name(workflow_id)
     class_name = _workflow_class_prefix(workflow_id) + "GeneratedTests"
     lines = [
         "import sys",
@@ -5184,7 +5219,7 @@ def _render_regression_tests_py(workflow_spec: dict[str, Any]) -> str:
         "if str(RUNTIME_ROOT) not in sys.path:",
         "    sys.path.insert(0, str(RUNTIME_ROOT))",
         "",
-        f"from workflows.{workflow_id} import graphbuilder_runtime, state as workflow_state, verifiers",
+        f"from workflows.{module_name} import graphbuilder_runtime, state as workflow_state, verifiers",
         "",
         "",
         f"class {class_name}(unittest.TestCase):",

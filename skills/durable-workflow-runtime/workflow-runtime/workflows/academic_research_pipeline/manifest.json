@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_id": "academic_research_pipeline",
+  "workflow_id": "academic-research-pipeline",
   "description": "Academic Research Skills durable workflow dependency manifest for preflight gating.",
   "start_input_schema": {
     "task_input": {

@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_id": "performance_optimization_cycle",
+  "workflow_id": "performance-optimization-cycle",
   "installed": [
     {
       "id": "systematic-debugging",

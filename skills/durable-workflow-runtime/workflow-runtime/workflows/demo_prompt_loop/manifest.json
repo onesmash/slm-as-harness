@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "workflow_id": "demo_prompt_loop",
+  "workflow_id": "demo-prompt-loop",
   "description": "Minimal demo workflow with no external dependency gate.",
   "start_input_schema": {
     "task_input": {

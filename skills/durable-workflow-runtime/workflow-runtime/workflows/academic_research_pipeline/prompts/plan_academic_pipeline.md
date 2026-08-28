@@ -1,4 +1,4 @@
-为 `academic_research_pipeline` 生成 ARS 阶段计划。
+为 `academic-research-pipeline` 生成 ARS 阶段计划。
 
 研究目标：
 {{research_goal}}

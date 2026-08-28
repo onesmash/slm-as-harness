@@ -38,10 +38,10 @@ The current catalog lives in:
 
 ```json
 {
-  "default_workflow_id": "demo_prompt_loop",
+  "default_workflow_id": "demo-prompt-loop",
   "workflows": [
     {
-      "workflow_id": "demo_prompt_loop",
+      "workflow_id": "demo-prompt-loop",
       "flow_description": "...",
       "start_input_schema": {
         "task_input": {},
@@ -59,7 +59,7 @@ The current catalog lives in:
       }
     },
     {
-      "workflow_id": "academic_research_pipeline",
+      "workflow_id": "academic-research-pipeline",
       "flow_description": "...",
       "start_input_schema": {
         "task_input": {},
@@ -82,7 +82,7 @@ The fallback workflow used when:
 
 Current shipped default:
 
-- `demo_prompt_loop`
+- `demo-prompt-loop`
 
 ### `workflows`
 
@@ -90,7 +90,8 @@ A catalog for the caller or human operator.
 
 Each item should contain:
 
-- `workflow_id`: stable runtime identifier
+- `workflow_id`: stable runtime identifier; hyphen-separated (kebab-case) for
+  new workflows
 - `flow_description`: short explanation of what the workflow is for
 - `start_input_schema`: the published start-time input contract, copied from
   the workflow's `WORKFLOW_INPUT_CONTRACT`
@@ -169,9 +170,9 @@ Current design intent:
 
 The shipped catalog currently contains:
 
-- `demo_prompt_loop`
+- `demo-prompt-loop`
 - `superpowers_delivery_chain`
-- `academic_research_pipeline`
+- `academic-research-pipeline`
 
 That means the wrapper story is now:
 

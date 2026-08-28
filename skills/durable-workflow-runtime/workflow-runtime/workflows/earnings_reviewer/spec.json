@@ -1,5 +1,5 @@
 {
-  "workflow_id": "earnings_reviewer",
+  "workflow_id": "earnings-reviewer",
   "flow_description": "Process a covered name's earnings event: pull the print, transcript, and filings; analyze the call; update and audit the coverage model; then stage a post-earnings note draft for senior-analyst review without publishing.",
   "start_input_schema": {
     "task_input": {

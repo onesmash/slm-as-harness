@@ -1,6 +1,6 @@
-# academic_research_pipeline Flowchart
+# academic-research-pipeline Flowchart
 
-Developer-facing overview for `academic_research_pipeline`.
+Developer-facing overview for `academic-research-pipeline`.
 
 Derived from:
 
@@ -18,7 +18,7 @@ summary.
 
 ```mermaid
 flowchart TD
-    start([start academic_research_pipeline]) --> collect_research_context[collect_research_context]
+    start([start academic-research-pipeline]) --> collect_research_context[collect_research_context]
     collect_research_context --> plan_academic_pipeline[plan_academic_pipeline]
     plan_academic_pipeline --> run_research_stage[run_research_stage]
     run_research_stage --> run_write_stage[run_write_stage]

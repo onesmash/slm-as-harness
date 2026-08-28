@@ -211,7 +211,7 @@ class IosAiAssistedDevelopmentFlowLegacyRegressionTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        response = engine.start('ios_ai_assisted_development_flow', {
+        response = engine.start('ios-ai-assisted-development-flow', {
             "task_input": {"goal": "generated workflow regression"},
             "context": {"repo_root": str(REPO_ROOT)},
             "constraints": {"max_steps": 5},
@@ -729,7 +729,7 @@ class IosAiAssistedDevelopmentFlowLegacyRegressionTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        response = engine.start('ios_ai_assisted_development_flow', {
+        response = engine.start('ios-ai-assisted-development-flow', {
             "task_input": {"goal": "generated workflow regression"},
             "context": {"repo_root": str(REPO_ROOT)},
             "constraints": {"max_steps": 5},
@@ -756,7 +756,7 @@ class IosAiAssistedDevelopmentFlowLegacyRegressionTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        response = engine.start('ios_ai_assisted_development_flow', {
+        response = engine.start('ios-ai-assisted-development-flow', {
             "task_input": {"goal": "generated max-step terminal regression"},
             "context": {"repo_root": str(REPO_ROOT)},
             "constraints": {"max_steps": 1},
@@ -793,7 +793,7 @@ class IosAiAssistedDevelopmentFlowLegacyRegressionTests(unittest.TestCase):
         from runtime.engine_graphbuilder import GraphBuilderRuntimeEngine
 
         engine = GraphBuilderRuntimeEngine(str(REPO_ROOT))
-        response = engine.start('ios_ai_assisted_development_flow', {
+        response = engine.start('ios-ai-assisted-development-flow', {
             "task_input": {"goal": "generated repair max-step terminal regression"},
             "context": {"repo_root": str(REPO_ROOT)},
             "constraints": {"max_steps": 2},

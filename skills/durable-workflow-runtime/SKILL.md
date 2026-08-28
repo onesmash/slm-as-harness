@@ -280,7 +280,7 @@ Reference shape:
     "failure_schema": {},
     "resume_instructions": "...",
     "metadata": {
-      "workflow_id": "demo_prompt_loop",
+      "workflow_id": "demo-prompt-loop",
       "workflow_version": "v1"
     }
   }
@@ -343,7 +343,7 @@ Reference retry shape:
     "failure_schema": {},
     "resume_instructions": "...",
     "metadata": {
-      "workflow_id": "ios_ai_assisted_development_flow",
+      "workflow_id": "ios-ai-assisted-development-flow",
       "workflow_version": "v1"
     }
   }
@@ -398,7 +398,7 @@ Reference shape:
     "failure_schema": {},
     "resume_instructions": "No further resume.",
     "metadata": {
-      "workflow_id": "demo_prompt_loop",
+      "workflow_id": "demo-prompt-loop",
       "workflow_version": "v1"
     }
   }
