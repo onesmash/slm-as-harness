@@ -948,13 +948,13 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], False)
 
-    def test_expert_results_rejects_unused_over_budget(self):
+    def test_expert_results_accepts_multiple_unused_evidence(self):
         result = verifiers.verify_launch_expert_subagents(
             repo_root=str(REPO_ROOT),
             run_id="generated-test-run",
             step_id='launch_expert_subagents',
             observation={'status': 'succeeded',
- 'summary': 'One expert returned more than three unused retrieved items.',
+ 'summary': 'One expert returned multiple well-formed evidence items that were not cited in its summary or artifact.',
  'structured_output': {'expert_round_index': 1,
                        'expert_results': [{'expert_id': 'historian',
                                            'summary': 'Historian perspective completed with '
@@ -987,7 +987,7 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
  'constraints': {'max_rounds': 8}},
         )
-        self.assertIs(result['passed'], False)
+        self.assertIs(result['passed'], True)
 
     def test_expert_results_rejects_malformed_new_evidence(self):
         result = verifiers.verify_launch_expert_subagents(

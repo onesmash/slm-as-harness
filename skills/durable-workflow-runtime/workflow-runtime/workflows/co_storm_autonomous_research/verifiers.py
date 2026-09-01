@@ -502,8 +502,8 @@ def _run_custom_verifier_requirements_launch_expert_subagents(
 # custom_verifier_stage_id: launch_expert_subagents
 # custom_verifier_requirement_id: expert_results_match_roster
 # template_version: 1
-# spec_fingerprint: 730d24cbc5ea73a0540e35bad24eb4eb8f49405532dddf8a6cf7c36aad7d6ccf
-# implementation_version: 5
+# spec_fingerprint: e097df991e4e16592f1118f553589840073e02864bd20b4cc9ecb5eba0876a7d
+# implementation_version: 6
 def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_roster(
     *,
     output: dict,
@@ -514,7 +514,6 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
     persisted_state = state if isinstance(state, dict) else {}
     errors: list[str] = []
     max_registry_entries = 128
-    max_unused_per_expert = 3
     max_safe_artifact_bytes = 512 * 1024
 
     if output.get("expert_results_complete") is not True:
@@ -767,19 +766,6 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
             cited_ids = summary_ids | artifact_ids
             if not cited_ids.intersection(merged_ids):
                 errors.append(f"expert_results[{index}] must cite at least one merged evidence entry")
-            unused_count = 0
-            new_evidence = result.get("new_evidence")
-            if isinstance(new_evidence, list):
-                for item in new_evidence:
-                    if not isinstance(item, str) or not item.strip():
-                        continue
-                    assigned_id = locator_to_id.get(workflows.co_storm_autonomous_research.citation_locators.source_locator_key(item.strip()))
-                    if assigned_id is None or assigned_id not in cited_ids:
-                        unused_count += 1
-                if unused_count > max_unused_per_expert:
-                    errors.append(
-                        f"expert_results[{index}].new_evidence may include at most {max_unused_per_expert} unused retrieved items"
-                    )
     return "; ".join(errors) if errors else None
 
 # custom_verifier_stage_id: launch_expert_subagents

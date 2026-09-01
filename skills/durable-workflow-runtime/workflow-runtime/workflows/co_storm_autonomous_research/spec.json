@@ -269,15 +269,15 @@
           "Merge new_evidence in roster order into evidence_registry with the following deterministic algorithm: start from the persisted registry as the exact prefix; maintain a seen-locator set initialized from every persisted row's locator (the text before the first ' — ' separator, casefolded); for each expert's new_evidence in roster order, skip any item whose locator is already in the seen set (including duplicates introduced by later experts or repeated within one expert), otherwise append `[<next_id>] <item>` verbatim, add the locator to the seen set, and increment next_id starting at max(persisted id)+1. Return the full registry as persisted prefix plus those numbered entries; do not merge, abbreviate, or rewrite any item text.",
           "Return expert_round_index equal to the persisted {{round_index}} plus one, and do not exceed constraints.max_rounds.",
           "Return expert_results as objects with exactly expert_id, summary, artifact_path, and new_evidence fields.",
-          "Every expert summary or artifact must cite at least one persisted or newly merged citation number, and no expert may cite unknown numbers or invent registry rows the merge did not produce. IMPORTANT: reference new_evidence items in the summary with their ASSIGNED numeric ids in the form [n] (e.g. '新证据引用：[25][26][27]'); bare locator strings are NOT recognized as citations. Keep at most 3 new_evidence items per expert unreferenced by the summary or artifact.",
-          "Each expert may include at most three unused retrieved items that are not cited in that expert's summary or artifact; the merged registry must contain at most 128 entries.",
+          "Every expert summary or artifact must cite at least one persisted or newly merged citation number, and no expert may cite unknown numbers or invent registry rows the merge did not produce. IMPORTANT: reference new_evidence items in the summary with their ASSIGNED numeric ids in the form [n] (e.g. '新证据引用：[25][26][27]'); bare locator strings are NOT recognized as citations.",
+          "Preserve every well-formed new_evidence item through the deterministic merge, subject to the merged registry's limit of 128 entries.",
           "Keep expert results focused on the assigned perspective; the later Moderator stage makes the round decision.",
           "Do not request user participation, approval, or checkpoints.",
           "Do not build or persist a hierarchical knowledge graph in this stage.",
           "Compress expert payloads so graph_state serialization stays within runtime limits: keep every new_evidence claim (the part after the locator, never the locator itself) to at most 300 characters and never abbreviate or truncate the source locator, keep expert summaries under 2000 characters, and keep per-expert artifacts focused on the assigned perspective.",
           "artifact_path must be a repository-relative path — no leading '/', no '\\\\', no '.' or '..' path segments — identifying a real, non-empty, non-symlink regular file inside the repository; never return absolute paths.",
           "Write each expert summary as substantive prose: the perspective's core findings with [n] citations, the strongest counter-evidence or caveats, and 1 to 3 open questions the next round should target; telegraphic fragments and bare claim lists are not acceptable.",
-          "Prefer deeper retrieval over breadth: each expert should retrieve at least two new sources (when available) that directly address the perspective's assigned questions, and every new_evidence item should carry a claim specific enough to be quoted in the final report."
+          "Retrieve new sources when they materially address the assigned perspective's questions or close an identified evidence gap; stop when the available evidence is sufficient, and ensure every new_evidence item carries a claim specific enough to be quoted in the final report."
         ],
         "blocked_conditions": [
           "Block when any expert result or artifact is missing.",
@@ -417,7 +417,7 @@
             "Require each new_evidence item to be an unnumbered non-empty string with at least one ' — ' separator (split on the FIRST occurrence; the claim may itself contain ' — '), a non-empty locator, and a non-empty claim; reject entries that contain [n] citation markers.",
             "Treat returned evidence_registry as the exact persisted list (same strings and order) plus newly numbered entries; do not normalize whitespace in the persisted prefix.",
             "Merge new_evidence in roster order, skip locators already present in the persisted prefix or earlier experts, and require new citation ids to start at max(persisted id)+1 with no gaps.",
-            "Reject a rewritten persisted prefix, duplicate locators, more than three unused new_evidence items per expert, or a merged registry longer than 128 entries.",
+            "Reject a rewritten persisted prefix, duplicate locators, or a merged registry longer than 128 entries.",
             "Require every citation identifier in a summary or artifact to exist in the merged registry, and require the union of each expert's summary and artifact citations to include at least one merged registry identifier.",
             "Resolve each artifact_path beneath repo_root and reject absolute paths, traversal, symlinks, missing or non-regular files, empty files, and invalid UTF-8.",
             "Read each artifact through a bounded UTF-8 check so an oversized artifact cannot exhaust verifier memory."
@@ -425,11 +425,12 @@
           "test_intent": [
             "Accept two roster-matching results with distinct readable artifacts that cite only persisted evidence and return the persisted registry unchanged.",
             "Accept a merge that preserves the persisted prefix and appends contiguous new citation ids from unnumbered new_evidence.",
+            "Accept multiple well-formed new_evidence items even when some are not cited by the expert's summary or artifact, subject to the merged registry limit.",
             "Reject an unknown, missing, duplicate, or out-of-order expert id.",
-            "Reject a rewritten persisted registry prefix, a skipped citation id, a duplicated locator, more than three unused retrieved items for one expert, or a new_evidence item that is not locator — claim.",
+            "Reject a rewritten persisted registry prefix, a skipped citation id, a duplicated locator, or a new_evidence item that is not locator — claim.",
             "Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, an unknown citation, or an unsafe or missing artifact."
           ],
-          "implementation_version": 5
+          "implementation_version": 6
         },
         {
           "id": "evidence_registry_byte_budget",
@@ -3393,12 +3394,12 @@
       }
     },
     {
-      "name": "expert_results_rejects_unused_over_budget",
+      "name": "expert_results_accepts_multiple_unused_evidence",
       "type": "verifier",
       "step_id": "launch_expert_subagents",
       "observation": {
         "status": "succeeded",
-        "summary": "One expert returned more than three unused retrieved items.",
+        "summary": "One expert returned multiple well-formed evidence items that were not cited in its summary or artifact.",
         "structured_output": {
           "expert_round_index": 1,
           "expert_results": [
@@ -3432,7 +3433,7 @@
           ]
         }
       },
-      "expected_passed": false,
+      "expected_passed": true,
       "state": {
         "expert_roster": [
           {
