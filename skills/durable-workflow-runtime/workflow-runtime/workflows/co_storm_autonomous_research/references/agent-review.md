@@ -24,6 +24,28 @@ the right workflow.
 
 ## Declared Custom Verifier Requirements
 
+### `warm_start_shared_space`
+
+- `warm_start_format_contract`: Warm start must seed the expert roster with entries shaped exactly as {id, role, brief} (all non-empty trimmed strings, unique ids) and the evidence registry with '[n] locator' rows (bounded numeric ids, non-empty locator; an optional ' — claim' suffix when present must be non-empty, unique ids), so the shared wire format cannot drift between the warm-start gate and downstream launch/Moderator verifiers.
+  Signals: `expert_roster`, `evidence_registry`
+  Implementation surfaces: `verifiers.py`, `workflow-specific regression tests`
+  Python imports: `workflows.co_storm_autonomous_research.citation_locators`
+  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+  same-file helper dependencies as a blocking review issue.
+  Implementation notes: Reuse the shared predicates exported by workflows.co_storm_autonomous_research.citation_locators (expert_roster_entry_format_error, evidence_registry_entry_format_error, registry_entry_parts) — that module is the stable helper import for custom verifier requirements; do not add same-file helper layers in verifiers.py. Duplicate-id checks remain in the requirement function.
+  Hint pseudocode:
+    - Validate expert_roster as a list and walk entries in order; report a per-index error when citation_locators.expert_roster_entry_format_error(entry) is not None.
+    - Track seen expert ids and report duplicates with the offending id.
+    - Validate evidence_registry as a list and walk entries in order; report a per-index error when citation_locators.evidence_registry_entry_format_error(entry) is not None.
+    - Track seen evidence ids via citation_locators.registry_entry_parts(entry) and report duplicates with the offending id.
+    - Return the joined error list or None when the shape is clean.
+  Test intent:
+    - Reject a warm-start roster entry carrying legacy keys (expert_id/name/perspective/stable_identifier).
+    - Reject a warm-start registry row written as 'EV-01 | ...' instead of '[n] locator — claim'.
+    - Reject duplicate expert ids and duplicate evidence ids.
+    - Accept the canonical {id, role, brief} roster and '[n] locator — claim' registry.
+
 ### `launch_expert_subagents`
 
 - `expert_results_match_roster`: The expert-result stage must return exactly one evidence-grounded result for every persisted expert, merge unnumbered new_evidence onto evidence_registry as an append-only prefix-preserving list, and keep a safe, distinct artifact for each result.

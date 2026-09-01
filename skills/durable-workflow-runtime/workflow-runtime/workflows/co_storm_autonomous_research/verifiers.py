@@ -69,6 +69,14 @@ def verify_warm_start_shared_space(
     )
     if not result["passed"]:
         return result
+    output = observation.get("structured_output") or {}
+    custom_error = _run_custom_verifier_requirements_warm_start_shared_space(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if custom_error is not None:
+        return _fail(custom_error, run_id, step_id, state)
     return result
 
 def verify_launch_expert_subagents(
@@ -385,6 +393,89 @@ def verify_repair_report(
         return result
     return result
 
+def _run_custom_verifier_requirements_warm_start_shared_space(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    errors: list[str] = []
+    message = _custom_verifier_requirement_warm_start_shared_space_warm_start_format_contract(
+        output=output,
+        state=state,
+        repo_root=repo_root,
+    )
+    if message:
+        errors.append(message)
+    return "; ".join(errors) if errors else None
+
+# custom_verifier_stage_id: warm_start_shared_space
+# custom_verifier_requirement_id: warm_start_format_contract
+# template_version: 1
+# spec_fingerprint: 818d7bbbe9990a4f4e0d53dd0b71b9088fd2297f7be4259fbb9924f662373337
+# implementation_version: 1
+def _custom_verifier_requirement_warm_start_shared_space_warm_start_format_contract(
+    *,
+    output: dict,
+    state: dict | None,
+    repo_root: str,
+) -> str | None:
+    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
+Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
+If reuse is needed, import stable helpers from shared modules outside verifiers.py.
+Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
+
+Requirement: Warm start must seed the expert roster with entries shaped exactly as {id, role, brief} (all non-empty trimmed strings, unique ids) and the evidence registry with '[n] locator' rows (bounded numeric ids, non-empty locator; an optional ' — claim' suffix when present must be non-empty, unique ids), so the shared wire format cannot drift between the warm-start gate and downstream launch/Moderator verifiers.
+Signals: expert_roster, evidence_registry
+Implementation surfaces: verifiers.py, workflow-specific regression tests
+Implementation notes: Reuse the shared predicates exported by workflows.co_storm_autonomous_research.citation_locators (expert_roster_entry_format_error, evidence_registry_entry_format_error, registry_entry_parts) — that module is the stable helper import for custom verifier requirements; do not add same-file helper layers in verifiers.py. Duplicate-id checks remain in the requirement function.
+Hint pseudocode:
+- Validate expert_roster as a list and walk entries in order; report a per-index error when citation_locators.expert_roster_entry_format_error(entry) is not None.
+- Track seen expert ids and report duplicates with the offending id.
+- Validate evidence_registry as a list and walk entries in order; report a per-index error when citation_locators.evidence_registry_entry_format_error(entry) is not None.
+- Track seen evidence ids via citation_locators.registry_entry_parts(entry) and report duplicates with the offending id.
+- Return the joined error list or None when the shape is clean.
+Test intent:
+- Reject a warm-start roster entry carrying legacy keys (expert_id/name/perspective/stable_identifier).
+- Reject a warm-start registry row written as 'EV-01 | ...' instead of '[n] locator — claim'.
+- Reject duplicate expert ids and duplicate evidence ids.
+- Accept the canonical {id, role, brief} roster and '[n] locator — claim' registry."""
+    _ = state, repo_root
+    errors: list[str] = []
+    roster = output.get("expert_roster")
+    if not isinstance(roster, list):
+        errors.append("expert_roster must be a list")
+    else:
+        seen_ids: set[str] = set()
+        for index, entry in enumerate(roster):
+            message = workflows.co_storm_autonomous_research.citation_locators.expert_roster_entry_format_error(entry)
+            if message is not None:
+                errors.append(f"expert_roster[{index}] {message}")
+                continue
+            expert_id = entry["id"].strip()
+            if expert_id in seen_ids:
+                errors.append(f"expert_roster contains duplicate id {expert_id!r}")
+            else:
+                seen_ids.add(expert_id)
+    registry = output.get("evidence_registry")
+    if not isinstance(registry, list):
+        errors.append("evidence_registry must be a list")
+    else:
+        seen_registry_ids: set[int] = set()
+        for index, entry in enumerate(registry):
+            message = workflows.co_storm_autonomous_research.citation_locators.evidence_registry_entry_format_error(entry)
+            if message is not None:
+                errors.append(f"evidence_registry[{index}] {message}")
+                continue
+            parts = workflows.co_storm_autonomous_research.citation_locators.registry_entry_parts(entry)
+            if parts is not None:
+                evidence_id, _ = parts
+                if evidence_id in seen_registry_ids:
+                    errors.append(f"evidence_registry contains duplicate citation identifier {evidence_id}")
+                else:
+                    seen_registry_ids.add(evidence_id)
+    return "; ".join(errors) if errors else None
+
 def _run_custom_verifier_requirements_launch_expert_subagents(
     *,
     output: dict,
@@ -422,12 +513,9 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
     """Require roster-matching expert results and an append-only merged evidence_registry."""
     persisted_state = state if isinstance(state, dict) else {}
     errors: list[str] = []
-    citation_pattern = re.compile(r"\[([0-9]+)\]")
-    numbered_entry_pattern = re.compile(r"^[ \t]*\[([0-9]+)\][ \t]*(.+?)[ \t]*$")
     max_registry_entries = 128
     max_unused_per_expert = 3
     max_safe_artifact_bytes = 512 * 1024
-    max_citation_id_digits = 6
 
     if output.get("expert_results_complete") is not True:
         errors.append("expert_results_complete must be true")
@@ -438,20 +526,11 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
         errors.append("persisted expert_roster must contain at least one expert record")
     else:
         for index, expert in enumerate(roster):
-            if not isinstance(expert, dict):
-                errors.append(f"expert_roster[{index}] must be an object")
+            message = workflows.co_storm_autonomous_research.citation_locators.expert_roster_entry_format_error(expert)
+            if message is not None:
+                errors.append(f"expert_roster[{index}] {message}")
                 continue
-            if set(expert) != {"id", "role", "brief"}:
-                errors.append(f"expert_roster[{index}] must contain exactly id, role, and brief")
-            expert_id = expert.get("id")
-            if not isinstance(expert_id, str) or not expert_id.strip():
-                errors.append(f"expert_roster[{index}].id must be a non-empty string")
-                continue
-            for field_name in ("role", "brief"):
-                value = expert.get(field_name)
-                if not isinstance(value, str) or not value.strip():
-                    errors.append(f"expert_roster[{index}].{field_name} must be a non-empty string")
-            normalized_id = expert_id.strip()
+            normalized_id = expert["id"].strip()
             if normalized_id in expected_ids:
                 errors.append(f"expert_roster contains duplicate id {normalized_id!r}")
             else:
@@ -474,12 +553,6 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
     elif isinstance(round_index, int) and not isinstance(round_index, bool) and round_index > max_rounds:
         errors.append(f"expert_round_index {round_index} exceeds max_rounds {max_rounds}")
 
-    def locator_key(detail: str) -> str:
-        text = detail.strip()
-        if " — " in text:
-            text = text.split(" — ", 1)[0].strip()
-        return text.casefold()
-
     def citation_ids_for_text(text: str, label: str) -> set[int]:
         citation_ids, parse_error = workflows.co_storm_autonomous_research.citation_locators.extract_citation_ids(
             text
@@ -501,23 +574,16 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
                 errors.append(f"persisted evidence_registry[{index}] must be a string")
                 continue
             persisted_prefix.append(entry)
-            match = numbered_entry_pattern.match(entry)
-            if match is None:
-                errors.append(f"persisted evidence_registry[{index}] must contain a citation identifier and claim")
+            message = workflows.co_storm_autonomous_research.citation_locators.evidence_registry_entry_format_error(entry)
+            if message is not None:
+                errors.append(f"persisted evidence_registry[{index}] {message}")
                 continue
-            raw_id = match.group(1)
-            if len(raw_id) > max_citation_id_digits:
-                errors.append(f"persisted evidence_registry[{index}] has an oversized citation identifier")
-                continue
-            evidence_id = int(raw_id)
-            detail = match.group(2).strip()
-            if not detail:
-                errors.append(f"persisted evidence_registry[{index}] must contain a non-empty claim")
-                continue
+            parts = workflows.co_storm_autonomous_research.citation_locators.registry_entry_parts(entry)
+            evidence_id, detail = parts
             if evidence_id in persisted_ids:
                 errors.append(f"persisted evidence_registry contains duplicate citation identifier {evidence_id}")
             persisted_ids.add(evidence_id)
-            persisted_locators.add(locator_key(detail))
+            persisted_locators.add(workflows.co_storm_autonomous_research.citation_locators.source_locator_key(detail))
 
     results = output.get("expert_results")
     if not isinstance(results, list):
@@ -569,20 +635,10 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
                         errors.append(f"expert_results[{index}].new_evidence[{evidence_index}] must be a non-empty string")
                         continue
                     stripped = item.strip()
-                    if citation_pattern.search(stripped):
+                    message = workflows.co_storm_autonomous_research.citation_locators.new_evidence_item_format_error(stripped)
+                    if message is not None:
                         errors.append(
-                            f"expert_results[{index}].new_evidence[{evidence_index}] must not contain citation markers"
-                        )
-                        continue
-                    if " — " not in stripped:
-                        errors.append(
-                            f"expert_results[{index}].new_evidence[{evidence_index}] must use the form locator — claim"
-                        )
-                        continue
-                    locator, claim = stripped.split(" — ", 1)
-                    if not locator.strip() or not claim.strip():
-                        errors.append(
-                            f"expert_results[{index}].new_evidence[{evidence_index}] must include a non-empty locator and claim"
+                            f"expert_results[{index}].new_evidence[{evidence_index}] {message}"
                         )
                         continue
                     cleaned_new_evidence.append(stripped)
@@ -632,14 +688,13 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
     next_id = (max(persisted_ids) + 1) if persisted_ids else 1
     locator_to_id: dict[str, int] = {}
     for entry in persisted_prefix:
-        match = numbered_entry_pattern.match(entry)
-        if match is not None:
-            raw_id = match.group(1)
-            if len(raw_id) <= max_citation_id_digits:
-                locator_to_id[locator_key(match.group(2))] = int(raw_id)
+        parts = workflows.co_storm_autonomous_research.citation_locators.registry_entry_parts(entry)
+        if parts is not None:
+            evidence_id, detail = parts
+            locator_to_id[workflows.co_storm_autonomous_research.citation_locators.source_locator_key(detail)] = evidence_id
     for items in ordered_new_evidence:
         for item in items:
-            key = locator_key(item)
+            key = workflows.co_storm_autonomous_research.citation_locators.source_locator_key(item)
             if key in seen_locators:
                 continue
             seen_locators.add(key)
@@ -681,11 +736,9 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
     merged_ids = set()
     if isinstance(returned_registry, list) and returned_registry == expected_registry:
         for entry in returned_registry:
-            match = numbered_entry_pattern.match(entry) if isinstance(entry, str) else None
-            if match is not None:
-                raw_id = match.group(1)
-                if len(raw_id) <= max_citation_id_digits:
-                    merged_ids.add(int(raw_id))
+            parts = workflows.co_storm_autonomous_research.citation_locators.registry_entry_parts(entry)
+            if parts is not None:
+                merged_ids.add(parts[0])
     elif persisted_ids:
         merged_ids = set(expected_ids_set)
 
@@ -720,7 +773,7 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
                 for item in new_evidence:
                     if not isinstance(item, str) or not item.strip():
                         continue
-                    assigned_id = locator_to_id.get(locator_key(item.strip()))
+                    assigned_id = locator_to_id.get(workflows.co_storm_autonomous_research.citation_locators.source_locator_key(item.strip()))
                     if assigned_id is None or assigned_id not in cited_ids:
                         unused_count += 1
                 if unused_count > max_unused_per_expert:
@@ -950,10 +1003,9 @@ Test intent:
     available_evidence_ids: set[str] = set()
     if isinstance(registry, list):
         for entry in registry:
-            if isinstance(entry, str):
-                match = re.match(r"^\[(\d+)\]", entry.strip())
-                if match:
-                    available_evidence_ids.add(f"[{match.group(1)}]")
+            parts = workflows.co_storm_autonomous_research.citation_locators.registry_entry_parts(entry)
+            if parts is not None:
+                available_evidence_ids.add(f"[{parts[0]}]")
 
     assessment = output.get("coverage_assessment")
     expected_keys = {

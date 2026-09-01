@@ -1645,6 +1645,152 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
         )
         self.assertIs(result['passed'], True)
 
+    def test_warm_start_rejects_legacy_roster_keys(self):
+        result = verifiers.verify_warm_start_shared_space(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='warm_start_shared_space',
+            observation={'status': 'succeeded',
+ 'summary': 'Warm start package fixture.',
+ 'structured_output': {'expert_roster': [{'expert_id': 'historian',
+                                          'name': 'historian',
+                                          'perspective': 'trace',
+                                          'stable_identifier': 'historian/01'},
+                                         {'expert_id': 'analyst',
+                                          'name': 'analyst',
+                                          'perspective': 'synthesize',
+                                          'stable_identifier': 'analyst/01'}],
+                       'conversation_transcript': ['background turn', 'perspective turn'],
+                       'knowledge_map_summary': 'root with two supported topics',
+                       'evidence_registry': ['[1] source-a — claim a',
+                                             '[2] source-b — claim b',
+                                             '[3] source-c — claim c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'round_index': 0,
+                       'warm_start_ready': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_warm_start_rejects_legacy_registry_rows(self):
+        result = verifiers.verify_warm_start_shared_space(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='warm_start_shared_space',
+            observation={'status': 'succeeded',
+ 'summary': 'Warm start package fixture.',
+ 'structured_output': {'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'systems_analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'conversation_transcript': ['background turn', 'perspective turn'],
+                       'knowledge_map_summary': 'root with two supported topics',
+                       'evidence_registry': ['EV-01 | source-a',
+                                             'EV-02 | source-b',
+                                             'EV-03 | source-c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'round_index': 0,
+                       'warm_start_ready': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_warm_start_accepts_shared_format_contract(self):
+        result = verifiers.verify_warm_start_shared_space(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='warm_start_shared_space',
+            observation={'status': 'succeeded',
+ 'summary': 'Warm start package fixture.',
+ 'structured_output': {'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'systems_analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'conversation_transcript': ['background turn', 'perspective turn'],
+                       'knowledge_map_summary': 'root with two supported topics',
+                       'evidence_registry': ['[1] source-a — claim a',
+                                             '[2] source-b — claim b',
+                                             '[3] source-c — claim c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'round_index': 0,
+                       'warm_start_ready': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], True)
+
+    def test_warm_start_rejects_duplicate_expert_ids(self):
+        result = verifiers.verify_warm_start_shared_space(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='warm_start_shared_space',
+            observation={'status': 'succeeded',
+ 'summary': 'Warm start package fixture.',
+ 'structured_output': {'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'historian',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'conversation_transcript': ['background turn', 'perspective turn'],
+                       'knowledge_map_summary': 'root with two supported topics',
+                       'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'round_index': 0,
+                       'warm_start_ready': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_warm_start_rejects_duplicate_evidence_ids(self):
+        result = verifiers.verify_warm_start_shared_space(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='warm_start_shared_space',
+            observation={'status': 'succeeded',
+ 'summary': 'Warm start package fixture.',
+ 'structured_output': {'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'conversation_transcript': ['background turn', 'perspective turn'],
+                       'knowledge_map_summary': 'root with two supported topics',
+                       'evidence_registry': ['[1] source-a', '[1] source-b', '[3] source-c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'round_index': 0,
+                       'warm_start_ready': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
+    def test_warm_start_rejects_oversized_evidence_id(self):
+        result = verifiers.verify_warm_start_shared_space(
+            repo_root=str(REPO_ROOT),
+            run_id="generated-test-run",
+            step_id='warm_start_shared_space',
+            observation={'status': 'succeeded',
+ 'summary': 'Warm start package fixture.',
+ 'structured_output': {'expert_roster': [{'id': 'historian',
+                                          'role': 'historian',
+                                          'brief': 'Trace origins and chronology.'},
+                                         {'id': 'analyst',
+                                          'role': 'systems analyst',
+                                          'brief': 'Trace mechanisms and trade-offs.'}],
+                       'conversation_transcript': ['background turn', 'perspective turn'],
+                       'knowledge_map_summary': 'root with two supported topics',
+                       'evidence_registry': ['[1234567] source-a', '[2] source-b', '[3] source-c'],
+                       'coverage_map': ['history', 'mechanism'],
+                       'round_index': 0,
+                       'warm_start_ready': True}},
+            state={},
+        )
+        self.assertIs(result['passed'], False)
+
 
 if __name__ == "__main__":
     unittest.main()

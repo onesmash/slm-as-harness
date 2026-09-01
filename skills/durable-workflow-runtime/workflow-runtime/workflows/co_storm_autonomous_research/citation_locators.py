@@ -209,6 +209,108 @@ def parse_registry_locators(evidence_registry: object) -> dict[int, str] | str:
     return locators
 
 
+# ---------------------------------------------------------------------------
+# Workflow shared format contracts: expert roster / evidence registry / new
+# evidence items. Single source of truth for the Co-STORM wire format so the
+# warm-start, launch, and Moderator verifiers cannot drift apart.
+# ---------------------------------------------------------------------------
+
+EXPERT_ROSTER_REQUIRED_KEYS = frozenset({"id", "role", "brief"})
+
+_NEW_EVIDENCE_SEPARATOR = " — "
+
+
+def expert_roster_entry_format_error(entry: object) -> str | None:
+    """Return a format error for one expert roster entry, or None when valid.
+
+    A valid entry is an object with exactly the keys id, role, and brief, all
+    non-empty trimmed strings.
+    """
+    if not isinstance(entry, dict):
+        return "must be an object with exactly id, role, and brief"
+    if set(entry) != EXPERT_ROSTER_REQUIRED_KEYS:
+        return "must contain exactly id, role, and brief"
+    for field_name in ("id", "role", "brief"):
+        value = entry.get(field_name)
+        if not isinstance(value, str) or not value.strip():
+            return f"{field_name} must be a non-empty string"
+    return None
+
+
+def registry_entry_parts(entry: object) -> tuple[int, str] | None:
+    """Return (evidence_id, remainder) for a valid '[n] ...' registry row."""
+    if not isinstance(entry, str):
+        return None
+    match = _REGISTRY_ROW.match(entry)
+    if match is None:
+        return None
+    raw_id = match.group(1)
+    if len(raw_id) > _MAX_CITATION_ID_DIGITS:
+        return None
+    return int(raw_id), match.group(2).strip()
+
+
+def evidence_registry_entry_format_error(entry: object) -> str | None:
+    """Return a format error for one evidence registry row, or None when valid.
+
+    A valid row is '[<id>] <locator>' with a bounded numeric id and a non-empty
+    locator; an optional ' — <claim>' suffix, when present, must itself be
+    non-empty. Locator-only rows stay valid, matching parse_registry_locators.
+    """
+    if not isinstance(entry, str) or not entry.strip():
+        return "must be a non-empty string in '[n] locator' form"
+    match = _REGISTRY_ROW.match(entry)
+    if match is None:
+        return "must contain a citation identifier and claim in '[n] locator — claim' form"
+    raw_id = match.group(1)
+    if len(raw_id) > _MAX_CITATION_ID_DIGITS:
+        return "has an oversized citation identifier"
+    detail = match.group(2).strip()
+    if not detail:
+        return "must contain a non-empty claim"
+    if detail.startswith("\u2014"):
+        return "must contain a non-empty source locator"
+    if _NEW_EVIDENCE_SEPARATOR in detail:
+        _, _, claim = detail.partition(_NEW_EVIDENCE_SEPARATOR)
+        if not claim.strip():
+            return "must include a non-empty claim after the locator separator"
+    elif detail.endswith(" —") or detail.endswith("\u2014"):
+        return "must include a non-empty claim after the locator separator"
+    return None
+
+
+def new_evidence_item_format_error(item: object) -> str | None:
+    """Return a format error for one expert new-evidence item, or None when valid.
+
+    A valid item is 'locator — claim' with both sides non-empty and no [n]
+    citation markers; global citation numbering is owned by
+    launch_expert_subagents.
+    """
+    if not isinstance(item, str) or not item.strip():
+        return "must be a non-empty string in 'locator — claim' form"
+    stripped = item.strip()
+    if _MARKER.search(stripped):
+        return "must not contain citation markers"
+    if _NEW_EVIDENCE_SEPARATOR not in stripped:
+        return "must use the form 'locator — claim'"
+    locator, claim = stripped.split(_NEW_EVIDENCE_SEPARATOR, 1)
+    if not locator.strip() or not claim.strip():
+        return "must include a non-empty locator and claim"
+    return None
+
+
+def source_locator_key(text: str) -> str:
+    """Normalize a locator-bearing string for cross-checking and deduplication.
+
+    The locator is the text before the ' — ' separator, casefolded; text without
+    the separator is trimmed and casefolded as-is.
+    """
+    normalized = text.strip()
+    if _NEW_EVIDENCE_SEPARATOR in normalized:
+        normalized = normalized.split(_NEW_EVIDENCE_SEPARATOR, 1)[0].strip()
+    return normalized.casefold()
+
+
 def missing_evidence_index(report_text: str, evidence_registry: object) -> str | None:
     locators = parse_registry_locators(evidence_registry)
     if isinstance(locators, str):
