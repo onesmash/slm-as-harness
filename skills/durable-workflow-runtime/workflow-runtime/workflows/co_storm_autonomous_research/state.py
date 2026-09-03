@@ -655,7 +655,7 @@ def _compact_value(value: object, *, depth: int = 0):
         return value
     if isinstance(value, list):
         compact_list = []
-        for item in value[:128]:
+        for item in value:
             compact_list.append(_compact_value(item, depth=depth + 1))
             if _json_size(compact_list) > MAX_WORKFLOW_LIST_BYTES:
                 compact_list.pop()
@@ -663,7 +663,7 @@ def _compact_value(value: object, *, depth: int = 0):
         return compact_list
     if isinstance(value, dict):
         compact_dict = {}
-        for key in sorted(value, key=lambda item: str(item))[:128]:
+        for key in sorted(value, key=lambda item: str(item)):
             if not isinstance(key, str):
                 continue
             compact_dict[key] = _compact_value(value[key], depth=depth + 1)

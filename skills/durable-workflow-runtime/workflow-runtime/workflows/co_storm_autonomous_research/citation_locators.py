@@ -442,6 +442,17 @@ def missing_substantive_report_sections(
     return None
 
 
+def report_scope_line_error(rendered: str, scope_status: str) -> str | None:
+    """Require exactly one literal `Report scope: complete|partial` line in the body."""
+    marker = f"Report scope: {scope_status}"
+    index = _INDEX_HEADING.search(rendered)
+    body = rendered if index is None else rendered[: index.start()]
+    matches = [line for line in body.splitlines() if line.strip() == marker]
+    if len(matches) != 1:
+        return f"report must contain the exact `{marker}` line"
+    return None
+
+
 def _body_contains_locator(body: str, locator: str) -> bool:
     """True when a registry locator appears in the body as a standalone token.
 
@@ -472,70 +483,88 @@ def _is_non_substantive_section(name: str) -> bool:
     }
 
 
-def resolve_safe_repo_file(repo_root: str, raw_path: object) -> Path | None:
+def _normalized_path_text(raw_path: object) -> str | None:
     if not isinstance(raw_path, str) or not raw_path.strip():
         return None
-    try:
-        repo = Path(repo_root).expanduser().resolve()
-        normalized = raw_path
-        if (
-            normalized != normalized.strip()
-            or len(normalized.encode("utf-8")) > _MAX_SAFE_REPO_PATH_BYTES
-            or "\\" in normalized
-            or any(ord(char) < 32 for char in normalized)
-            or normalized.startswith("/")
-            or re.match(r"^[A-Za-z]:/", normalized)
-        ):
-            return None
-        parts = normalized.split("/")
+    if raw_path != raw_path.strip():
+        return None
+    if (
+        len(raw_path.encode("utf-8")) > _MAX_SAFE_REPO_PATH_BYTES
+        or "\\" in raw_path
+        or any(ord(char) < 32 for char in raw_path)
+    ):
+        return None
+    return raw_path
+
+
+def _lexical_path_parts(normalized: str) -> tuple[bool, list[str]] | None:
+    """Return (is_absolute, parts) after rejecting empty, '.' and '..' segments."""
+    if normalized.startswith("/"):
+        rest = normalized[1:]
+        parts = rest.split("/") if rest else []
         if any(part in ("", ".", "..") for part in parts):
             return None
-        candidate = repo.joinpath(*parts)
-        current = repo
-        for part in parts:
-            current = current / part
-            if current.is_symlink():
+        return True, parts
+    if re.match(r"^[A-Za-z]:/", normalized):
+        return None
+    parts = normalized.split("/")
+    if any(part in ("", ".", "..") for part in parts):
+        return None
+    return False, parts
+
+
+def _walk_without_symlinks(root: Path, parts: list[str]) -> Path | None:
+    current = root
+    for part in parts:
+        current = current / part
+        if current.is_symlink():
+            return None
+    return current
+
+
+def _resolve_safe_path(
+    repo_root: str,
+    raw_path: object,
+    *,
+    expect: str,
+) -> Path | None:
+    normalized = _normalized_path_text(raw_path)
+    if normalized is None:
+        return None
+    parsed = _lexical_path_parts(normalized)
+    if parsed is None:
+        return None
+    is_absolute, parts = parsed
+    try:
+        if is_absolute:
+            walked = _walk_without_symlinks(Path("/"), parts)
+            if walked is None:
                 return None
-        resolved = candidate.resolve(strict=False)
-        resolved.relative_to(repo)
-        if resolved.is_symlink() or not resolved.is_file():
+            resolved = Path("/").joinpath(*parts).resolve(strict=False) if parts else Path("/").resolve()
+        else:
+            repo = Path(repo_root).expanduser().resolve()
+            walked = _walk_without_symlinks(repo, parts)
+            if walked is None:
+                return None
+            resolved = repo.joinpath(*parts).resolve(strict=False)
+            resolved.relative_to(repo)
+        if resolved.is_symlink():
+            return None
+        if expect == "file" and not resolved.is_file():
+            return None
+        if expect == "dir" and not resolved.is_dir():
             return None
         return resolved
     except (OSError, RuntimeError, ValueError):
         return None
+
+
+def resolve_safe_repo_file(repo_root: str, raw_path: object) -> Path | None:
+    return _resolve_safe_path(repo_root, raw_path, expect="file")
 
 
 def resolve_safe_repo_directory(repo_root: str, raw_path: object) -> Path | None:
-    if not isinstance(raw_path, str) or not raw_path.strip():
-        return None
-    try:
-        repo = Path(repo_root).expanduser().resolve()
-        normalized = raw_path
-        if (
-            normalized != normalized.strip()
-            or len(normalized.encode("utf-8")) > _MAX_SAFE_REPO_PATH_BYTES
-            or "\\" in normalized
-            or any(ord(char) < 32 for char in normalized)
-            or normalized.startswith("/")
-            or re.match(r"^[A-Za-z]:/", normalized)
-        ):
-            return None
-        parts = normalized.split("/")
-        if any(part in ("", "..") for part in parts):
-            return None
-        candidate = repo.joinpath(*parts)
-        current = repo
-        for part in parts:
-            current = current / part
-            if current.is_symlink():
-                return None
-        resolved = candidate.resolve(strict=False)
-        resolved.relative_to(repo)
-        if resolved.is_symlink() or not resolved.is_dir():
-            return None
-        return resolved
-    except (OSError, RuntimeError, ValueError):
-        return None
+    return _resolve_safe_path(repo_root, raw_path, expect="dir")
 
 
 def report_path_is_within_output_dir(
@@ -558,12 +587,12 @@ def report_path_is_within_output_dir(
 
 
 def load_utf8_report(repo_root: str, raw_path: object) -> tuple[str | None, str | None]:
-    """Return (report_text, None) or (None, error_message) for a repo-relative file."""
+    """Return (report_text, None) or (None, error_message) for a readable report file."""
     if not isinstance(raw_path, str) or not raw_path.strip():
         return None, "report_path is missing"
     candidate = resolve_safe_repo_file(repo_root, raw_path)
     if candidate is None:
-        return None, "report_path must point to a readable repository-relative regular report file"
+        return None, "report_path must point to a readable regular report file"
     file_descriptor = None
     try:
         flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)

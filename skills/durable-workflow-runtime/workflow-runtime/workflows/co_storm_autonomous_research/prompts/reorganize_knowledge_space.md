@@ -1,10 +1,12 @@
-/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{conversation_transcript}}; reorganize the shared Co-STORM knowledge space by expanding overloaded topics, merging redundant branches, and removing unsupported leaves without dropping or renumbering merged evidence ids, and return the updated map with a completion decision.
+/research-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{next_round_validation_plan}}, and {{conversation_transcript}}; reorganize the shared Co-STORM knowledge space by expanding overloaded topics, merging redundant branches, and removing unsupported leaves without dropping or renumbering merged evidence ids, and return the updated map with a completion decision.
 
 Stage Context:
 
 - Current knowledge-map summary: {{knowledge_map_summary}}
 - Evidence registry: {{evidence_registry}}
 - Coverage map: {{coverage_map}}
+- Moderator coverage assessment: {{coverage_assessment}}
+- Outstanding next-round validation plan: {{next_round_validation_plan}}
 - Conversation transcript: {{conversation_transcript}}
 - Prior reorganization count: {{reorganization_count}}
 - Run constraints: {{constraints_json}}

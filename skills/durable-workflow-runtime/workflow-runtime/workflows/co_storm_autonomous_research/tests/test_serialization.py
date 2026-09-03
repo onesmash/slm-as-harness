@@ -96,6 +96,31 @@ class SerializationCapacityTests(unittest.TestCase):
         self.assertEqual(len(payload["evidence_registry"]), 84)
         self.assertNotIn("serialization_diagnostics", payload)
 
+    def test_expert_and_topic_lists_are_not_capped_at_128_items(self):
+        expert_count = 140
+        topic_count = 140
+        payload = _roundtrip({
+            "expert_roster": [
+                {"id": f"e{i}", "role": f"role{i}", "brief": "brief"}
+                for i in range(expert_count)
+            ],
+            "coverage_map": [f"topic {i}" for i in range(topic_count)],
+            "coverage_assessment": [
+                {
+                    "topic_id": f"topic {i}",
+                    "status": "covered",
+                    "evidence_refs": ["[1]"],
+                    "open_gaps": [],
+                    "next_validation_metrics": [],
+                }
+                for i in range(topic_count)
+            ],
+        })
+        self.assertEqual(len(payload["expert_roster"]), expert_count)
+        self.assertEqual(len(payload["coverage_map"]), topic_count)
+        self.assertEqual(len(payload["coverage_assessment"]), topic_count)
+        self.assertNotIn("serialization_diagnostics", payload)
+
     def test_oversized_single_field_drops_only_itself(self):
         """A field that pushes the cumulative dict budget over the limit is
         dropped individually; later fields (including a small one that fits

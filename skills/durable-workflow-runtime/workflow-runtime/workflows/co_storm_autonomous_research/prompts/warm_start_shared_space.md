@@ -14,8 +14,8 @@ Stage Boundaries:
 - Keep expert perspectives complementary rather than duplicating the same general-background role.
 - Return expert_roster as records with exactly id, role, and brief string fields; ids must be stable and unique and later bindings must reference only id.
 - Give every expert a stable, unique identifier that can be passed to an independent subagent in later rounds.
-- Create 3 to 5 expert perspectives with genuinely distinct, non-overlapping roles (for example technical implementer, historical or ecosystem evolution, security and risk, adoption and business, and future-trend perspectives); fewer than three perspectives is acceptable only when the research scope genuinely cannot support more.
-- Seed coverage_map with the full planned topic decomposition of the research goal: derive 4 to 8 concise, stable topic ids from research_scope in task_input_json (falling back to the goal itself), so the Moderator rounds must adjudicate the entire planned topic set instead of stopping at the deterministic floor; keep the seeded set small enough for the configured round budget to cover.
+- Create at least two expert perspectives with genuinely distinct, non-overlapping roles (for example technical implementer, historical or ecosystem evolution, security and risk, adoption and business, and future-trend perspectives); add as many additional complementary roles as the research scope needs, with no numeric ceiling.
+- Seed coverage_map with the full planned topic decomposition of the research goal: derive concise, stable topic ids from research_scope in task_input_json (falling back to the goal itself) covering every planned facet, with no numeric ceiling, so the Moderator rounds must adjudicate the entire planned topic set instead of stopping at the deterministic floor.
 - Record at least two grounded evidence entries per perspective and capture each perspective's key open question in the conversation transcript, so the expert subagents and the Moderator have concrete material to work from.
 
 Blocked Conditions:

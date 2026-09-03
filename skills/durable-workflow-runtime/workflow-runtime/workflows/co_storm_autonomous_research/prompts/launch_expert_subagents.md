@@ -1,4 +1,4 @@
-/research-nex {{workflow_goal}} using {{expert_roster}}, {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, and {{round_index}}; for every expert, delegate one independent subagent with its role-specific brief and the immutable shared-space snapshot, allow each subagent to retrieve new sources as unnumbered new_evidence, then merge those entries onto evidence_registry with contiguous global citation numbers and return the completed expert results for Moderator synthesis.
+/research-nex {{workflow_goal}} using {{expert_roster}}, {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{next_round_validation_plan}}, and {{round_index}}; for every expert, delegate one independent subagent with its role-specific brief and the immutable shared-space snapshot, allow each subagent to retrieve new sources as unnumbered new_evidence targeting any outstanding {{next_round_validation_plan}} items, then merge those entries onto evidence_registry with contiguous global citation numbers and return the completed expert results for Moderator synthesis.
 
 Stage Context:
 
@@ -6,6 +6,8 @@ Stage Context:
 - Current shared knowledge-map summary: {{knowledge_map_summary}}
 - Current evidence registry: {{evidence_registry}}
 - Current coverage map: {{coverage_map}}
+- Moderator coverage assessment: {{coverage_assessment}}
+- Outstanding next-round validation plan: {{next_round_validation_plan}}
 - Carried-forward transcript: {{conversation_transcript}}
 - Last completed round index: {{round_index}}
 - Run constraints: {{constraints_json}}
@@ -24,7 +26,7 @@ Stage Boundaries:
 - Do not request user participation, approval, or checkpoints.
 - Do not build or persist a hierarchical knowledge graph in this stage.
 - Compress expert payloads so graph_state serialization stays within runtime limits: keep every new_evidence claim (the part after the locator, never the locator itself) to at most 300 characters and never abbreviate or truncate the source locator, keep expert summaries under 2000 characters, and keep per-expert artifacts focused on the assigned perspective.
-- artifact_path must be a repository-relative path — no leading '/', no '\\', no '.' or '..' path segments — identifying a real, non-empty, non-symlink regular file inside the repository; never return absolute paths.
+- artifact_path must identify a real, non-empty, non-symlink regular file. It may be a repository-relative POSIX path or an absolute POSIX path; reject backslashes, control characters, and '.' or '..' path segments.
 - Write each expert summary as substantive prose: the perspective's core findings with [n] citations, the strongest counter-evidence or caveats, and 1 to 3 open questions the next round should target; telegraphic fragments and bare claim lists are not acceptable.
 - Retrieve new sources when they materially address the assigned perspective's questions or close an identified evidence gap; stop when the available evidence is sufficient, and ensure every new_evidence item carries a claim specific enough to be quoted in the final report.
 

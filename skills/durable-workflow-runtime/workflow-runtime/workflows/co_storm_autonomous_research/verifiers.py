@@ -502,8 +502,8 @@ def _run_custom_verifier_requirements_launch_expert_subagents(
 # custom_verifier_stage_id: launch_expert_subagents
 # custom_verifier_requirement_id: expert_results_match_roster
 # template_version: 1
-# spec_fingerprint: e097df991e4e16592f1118f553589840073e02864bd20b4cc9ecb5eba0876a7d
-# implementation_version: 6
+# spec_fingerprint: f8e07030c6e0d4c3c64bae353a5a8e8c65096f6ccb65a53e0cd34e058d61ff54
+# implementation_version: 7
 def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_roster(
     *,
     output: dict,
@@ -649,26 +649,17 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
             if artifact_path in seen_paths:
                 errors.append(f"expert_results contains duplicate artifact_path {artifact_path!r}")
             seen_paths.add(artifact_path)
-            if (
-                artifact_path.startswith("/")
-                or "\\" in artifact_path
-                or any(ord(char) < 32 for char in artifact_path)
-                or any(part in ("", ".", "..") for part in artifact_path.split("/"))
-                or re.match(r"^[A-Za-z]:/", artifact_path)
-            ):
-                errors.append(f"expert_results[{index}].artifact_path is not repository-relative")
+            resolved = workflows.co_storm_autonomous_research.citation_locators.resolve_safe_repo_file(
+                repo_root,
+                artifact_path,
+            )
+            if resolved is None:
+                errors.append(
+                    f"expert_results[{index}].artifact_path is not a safe readable file"
+                )
                 continue
             try:
-                repository = Path(repo_root).expanduser().resolve()
-                lexical_path = repository
-                for part in artifact_path.split("/"):
-                    lexical_path = lexical_path / part
-                    if lexical_path.is_symlink():
-                        raise ValueError("path component is a symlink")
-                candidate = repository.joinpath(*artifact_path.split("/"))
-                resolved = candidate.resolve(strict=False)
-                resolved.relative_to(repository)
-                if not resolved.is_file() or resolved.is_symlink() or resolved.stat().st_size <= 0:
+                if resolved.stat().st_size <= 0:
                     raise ValueError("not a non-empty regular file (missing, symlink, or empty)")
                 with resolved.open("rb") as handle:
                     data = handle.read(max_safe_artifact_bytes + 1)
@@ -677,7 +668,7 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
                 artifact_texts[index] = data.decode("utf-8")
             except (OSError, UnicodeError, RuntimeError, ValueError) as exc:
                 errors.append(
-                    f"expert_results[{index}].artifact_path must identify a safe, bounded UTF-8 repository file; "
+                    f"expert_results[{index}].artifact_path must identify a safe, bounded UTF-8 file; "
                     f"failure for {artifact_path!r}: {exc}"
                 )
 
@@ -980,7 +971,7 @@ Test intent:
     if not plan_is_valid:
         errors.append("next_round_validation_plan must be a list of meaningful strings")
         validation_plan = []
-    elif len(validation_plan) > 128 or len(
+    elif len(
         json.dumps(validation_plan, ensure_ascii=False).encode("utf-8")
     ) > 64 * 1024:
         errors.append("next_round_validation_plan exceeds durable state limits")
@@ -1004,13 +995,15 @@ Test intent:
     topic_ids: set[str] = set()
     missing_topic_ids: set[str] = set()
     bounded_gap_topic_ids: set[str] = set()
+    thin_covered_topic_ids: set[str] = set()
+    overfull_covered_topic_ids: set[str] = set()
     expected_plan_items: set[str] = set()
     assessment_semantics_valid = True
     if not isinstance(assessment, list) or not assessment:
         errors.append("coverage_assessment must contain at least one assessed topic")
         assessment_semantics_valid = False
         assessment = []
-    elif len(assessment) > 128 or len(
+    elif len(
         json.dumps(assessment, ensure_ascii=False).encode("utf-8")
     ) > 64 * 1024:
         errors.append("coverage_assessment exceeds durable state limits")
@@ -1053,6 +1046,7 @@ Test intent:
         evidence_refs = evidence_refs if isinstance(evidence_refs, list) else []
         open_gaps = open_gaps if isinstance(open_gaps, list) else []
         metrics = metrics if isinstance(metrics, list) else []
+        distinct_evidence_ids: set[str] = set()
         for evidence_ref in evidence_refs:
             if not isinstance(evidence_ref, str) or not re.fullmatch(r"\[\d+\]", evidence_ref.strip()):
                 errors.append(f"{label}.evidence_refs must contain citation ids such as [1]")
@@ -1060,10 +1054,16 @@ Test intent:
             elif evidence_ref.strip() not in available_evidence_ids:
                 errors.append(f"{label} references unknown evidence id {evidence_ref!r}")
                 assessment_semantics_valid = False
+            else:
+                distinct_evidence_ids.add(evidence_ref.strip())
         if status == "covered":
             if not evidence_refs:
                 errors.append(f"{label} marked covered must cite at least one evidence id")
                 assessment_semantics_valid = False
+            if len(distinct_evidence_ids) < 2:
+                thin_covered_topic_ids.add(topic_id)
+            if len(distinct_evidence_ids) > 2:
+                overfull_covered_topic_ids.add(topic_id)
             if open_gaps or metrics:
                 errors.append(f"{label} marked covered must not retain open gaps or validation metrics")
                 assessment_semantics_valid = False
@@ -1110,7 +1110,7 @@ Test intent:
 
     output_coverage_map = output.get("coverage_map")
     if isinstance(output_coverage_map, list):
-        if len(output_coverage_map) > 128 or len(
+        if len(
             json.dumps(output_coverage_map, ensure_ascii=False).encode("utf-8")
         ) > 64 * 1024:
             errors.append("coverage_map exceeds durable state limits")
@@ -1133,11 +1133,24 @@ Test intent:
         if not threshold_met:
             errors.append(f"coverage_assessment must contain at least {coverage_threshold} distinct topics")
 
-    guardrails_allow_completion = assessment_semantics_valid and threshold_met and not missing_topic_ids and not bounded_gap_topic_ids
+    guardrails_allow_completion = (
+        assessment_semantics_valid
+        and threshold_met
+        and not missing_topic_ids
+        and not bounded_gap_topic_ids
+        and not thin_covered_topic_ids
+        and not overfull_covered_topic_ids
+    )
     coverage_sufficient = output.get("coverage_sufficient")
     if not isinstance(coverage_sufficient, bool):
         errors.append("coverage_sufficient must be a boolean")
     elif coverage_sufficient and not guardrails_allow_completion:
+        if thin_covered_topic_ids:
+            errors.append(
+                "coverage_sufficient=true requires every covered topic to cite at least two distinct evidence ids"
+            )
+        if overfull_covered_topic_ids:
+            errors.append("covered topics may cite at most two core evidence ids")
         errors.append("coverage_sufficient=true violates deterministic semantic guardrails")
 
     unresolved_topic_ids = missing_topic_ids | bounded_gap_topic_ids
@@ -1345,8 +1358,8 @@ def _run_custom_verifier_requirements_synthesize_report(
 # custom_verifier_stage_id: synthesize_report
 # custom_verifier_requirement_id: report_uses_compact_evidence_index
 # template_version: 1
-# spec_fingerprint: dfdfa048a8504177622b3d7a3e216c552d19df8c6782014dc34edef89a029ef5
-# implementation_version: 1
+# spec_fingerprint: 36dac8fe79be21df2779afe2f276edf328c199c772434db525619e4bd315dd37
+# implementation_version: 2
 def _custom_verifier_requirement_synthesize_report_report_uses_compact_evidence_index(
     *,
     output: dict,
@@ -1433,8 +1446,8 @@ def _run_custom_verifier_requirements_verify_report(
 # custom_verifier_stage_id: verify_report
 # custom_verifier_requirement_id: report_citation_integrity
 # template_version: 1
-# spec_fingerprint: 7f8ee1fd97f14a1d82e259153b7ec9f518ec68f6243f529cce7fff3f91773659
-# implementation_version: 4
+# spec_fingerprint: 54cc2177df3ad2e34d0d028663636d900a194865d62f9045a4d0a3a7a19cb8f2
+# implementation_version: 5
 def _custom_verifier_requirement_verify_report_report_citation_integrity(
     *,
     output: dict,
@@ -1543,11 +1556,14 @@ Test intent:
         return "report could not be rendered"
 
     scope_status = persisted_state.get("report_scope_status")
-    scope_marker = f"Report scope: {scope_status}"
     if scope_status not in {"complete", "partial"}:
         return "persisted report_scope_status must be complete or partial"
-    if scope_marker not in rendered:
-        return f"report must contain the exact `{scope_marker}` line"
+    scope_error = workflows.co_storm_autonomous_research.citation_locators.report_scope_line_error(
+        rendered,
+        scope_status,
+    )
+    if scope_error is not None:
+        return scope_error
 
     raw_assessment = persisted_state.get("coverage_assessment")
     if not isinstance(raw_assessment, list) or not raw_assessment:
@@ -1662,8 +1678,8 @@ Test intent:
 # custom_verifier_stage_id: verify_report
 # custom_verifier_requirement_id: report_uses_compact_evidence_index
 # template_version: 1
-# spec_fingerprint: 2632d06f62e49475c9ff35c337ddcdf611ead1b0295dc93220e864c91c3630b0
-# implementation_version: 1
+# spec_fingerprint: 6970e24f8beb855ec9144502be800e8c8988e197f4a1f85b4e8f666f58f238f0
+# implementation_version: 2
 def _custom_verifier_requirement_verify_report_report_uses_compact_evidence_index(
     *,
     output: dict,
@@ -1972,8 +1988,10 @@ def _repo_path_policy_error(actual, template: dict, repo_root: str, message: str
     if candidate is None:
         return message
     repo = Path(repo_root).expanduser().resolve()
-    relative_path = candidate.relative_to(repo)
-    relative_posix = relative_path.as_posix()
+    try:
+        relative_posix = candidate.relative_to(repo).as_posix()
+    except ValueError:
+        relative_posix = candidate.as_posix()
     required_prefix = str(template.get("required_prefix") or "")
     if required_prefix and not relative_posix.startswith(required_prefix):
         return message
@@ -2019,7 +2037,10 @@ def _artifact_list_policy_error(actual, template: dict, repo_root: str, message:
         if candidate is None:
             return f"{message}: invalid artifact at index {index}"
         repo = Path(repo_root).expanduser().resolve()
-        relative_posix = candidate.relative_to(repo).as_posix()
+        try:
+            relative_posix = candidate.relative_to(repo).as_posix()
+        except ValueError:
+            relative_posix = candidate.as_posix()
         if required_prefix and not relative_posix.startswith(required_prefix):
             return f"{message}: artifact at index {index} is outside the required directory"
         if allowed_suffixes and not relative_posix.lower().endswith(allowed_suffixes):
@@ -2060,27 +2081,16 @@ _MAX_SAFE_REPO_PATH_BYTES = 2048
 
 
 def _safe_repo_path(repo_root: str, raw_path: str) -> Path | None:
-    if not isinstance(raw_path, str) or not raw_path.strip():
-        return None
-    try:
-        repo = Path(repo_root).expanduser().resolve()
-        normalized = raw_path
-        if normalized != normalized.strip() or len(normalized.encode("utf-8")) > _MAX_SAFE_REPO_PATH_BYTES or "\\" in normalized or any(ord(char) < 32 for char in normalized) or normalized.startswith("/") or re.match(r"^[A-Za-z]:/", normalized):
-            return None
-        parts = normalized.split("/")
-        if any(part in ("", ".", "..") for part in parts):
-            return None
-        current = repo
-        for part in parts:
-            current = current / part
-            if current.is_symlink():
-                return None
-        candidate = repo.joinpath(*parts)
-        resolved = candidate.resolve(strict=False)
-        resolved.relative_to(repo)
-        return resolved
-    except (OSError, RuntimeError, ValueError):
-        return None
+    file_path = workflows.co_storm_autonomous_research.citation_locators.resolve_safe_repo_file(
+        repo_root,
+        raw_path,
+    )
+    if file_path is not None:
+        return file_path
+    return workflows.co_storm_autonomous_research.citation_locators.resolve_safe_repo_directory(
+        repo_root,
+        raw_path,
+    )
 
 
 def _safe_repo_file(repo_root: str, raw_path: str) -> Path | None:

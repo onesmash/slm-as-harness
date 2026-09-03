@@ -162,9 +162,9 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         self.assertIs(result["passed"], False)
         self.assertIn("must exactly match", result["message"])
 
-    def test_coverage_assessment_over_durable_limit_is_rejected(self):
+    def test_coverage_assessment_count_has_no_item_cap(self):
         state = self._roundtable_state()
-        topic_ids = [f"topic-{index}" for index in range(129)]
+        topic_ids = [f"topic-{index}" for index in range(140)]
         state["coverage_map"] = topic_ids
         output = self._bounded_gap_continue_output()
         output["coverage_map"] = topic_ids
@@ -172,7 +172,7 @@ class SemanticCoverageReviewTests(unittest.TestCase):
             {
                 "topic_id": topic_id,
                 "status": "covered",
-                "evidence_refs": ["[1]"],
+                "evidence_refs": ["[1]", "[2]"],
                 "open_gaps": [],
                 "next_validation_metrics": [],
             }
@@ -185,8 +185,59 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         output["continue_roundtable"] = False
         output["ready_for_report"] = True
         result = self._verify_roundtable(output, state)
+        self.assertIs(result["passed"], True, result["message"])
+
+    def test_coverage_assessment_over_durable_byte_limit_is_rejected(self):
+        state = self._roundtable_state()
+        oversized = "g" * (40 * 1024)
+        output = self._bounded_gap_continue_output()
+        output["coverage_assessment"] = [
+            {
+                "topic_id": "history",
+                "status": "covered",
+                "evidence_refs": ["[1]"],
+                "open_gaps": [],
+                "next_validation_metrics": [],
+            },
+            {
+                "topic_id": "mechanism",
+                "status": "bounded_gap",
+                "evidence_refs": ["[2]"],
+                "open_gaps": [oversized],
+                "next_validation_metrics": [oversized],
+            },
+        ]
+        result = self._verify_roundtable(output, state)
         self.assertIs(result["passed"], False)
         self.assertIn("exceeds durable state limits", result["message"])
+
+    def test_coverage_sufficient_requires_two_distinct_evidence_refs(self):
+        output = self._bounded_gap_continue_output()
+        output["coverage_assessment"] = [
+            {
+                "topic_id": "history",
+                "status": "covered",
+                "evidence_refs": ["[1]", "[1]"],
+                "open_gaps": [],
+                "next_validation_metrics": [],
+            },
+            {
+                "topic_id": "mechanism",
+                "status": "covered",
+                "evidence_refs": ["[2]"],
+                "open_gaps": [],
+                "next_validation_metrics": [],
+            },
+        ]
+        output["coverage_sufficient"] = True
+        output["next_round_validation_plan"] = []
+        output["round_decision"] = "report"
+        output["continue_roundtable"] = False
+        output["ready_for_report"] = True
+        output["report_scope_status"] = "complete"
+        result = self._verify_roundtable(output)
+        self.assertIs(result["passed"], False)
+        self.assertIn("at least two distinct evidence ids", result["message"])
 
     def test_reorganization_cannot_rewrite_or_append_evidence(self):
         result = verifiers.verify_reorganize_knowledge_space(
@@ -280,6 +331,13 @@ class SemanticCoverageReviewTests(unittest.TestCase):
     def test_complete_report_scope_gate_accepts_consistent_report(self):
         result = self._verify_report(self._complete_report_state())
         self.assertIs(result["passed"], True, result["message"])
+
+    def test_complete_report_scope_gate_rejects_suffixed_marker(self):
+        state = self._complete_report_state()
+        state["report_path"] = f"{FIXTURE_ROOT}/suffixed_scope_report.md"
+        result = self._verify_report(state)
+        self.assertIs(result["passed"], False)
+        self.assertIn("exact `Report scope: complete`", result["message"])
 
     def test_partial_report_scope_gate_accepts_full_disclosure(self):
         result = self._verify_report(self._partial_report_state())
@@ -448,6 +506,23 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         result = self._verify_report(state)
         self.assertIs(result["passed"], False)
         self.assertIn("configured context.output_dir", result["message"])
+
+    def test_report_path_accepts_absolute_output_dir(self):
+        from workflows.co_storm_autonomous_research.citation_locators import (
+            report_path_is_within_output_dir,
+        )
+
+        report_path = str(REPO_ROOT / FIXTURE_ROOT / "complete_report.md")
+        output_dir = str(REPO_ROOT / FIXTURE_ROOT)
+        self.assertTrue(
+            report_path_is_within_output_dir(
+                str(REPO_ROOT),
+                report_path,
+                output_dir,
+            )
+        )
+        result = self._synthesize_report(report_path, extra_state={"context": {"output_dir": output_dir}})
+        self.assertIs(result["passed"], True, result["message"])
 
     def test_report_sections_accept_numbered_headings_and_nested_details(self):
         from workflows.co_storm_autonomous_research.citation_locators import (
@@ -688,7 +763,10 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         self.assertEqual(workflow.verified_report_path, report_path)
         self.assertIn("repair is required", workflow.citation_coverage_summary)
 
-    def _synthesize_report(self, path: str):
+    def _synthesize_report(self, path: str, extra_state=None):
+        state = {"evidence_registry": list(REGISTRY)}
+        if extra_state:
+            state.update(extra_state)
         return verifiers.verify_synthesize_report(
             repo_root=str(REPO_ROOT),
             run_id="semantic-coverage-review",
@@ -704,7 +782,7 @@ class SemanticCoverageReviewTests(unittest.TestCase):
                     "report_ready_for_verification": True,
                 },
             },
-            state={"evidence_registry": list(REGISTRY)},
+            state=state,
         )
 
     def test_expert_verifier_rejects_oversized_citation_id_without_exception(self):
@@ -905,7 +983,42 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         output["expert_results"][1]["artifact_path"] = "../../../etc/passwd"
         result = self._verify_expert(output)
         self.assertIs(result["passed"], False)
-        self.assertIn("not repository-relative", result["message"])
+        self.assertIn("not a safe readable file", result["message"])
+
+    def test_expert_results_accepts_absolute_artifact_path(self):
+        output = self._expert_output()
+        output["expert_results"][0]["artifact_path"] = str(
+            REPO_ROOT / FIXTURE_ROOT / "historian.md"
+        )
+        output["expert_results"][1]["artifact_path"] = str(
+            REPO_ROOT / FIXTURE_ROOT / "systems_analyst.md"
+        )
+        result = self._verify_expert(output)
+        self.assertIs(result["passed"], True, result["message"])
+
+    def test_expert_results_rejects_absolute_path_with_dot_segment(self):
+        output = self._expert_output()
+        absolute = str(REPO_ROOT / FIXTURE_ROOT / "historian.md")
+        output["expert_results"][0]["artifact_path"] = absolute.replace(
+            f"/{FIXTURE_ROOT.split('/')[-1]}/",
+            f"/{FIXTURE_ROOT.split('/')[-1]}/./",
+            1,
+        )
+        result = self._verify_expert(output)
+        self.assertIs(result["passed"], False)
+        self.assertIn("not a safe readable file", result["message"])
+
+    def test_path_helpers_reject_windows_drive_and_dot_segments(self):
+        from workflows.co_storm_autonomous_research.citation_locators import (
+            resolve_safe_repo_file,
+            resolve_safe_repo_directory,
+        )
+
+        fixture = str(REPO_ROOT / FIXTURE_ROOT / "historian.md")
+        dotted = fixture.replace("/fixtures/", "/./fixtures/", 1)
+        self.assertIsNone(resolve_safe_repo_file(str(REPO_ROOT), dotted))
+        self.assertIsNone(resolve_safe_repo_file(str(REPO_ROOT), "C:/tmp/historian.md"))
+        self.assertIsNone(resolve_safe_repo_directory(str(REPO_ROOT), f"{FIXTURE_ROOT}/."))
 
     # ---- roundtable declared-test-intent coverage ----
 

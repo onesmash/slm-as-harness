@@ -65,7 +65,7 @@ the right workflow.
     - Merge new_evidence in roster order, skip locators already present in the persisted prefix or earlier experts, and require new citation ids to start at max(persisted id)+1 with no gaps.
     - Reject a rewritten persisted prefix, duplicate locators, or a merged registry longer than 128 entries.
     - Require every citation identifier in a summary or artifact to exist in the merged registry, and require the union of each expert's summary and artifact citations to include at least one merged registry identifier.
-    - Resolve each artifact_path beneath repo_root and reject absolute paths, traversal, symlinks, missing or non-regular files, empty files, and invalid UTF-8.
+    - Resolve each artifact_path as a repository-relative path under repo_root or as an absolute POSIX path; reject traversal, backslashes, control characters, symlinks, missing or non-regular files, empty files, and invalid UTF-8.
     - Read each artifact through a bounded UTF-8 check so an oversized artifact cannot exhaust verifier memory.
   Test intent:
     - Accept two roster-matching results with distinct readable artifacts that cite only persisted evidence and return the persisted registry unchanged.
@@ -74,6 +74,7 @@ the right workflow.
     - Reject an unknown, missing, duplicate, or out-of-order expert id.
     - Reject a rewritten persisted registry prefix, a skipped citation id, a duplicated locator, or a new_evidence item that is not locator — claim.
     - Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, an unknown citation, or an unsafe or missing artifact.
+    - Accept a roster-matching result whose artifact_path is an absolute POSIX path to a readable regular file.
 - `evidence_registry_byte_budget`: The merged evidence_registry must stay within a serialization-safe byte budget: the full list serialized as UTF-8 must not exceed 192 KiB even when the 128-entry count cap is met, so the workflow state never approaches the runtime MAX_WORKFLOW_LIST_BYTES limit.
   Signals: `evidence_registry`
   Implementation surfaces: `verifier`, `workflow-specific regression tests`
@@ -164,8 +165,8 @@ the right workflow.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
   same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
-    - Read the repository-relative report_path from structured_output safely under repo_root.
-    - When context.output_dir is set, require the report artifact to remain under that canonical repository-relative output directory.
+    - Read the report_path from structured_output as a repository-relative path under repo_root or as an absolute POSIX path.
+    - When context.output_dir is set, require the report artifact to remain under that output directory, which may itself be repository-relative or absolute.
     - Verify that report_sections names at least two substantive rendered Markdown sections and matches the report artifact rather than relying only on the LLM-declared count.
     - Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
     - Strip HTML comments and raw HTML blocks, then identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.
@@ -190,12 +191,12 @@ the right workflow.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
   same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
-    - Read the repository-relative report path safely under repo_root.
-    - When context.output_dir is set, require report_path and verified_report_path to remain under that canonical repository-relative output directory.
+    - Read the report path as a repository-relative path under repo_root or as an absolute POSIX path.
+    - When context.output_dir is set, require report_path and verified_report_path to remain under that output directory, which may itself be repository-relative or absolute.
     - Require every coverage_map topic to appear among assessed topic ids; the assessment may include extra topics beyond the coverage_map (subset check, not equality).
     - Extract bounded ASCII numeric markers such as [1] from rendered Markdown and parse bounded numeric identifiers from evidence_registry entries; reject oversized identifiers instead of converting them to integers.
     - Reject unknown markers, missing or empty evidence entries, or a pass verdict with no citation markers.
-    - Require verified_report_path to resolve to the same repository-relative regular file as report_path.
+    - Require verified_report_path to resolve to the same regular file as report_path.
     - Require `Report scope: complete` only when state.report_scope_status is complete, coverage_sufficient is true, and next_round_validation_plan is empty.
     - Treat only missing topics as unresolved when the report scope is complete and coverage_sufficient is true: a bounded_gap topic is considered handled in that state (matching the Moderator's immaterial-gap allowance with an empty next-round plan), so it must not block a complete report. For a partial report, every missing and bounded_gap topic remains unresolved and must be disclosed verbatim.
     - Ignore citations inside Markdown code and reject unresolved critical or blocker findings when quality_verdict is pass; make a repair verdict fail this verifier so policy enters repair_report.
@@ -216,8 +217,8 @@ the right workflow.
   If reuse is needed, import stable helpers from shared modules outside verifiers.py.
   same-file helper dependencies as a blocking review issue.
   Hint pseudocode:
-    - Read the same repository-relative report identified by persisted report_path and verified_report_path.
-    - When context.output_dir is set, require both report paths to remain under that canonical repository-relative output directory.
+    - Read the same report identified by persisted report_path and verified_report_path, as a repository-relative path under repo_root or as an absolute POSIX path.
+    - When context.output_dir is set, require both report paths to remain under that output directory, which may itself be repository-relative or absolute.
     - When report_sections is present, verify it against at least two substantive rendered Markdown sections.
     - Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
     - Strip HTML comments, raw HTML blocks, fenced or indented code, and inline code when identifying the rendered report body; reject malformed or unclosed hidden regions.
