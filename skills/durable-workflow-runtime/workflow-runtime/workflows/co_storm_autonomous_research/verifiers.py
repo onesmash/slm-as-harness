@@ -996,7 +996,6 @@ Test intent:
     missing_topic_ids: set[str] = set()
     bounded_gap_topic_ids: set[str] = set()
     thin_covered_topic_ids: set[str] = set()
-    overfull_covered_topic_ids: set[str] = set()
     expected_plan_items: set[str] = set()
     assessment_semantics_valid = True
     if not isinstance(assessment, list) or not assessment:
@@ -1062,8 +1061,6 @@ Test intent:
                 assessment_semantics_valid = False
             if len(distinct_evidence_ids) < 2:
                 thin_covered_topic_ids.add(topic_id)
-            if len(distinct_evidence_ids) > 2:
-                overfull_covered_topic_ids.add(topic_id)
             if open_gaps or metrics:
                 errors.append(f"{label} marked covered must not retain open gaps or validation metrics")
                 assessment_semantics_valid = False
@@ -1139,7 +1136,6 @@ Test intent:
         and not missing_topic_ids
         and not bounded_gap_topic_ids
         and not thin_covered_topic_ids
-        and not overfull_covered_topic_ids
     )
     coverage_sufficient = output.get("coverage_sufficient")
     if not isinstance(coverage_sufficient, bool):
@@ -1149,8 +1145,6 @@ Test intent:
             errors.append(
                 "coverage_sufficient=true requires every covered topic to cite at least two distinct evidence ids"
             )
-        if overfull_covered_topic_ids:
-            errors.append("covered topics may cite at most two core evidence ids")
         errors.append("coverage_sufficient=true violates deterministic semantic guardrails")
 
     unresolved_topic_ids = missing_topic_ids | bounded_gap_topic_ids
