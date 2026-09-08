@@ -18,6 +18,12 @@
       "prompt": "Debug why bridge.py start fails when I pass /tmp/start-request.json as the request file",
       "expected_output": "The agent explains that bridge.py rejects normal host I/O outside .durable-workflow-runtime/host-io/ and only recommends --allow-unsafe-host-io-paths for explicit transport debugging.",
       "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "/durable-workflow-runtime setup",
+      "expected_output": "The agent runs setup/scripts/setup.py and creates or repairs symlinks from workflow-shortcuts skills into ~/.agents/skills and ~/.claude/skills without calling bridge.py start.",
+      "files": []
     }
   ]
 }

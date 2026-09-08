@@ -21,12 +21,24 @@ re-evaluating applicability inside the conversation.
 
 ## Invocation contract
 
-- If this skill is loaded, operate through the shipped runtime and bridge
-  contract.
+- If the first token after `/durable-workflow-runtime` is a reserved wrapper
+  command, handle that command and stop. Do not call `bridge.py start`.
+- If this skill is loaded for a normal workflow run, operate through the
+  shipped runtime and bridge contract.
 - The remaining selection is which published `workflow_id` to start, not
   whether the skill should keep governing the task.
 - Keep workflow choice explicit when possible; otherwise rely on the configured
   default binding.
+
+## Reserved wrapper commands
+
+These tokens are wrapper commands, not `workflow_id` values:
+
+- `setup`
+  Install slash-only skills from `workflow-shortcuts/` into
+  `~/.agents/skills` and `~/.claude/skills`. Follow `setup/SKILL.md` and run
+  `setup/scripts/setup.py`. Do not start a workflow afterward unless the user
+  separately asks to run one.
 
 ## Primary contract
 
@@ -97,20 +109,23 @@ and step semantics in chat, which defeats the whole point of the runtime.
 
 ## First moves
 
-1. Treat the skill invocation itself as the decision to use the bundled
+1. If the invocation is `/durable-workflow-runtime setup` or
+   `durable-workflow-runtime:setup`, follow `setup/SKILL.md`, run
+   `setup/scripts/setup.py`, report the link result, and stop.
+2. Treat any other skill invocation as the decision to use the bundled
    runtime.
-2. Check whether this skill bundle already has `scripts/bridge.py`,
+3. Check whether this skill bundle already has `scripts/bridge.py`,
    `workflow-binding.json`, and the wrapper entry. If you need the concrete
    install path for the current environment, read `references/index.md`
    instead of assuming a Codex-specific directory layout.
-3. Read `references/index.md`, then start with interface-level spokes only.
-4. If the bridge or bundled runtime does not exist yet, say so explicitly and
+4. Read `references/index.md`, then start with interface-level spokes only.
+5. If the bridge or bundled runtime does not exist yet, say so explicitly and
    switch to design or implementation guidance instead of pretending the loop
    can already run.
-5. If the caller needs to choose a workflow, use the published wrapper catalog
+6. If the caller needs to choose a workflow, use the published wrapper catalog
    in `workflow-binding.json` and read
    `references/workflow-selection-spec.md` for the exact selection contract.
-6. For normal execution, use the inlined `start/resume` loop below. The
+7. For normal execution, use the inlined `start/resume` loop below. The
    reference docs are for examples and edge cases, not for the core path.
 
 ## Core execution loop

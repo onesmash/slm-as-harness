@@ -17,6 +17,7 @@ PACK_SKILL_ROOT = SKILL_ROOT / "pack"
 REGISTER_SKILL_ROOT = SKILL_ROOT / "register"
 DELETE_SKILL_ROOT = SKILL_ROOT / "delete"
 INJECT_SKILL_ROOT = SKILL_ROOT / "inject"
+SETUP_SKILL_ROOT = SKILL_ROOT / "setup"
 WORKFLOW_CREATOR_SKILL_ROOT = SKILL_ROOT / "workflow-creator"
 REPO_ROOT = Path(__file__).resolve().parents[4]
 RUNTIME_ROOT = SKILL_ROOT / "workflow-runtime"
@@ -34,6 +35,7 @@ PACK_PATH = PACK_SKILL_ROOT / "scripts" / "pack.py"
 REGISTER_PATH = REGISTER_SKILL_ROOT / "scripts" / "register.py"
 DELETE_PATH = DELETE_SKILL_ROOT / "scripts" / "delete_workflow.py"
 INJECT_PATH = INJECT_SKILL_ROOT / "scripts" / "inject.py"
+SETUP_PATH = SETUP_SKILL_ROOT / "scripts" / "setup.py"
 CREATE_WORKFLOW_PATH = WORKFLOW_CREATOR_SKILL_ROOT / "scripts" / "create_workflow.py"
 WORKSPACE_ROOT = REPO_ROOT / ".durable-workflow-runtime"
 VENV_SITE_PACKAGES = next(
@@ -297,6 +299,15 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             + "\n",
             encoding="utf-8",
         )
+
+    def _write_test_shortcut_skill(self, runtime_root: Path, workflow_id: str) -> Path:
+        shortcut_dir = runtime_root / "workflow-shortcuts" / workflow_id
+        shortcut_dir.mkdir(parents=True, exist_ok=True)
+        (shortcut_dir / "SKILL.md").write_text(
+            f"---\nname: {workflow_id}\ndescription: test shortcut\n---\n",
+            encoding="utf-8",
+        )
+        return shortcut_dir
 
     def _write_test_creator_runtime(self, runtime_root: Path) -> None:
         workflows_root = runtime_root / "workflow-runtime" / "workflows"
@@ -850,6 +861,28 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn("AGENTS.md", inject_spec)
         self.assertIn("CLAUDE.md", inject_spec)
         self.assertIn("<!-- durable-workflow-runtime:start -->", inject_spec)
+
+    def test_setup_reference_documents_setup_surface(self) -> None:
+        setup_skill = (SETUP_SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        setup_spec = (SETUP_SKILL_ROOT / "references" / "setup-cli-spec.md").read_text(
+            encoding="utf-8"
+        )
+        skill_md = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+
+        self.assertIn("name: durable-workflow-runtime:setup", setup_skill)
+        self.assertIn("references/setup-cli-spec.md", setup_skill)
+        self.assertIn("durable-workflow-runtime:setup", setup_spec)
+        self.assertIn("scripts/setup.py", setup_spec)
+        self.assertIn("workflow-shortcuts/", setup_spec)
+        self.assertIn("~/.agents/skills", setup_skill)
+        self.assertIn("~/.claude/skills", setup_skill)
+        self.assertIn("~/.agents/skills/<workflow_id>", setup_spec)
+        self.assertIn("~/.claude/skills/<workflow_id>", setup_spec)
+        self.assertIn("<setup-skill-root>", setup_spec)
+        self.assertIn("/durable-workflow-runtime setup", skill_md)
+        self.assertIn("setup/scripts/setup.py", skill_md)
+        self.assertIn("~/.agents/skills", skill_md)
+        self.assertIn("~/.claude/skills", skill_md)
 
     def test_workflow_creator_reference_documents_creator_surface(self) -> None:
         creator_skill = (WORKFLOW_CREATOR_SKILL_ROOT / "SKILL.md").read_text(
@@ -3042,6 +3075,184 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertNotIn("old workflow list", agents_text)
             self.assertIn("<workflow_id>data-analysis</workflow_id>", agents_text)
             self.assertFalse((repo_root / "CLAUDE.md").exists())
+
+    def test_setup_cli_links_shortcuts_into_global_skill_roots(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            runtime_root = tmpdir_path / "durable-workflow-runtime"
+            agents_root = tmpdir_path / "home" / ".agents" / "skills"
+            claude_root = tmpdir_path / "home" / ".claude" / "skills"
+            self._write_test_runtime_binding(runtime_root)
+            demo_dir = self._write_test_shortcut_skill(runtime_root, "demo-prompt-loop")
+            pdf_dir = self._write_test_shortcut_skill(runtime_root, "pdf-processing")
+            hidden_dir = runtime_root / "workflow-shortcuts" / ".hidden-shortcut"
+            hidden_dir.mkdir()
+            (hidden_dir / "SKILL.md").write_text("hidden\n", encoding="utf-8")
+            (runtime_root / "workflow-shortcuts" / "not-a-skill").mkdir()
+            (runtime_root / "workflow-shortcuts" / "README.md").write_text(
+                "ignore me\n", encoding="utf-8"
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SETUP_PATH),
+                    "--runtime-skill-root",
+                    str(runtime_root),
+                    "--skill-root",
+                    str(agents_root),
+                    "--skill-root",
+                    str(claude_root),
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            payload = json.loads(result.stdout)
+            self.assertEqual(payload["kind"], "workflow_shortcut_setup")
+            self.assertEqual(payload["shortcut_count"], 2)
+            self.assertEqual(payload["pruned"], [])
+            linked_ids = {item["workflow_id"] for item in payload["links"]}
+            self.assertEqual(linked_ids, {"demo-prompt-loop", "pdf-processing"})
+
+            for shortcut_dir in (demo_dir, pdf_dir):
+                agents_link = agents_root / shortcut_dir.name
+                claude_link = claude_root / shortcut_dir.name
+                self.assertTrue(agents_link.is_symlink())
+                self.assertTrue(claude_link.is_symlink())
+                self.assertEqual(agents_link.resolve(), shortcut_dir.resolve())
+                self.assertEqual(claude_link.resolve(), shortcut_dir.resolve())
+
+            self.assertFalse((agents_root / ".hidden-shortcut").exists())
+            self.assertFalse((agents_root / "not-a-skill").exists())
+            self.assertFalse((agents_root / "README.md").exists())
+
+    def test_setup_cli_is_idempotent_and_replaces_wrong_symlink(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            runtime_root = tmpdir_path / "durable-workflow-runtime"
+            agents_root = tmpdir_path / "home" / ".agents" / "skills"
+            claude_root = tmpdir_path / "home" / ".claude" / "skills"
+            self._write_test_runtime_binding(runtime_root)
+            demo_dir = self._write_test_shortcut_skill(runtime_root, "demo-prompt-loop")
+            other_dir = tmpdir_path / "other-skill"
+            other_dir.mkdir()
+            agents_root.mkdir(parents=True)
+            claude_root.mkdir(parents=True)
+            (agents_root / "demo-prompt-loop").symlink_to(demo_dir, target_is_directory=True)
+            (claude_root / "demo-prompt-loop").symlink_to(other_dir, target_is_directory=True)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SETUP_PATH),
+                    "--runtime-skill-root",
+                    str(runtime_root),
+                    "--skill-root",
+                    str(agents_root),
+                    "--skill-root",
+                    str(claude_root),
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            payload = json.loads(result.stdout)
+            actions = {
+                Path(target["path"]).parents[1].name: target["action"]
+                for target in payload["links"][0]["targets"]
+            }
+            self.assertEqual(actions[".agents"], "unchanged")
+            self.assertEqual(actions[".claude"], "replaced")
+            self.assertEqual((claude_root / "demo-prompt-loop").resolve(), demo_dir.resolve())
+
+    def test_setup_cli_refuses_non_symlink_collision(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            runtime_root = tmpdir_path / "durable-workflow-runtime"
+            agents_root = tmpdir_path / "home" / ".agents" / "skills"
+            self._write_test_runtime_binding(runtime_root)
+            self._write_test_shortcut_skill(runtime_root, "demo-prompt-loop")
+            collision = agents_root / "demo-prompt-loop"
+            collision.mkdir(parents=True)
+            (collision / "SKILL.md").write_text("real skill\n", encoding="utf-8")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SETUP_PATH),
+                    "--runtime-skill-root",
+                    str(runtime_root),
+                    "--skill-root",
+                    str(agents_root),
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("non-symlink path already exists", result.stderr)
+            self.assertTrue(collision.is_dir())
+            self.assertFalse(collision.is_symlink())
+
+    def test_setup_cli_prunes_stale_runtime_shortcuts(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            runtime_root = tmpdir_path / "durable-workflow-runtime"
+            agents_root = tmpdir_path / "home" / ".agents" / "skills"
+            claude_root = tmpdir_path / "home" / ".claude" / "skills"
+            self._write_test_runtime_binding(runtime_root)
+            demo_dir = self._write_test_shortcut_skill(runtime_root, "demo-prompt-loop")
+            stale_dir = runtime_root / "workflow-shortcuts" / "old-demo"
+            stale_dir.mkdir(parents=True)
+            (stale_dir / "SKILL.md").write_text("old\n", encoding="utf-8")
+            agents_root.mkdir(parents=True)
+            claude_root.mkdir(parents=True)
+            (agents_root / "old-demo").symlink_to(stale_dir, target_is_directory=True)
+            (claude_root / "old-demo").symlink_to(
+                Path("..") / ".." / ".agents" / "skills" / "old-demo",
+                target_is_directory=True,
+            )
+            unrelated = agents_root / "other-skill"
+            unrelated_target = tmpdir_path / "unrelated"
+            unrelated_target.mkdir()
+            unrelated.symlink_to(unrelated_target, target_is_directory=True)
+            shutil.rmtree(stale_dir)
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SETUP_PATH),
+                    "--runtime-skill-root",
+                    str(runtime_root),
+                    "--skill-root",
+                    str(agents_root),
+                    "--skill-root",
+                    str(claude_root),
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            payload = json.loads(result.stdout)
+            pruned_paths = {
+                Path(item["path"]).resolve(strict=False) for item in payload["pruned"]
+            }
+            self.assertIn((agents_root / "old-demo").resolve(strict=False), pruned_paths)
+            self.assertIn((claude_root / "old-demo").resolve(strict=False), pruned_paths)
+            self.assertFalse((agents_root / "old-demo").exists())
+            self.assertFalse((agents_root / "old-demo").is_symlink())
+            self.assertFalse((claude_root / "old-demo").exists())
+            self.assertFalse((claude_root / "old-demo").is_symlink())
+            self.assertTrue(unrelated.is_symlink())
+            self.assertEqual((agents_root / "demo-prompt-loop").resolve(), demo_dir.resolve())
 
     def test_workflow_creator_rolls_back_binding_when_shortcut_write_fails(self) -> None:
         from unittest.mock import patch

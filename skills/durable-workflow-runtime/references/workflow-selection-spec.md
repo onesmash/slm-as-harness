@@ -13,6 +13,8 @@ explicit workflow choice instead of guessing from prompt text alone.
 
 The core idea is:
 
+- reserved wrapper commands such as `setup` are not workflow IDs; do not start
+  a workflow named `setup`
 - each workflow has a stable `workflow_id`
 - each workflow also has a short human-readable `flow_description`
 - the caller reads that catalog to choose which published workflow to start
