@@ -1733,7 +1733,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:research-nex",
-      "purpose": "Own autonomous perspective-guided research, grounded expert turns, and knowledge-space maintenance."
+      "purpose": "Own autonomous perspective-guided research, grounded expert turns, and knowledge-space maintenance.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill research-nex -g -y --agent claude-code cursor codex"
     },
     {
       "id": "search-nex",
@@ -1741,7 +1742,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:search-nex",
-      "purpose": "Provide source discovery and web-search evidence support required by research-nex."
+      "purpose": "Provide source discovery and web-search evidence support required by research-nex.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill search-nex -g -y --agent claude-code cursor codex"
     },
     {
       "id": "content-research-writer",
@@ -1749,7 +1751,8 @@
       "required": true,
       "scope": "either",
       "source": "skill-catalog:content-research-writer",
-      "purpose": "Own evidence-grounded report synthesis, report quality review, and citation repair."
+      "purpose": "Own evidence-grounded report synthesis, report quality review, and citation repair.",
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill content-research-writer -g -y --agent claude-code cursor codex"
     }
   ],
   "installed": [
