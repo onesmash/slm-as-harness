@@ -1,0 +1,22 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.venv*/
+venv/
+*.egg-info/
+
+# 模型权重与第三方引擎（体积过大，按 DEPLOYMENT.md 获取）
+deployment/models/
+deployment/MOSS-TTS-Nano/
+
+# 运行时产物
+*.log
+*.lock
+*.sock
+
+# 模型权重（体积过大，按 DEPLOYMENT.md 获取）
+scripts/MOSS-TTS-Nano/models/
+scripts/MOSS-TTS-Nano/generated_audio/
