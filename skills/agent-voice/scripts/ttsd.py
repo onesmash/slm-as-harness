@@ -34,10 +34,9 @@ import numpy as np
 BH_GAIN = {"v": 1.0}
 
 # HF 镜像必须在 transformers/hub 初始化前设置
-import tomllib
-_USER_CFG = STATE_DIR / "config.toml"
-_CFG_PATH = _USER_CFG if _USER_CFG.exists() else ROOT / "config.toml"
-CFG = tomllib.loads(_CFG_PATH.read_text(encoding="utf-8"))
+# 配置解析：内置 scripts/config.toml 为基底，~/.config/agent-voice/config.toml 逐键覆盖（用户优先）
+from config_loader import load_config
+CFG, _CFG_PATH = load_config(ROOT / "config.toml", STATE_DIR / "config.toml")
 if CFG["engine"].get("hf_endpoint"):
     os.environ.setdefault("HF_ENDPOINT", CFG["engine"]["hf_endpoint"])
 
@@ -113,7 +112,7 @@ class Engine:
             sys.path.insert(0, str(ROOT))
             from moss_engine import MossEngine
             self.tts = MossEngine(prompt_audio=CFG["engine"].get("prompt_audio", "assets/audio/zh_6.wav"))
-            self.tts.synth("预热")   # P0-2 深预热经 A/B 无实质改善（SER 报告），保持轻预热
+            self.tts.synth("预热。")   # perf-20260922: 无标点预热会 AR 失控跑满帧上限（46.1s vs 4.1s 配对实测，HS-3）
         else:
             from mixed_tts import MixedTTS
             self.tts = MixedTTS(models_dir=ROOT / "models",
@@ -204,7 +203,7 @@ def main():
             # 依据：first_audio ≈ 首句完整合成时间（实测占 99%），首句越短首音越快。
             if sentences and len(sentences[0]) > 12:
                 import re as _re
-                m = _re.search(r"^(.{4,12}?[，、：；,;])", sentences[0])
+                m = _re.search(r"^(.{2,12}?[，、：；,;])", sentences[0])   # perf-20260922: 4→2 字（HS-4：2字前缀"你好，"不切分是首音 8050ms 根因）
                 if m and m.end() < len(sentences[0]):
                     sentences = [m.group(1)] + [sentences[0][m.end():]] + sentences[1:]
             synth_q = queue.Queue(maxsize=4)   # 有界队列 → 自然背压

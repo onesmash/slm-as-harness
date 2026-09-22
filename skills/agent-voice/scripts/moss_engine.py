@@ -3,7 +3,7 @@
 
 依赖：.venv-moss（py3.12 + onnxruntime + torch2.2.2 + transformers）+ MOSS-TTS-Nano 仓库文件
 许可：Apache-2.0
-注意：MOSS 为自回归模型，本机（Intel CPU）RTF≈1-2；threads=2 最优（1 慢 20%，4 慢 25%）。
+注意：MOSS 为自回归模型，本机（Intel CPU）RTF≈0.6-1.3；threads=4 实测最优（perf-20260922，ORT 1.23.2）。
 接口与其他引擎一致：synth(text) -> (48k 立体声 int16, sr)
 """
 import os
@@ -21,7 +21,7 @@ MOSS_DIR = ROOT / "MOSS-TTS-Nano"
 class MossEngine:
     def __init__(self, model_dir: Path | None = None,
                  prompt_audio: str = "assets/audio/zh_6.wav",
-                 thread_count: int = 2,   # P0 修复：留核给 USB 音频通路防欠载爆破音（实测 RTF 无损失 0.85 vs 0.86）
+                 thread_count: int = 4,   # perf-20260922: ORT 1.23.2 实测 t=4 RTF -13~17%（156/156 bit-exact parity）；旧注释"t=2 最优"已反驳
                  do_sample: bool = False):
         sys_path = str(MOSS_DIR)
         if sys_path not in sys.path:
@@ -36,6 +36,19 @@ class MossEngine:
             sample_mode="fixed",
             execution_provider="cpu",
         )
+        # perf-20260922: 参考音频 codes 记忆化 —— 画像实测每句重复编码同一 prompt 约 423ms（HS-2）。
+        # 缓存键 = (voice, prompt_audio_path)；确定性编码，输出 bit-exact 已验证（parity.json 156/156）。
+        self._prompt_codes_cache: dict = {}
+        _orig_resolve = self.runtime.resolve_prompt_audio_codes
+
+        def _resolve_cached(*args, **kwargs):
+            key = str(args) if args else (
+                kwargs.get("voice", ""), kwargs.get("prompt_audio_path", ""))
+            if key not in self._prompt_codes_cache:
+                self._prompt_codes_cache[key] = _orig_resolve(*args, **kwargs)
+            return self._prompt_codes_cache[key]
+
+        self.runtime.resolve_prompt_audio_codes = _resolve_cached
         self.prompt_audio = prompt_audio
         self.out = "/tmp/moss_engine_out.wav"
 

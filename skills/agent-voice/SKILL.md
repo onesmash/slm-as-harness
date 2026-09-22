@@ -80,6 +80,8 @@ latency = "low"
 enabled = true           # 本地同播
 ```
 
+**用户覆盖**：`~/.config/agent-voice/config.toml` 存在时，ttsd.py 以内置 `scripts/config.toml` 为基底**逐键合并**（用户优先；dict 递归合并，标量/列表整体替换），用户配置只需写要改的键，不必是完整副本。改配置后需重启守护进程生效。`speak.py` 只读内置 config.toml。
+
 ## 架构
 
 ```

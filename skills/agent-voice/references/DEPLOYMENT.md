@@ -90,7 +90,7 @@ cd /Users/xuhui/Code/research/research-output/tts-mic-loopback/deployment
 
 ## 7. 产物清单
 
-- `config.toml` — engine/device/monitor/safety 配置（`[monitor] enabled=true` 时 speak.py 会在本地扬声器/耳机同播一份，便于人工确认；不需要时改 false）
+- `config.toml` — engine/device/monitor/safety 配置（`[monitor] enabled=true` 时 speak.py 会在本地扬声器/耳机同播一份，便于人工确认；不需要时改 false）。ttsd.py 解析顺序：以本文件（`scripts/config.toml`）为基底，`~/.config/agent-voice/config.toml` 存在时**逐键合并覆盖**（用户优先；dict 递归合并，标量/列表整体替换），因此用户配置只需写要改的键；改完需重启守护进程生效。`speak.py` 仍只读内置 `scripts/config.toml`。
 
 
 - `speak.py` — 文本→say→BlackHole 播放 CLI
