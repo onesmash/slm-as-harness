@@ -110,8 +110,9 @@ class Engine:
         t0 = time.perf_counter()
         if name == "moss":
             sys.path.insert(0, str(ROOT))
-            from moss_engine import MossEngine
-            self.tts = MossEngine(prompt_audio=CFG["engine"].get("prompt_audio", "assets/audio/zh_6.wav"))
+            from moss_engine import MossEngine, resolve_platform_threads
+            self.tts = MossEngine(prompt_audio=CFG["engine"].get("prompt_audio", "assets/audio/zh_6.wav"),
+                                  thread_count=resolve_platform_threads(CFG["engine"].get("threads", 4)))
             self.tts.synth("预热。")   # perf-20260922: 无标点预热会 AR 失控跑满帧上限（46.1s vs 4.1s 配对实测，HS-3）
         else:
             from mixed_tts import MixedTTS

@@ -82,8 +82,10 @@ def synthesize(text: str) -> tuple[np.ndarray, int]:
         from text_pipeline import normalize_numbers
         text = normalize_numbers(text)   # 直连路径与 ttsd 路径归一化一致
         if "moss" not in _VOICE_CACHE:
-            from moss_engine import MossEngine
-            _VOICE_CACHE["moss"] = MossEngine(prompt_audio=ENGINE.get("prompt_audio", "assets/audio/zh_1.wav"))
+            from moss_engine import MossEngine, resolve_platform_threads
+            _VOICE_CACHE["moss"] = MossEngine(
+                prompt_audio=ENGINE.get("prompt_audio", "assets/audio/zh_1.wav"),
+                thread_count=resolve_platform_threads(ENGINE.get("threads", 4)))
         return _VOICE_CACHE["moss"].synth(text)
     return synthesize_say(text)
 

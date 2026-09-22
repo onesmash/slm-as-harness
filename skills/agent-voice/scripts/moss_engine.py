@@ -7,6 +7,7 @@
 接口与其他引擎一致：synth(text) -> (48k 立体声 int16, sr)
 """
 import os
+import platform
 import sys
 import wave
 from pathlib import Path
@@ -18,11 +19,35 @@ BASE = ROOT.parent                               # tts-mic-loopback/
 MOSS_DIR = ROOT / "MOSS-TTS-Nano"
 
 
+def resolve_platform_threads(config_value, fallback: int = 4) -> int:
+    """平台隔离的 ORT intra_op 线程数解析（performance-nex pn-arm-threads-001）。
+
+    线程最优值依赖 CPU 拓扑（Intel 均匀核 vs Apple P/E 异构核），跨平台复用
+    实测结论已被证明无效，因此按 platform.machine() 选段、各平台互不覆盖：
+
+    - config_value 为 int：所有平台统一使用（兼容旧配置；不推荐新写法）
+    - config_value 为 dict：{"arm64": N, "x86_64": M, "default": K}
+      按 machine() 精确选段；未知平台回退 "default" 键，再回退函数 fallback。
+    """
+    if isinstance(config_value, dict):
+        mach = platform.machine()  # "arm64" / "x86_64"
+        if mach in config_value:
+            return int(config_value[mach])
+        if "default" in config_value:
+            return int(config_value["default"])
+        return int(fallback)
+    if config_value is None:
+        return int(fallback)
+    return int(config_value)
+
+
 class MossEngine:
     def __init__(self, model_dir: Path | None = None,
                  prompt_audio: str = "assets/audio/zh_6.wav",
-                 thread_count: int = 4,   # perf-20260922: ORT 1.23.2 实测 t=4 RTF -13~17%（156/156 bit-exact parity）；旧注释"t=2 最优"已反驳
-                 do_sample: bool = False):
+                 thread_count: int = 4,   # Intel 实测 t=4（perf-20260922，ORT 1.23.2，156/156 bit-exact parity）。
+                                          # ARM 平台值请经 config.toml [engine.threads] 按平台隔离配置，
+                                          # 由 resolve_platform_threads() 解析后传入；勿将 Intel 值跨平台复用。
+                  do_sample: bool = False):
         sys_path = str(MOSS_DIR)
         if sys_path not in sys.path:
             sys.path.insert(0, sys_path)

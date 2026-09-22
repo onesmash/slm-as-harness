@@ -91,14 +91,30 @@ enabled = true           # 本地同播（扬声器/耳机同步可听）
 
 ## 性能基线
 
-| 指标 | Intel MBP 实测 | Apple Silicon 实测（2026-09） |
+| 指标 | Intel MBP 实测 | Apple Silicon 实测（M4 Pro，2026-09） |
 |---|---|---|
-| 稳态合成 RTF | 0.85–1.05（threads=2） | 0.18–0.20 |
-| 首音延迟（热态） | 150–370ms | 418–449ms |
+| 稳态合成 RTF | 0.85–1.05（threads=2） | 0.18–0.21 |
+| 首音延迟（热态） | 150–370ms | 418–514ms |
 | 引擎冷启动（加载+预热） | 15–71s | 2.4–2.5s |
 | BlackHole 回环延迟 @256/512/1024 帧 | 5.4/16.0/26.7ms | 26.7/32.0/64.0ms |
 
 两代硬件绝对值差异大，但**相对行为一致**（延迟随 blocksize 线性增长、RTF 远小于 1 即健康）。判断健康看趋势，不要硬套另一台机器的数值。
+
+### 平台隔离调优（重要）
+
+ORT 线程数等 CPU 拓扑敏感参数**按平台隔离配置、互不复用**（`config.toml [engine.threads]`）：
+
+```toml
+[engine.threads]
+default = 4        # 未识别平台回退
+x86_64 = 4         # Intel 实测（perf-20260922）
+arm64 = 4          # M4 Pro 实测（pn-arm-threads-001）：t=1 +31.6%、t=12 +22.7%（E 核）均显著劣化
+```
+
+- 各平台实测值独立回填，**任何平台的调优结论不得直接写入另一平台段**
+- 换芯片/换拓扑后只重测自己那段（harness: `agent-voice-workspace/performance-nex/bench_threads.py`）
+- 解析逻辑 `moss_engine.resolve_platform_threads()` 按 `platform.machine()` 选段，未知平台走 `default`
+- 用户覆盖同理：`~/.config/agent-voice/config.toml` 只写要改的平台段，其他平台不受影响
 
 ## 已知问题与修复（全部经实测验证）
 
