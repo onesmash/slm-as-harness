@@ -9,6 +9,7 @@
 import os
 import platform
 import sys
+import threading
 import wave
 from pathlib import Path
 
@@ -66,6 +67,10 @@ class MossEngine:
         # perf-20260922: 参考音频 codes 记忆化 —— 画像实测每句重复编码同一 prompt 约 423ms（HS-2）。
         # 缓存键 = (voice, prompt_audio_path)；确定性编码，输出 bit-exact 已验证（parity.json 156/156）。
         self._prompt_codes_cache: dict = {}
+        # 合成互斥锁：ORT/codec streaming session 非线程安全。停止播放后残留的
+        # 流式 AR 线程与新请求并发调用 synthesize 会互踩 session 状态（实测合成链挂死），
+        # 因此所有 runtime 访问必须串行化。
+        self._synth_lock = threading.Lock()
         _orig_resolve = self.runtime.resolve_prompt_audio_codes
 
         def _resolve_cached(*args, **kwargs):
@@ -83,20 +88,21 @@ class MossEngine:
         prompt = self.prompt_audio
         if not os.path.isabs(prompt):   # 相对路径锚定到 MOSS-TTS-Nano 目录
             prompt = str(MOSS_DIR / prompt)
-        self.runtime.synthesize(
-            text=text,
-            voice="",
-            prompt_audio_path=prompt,
-            output_audio_path=self.out,
-            sample_mode="fixed",    # P0-1 已回滚：greedy 在 macOS x86_64 ORT 走慢速内核（50.4s vs 2.8s，18x）
-            streaming=False,
-            max_new_frames=375,
-            enable_wetext=False,               # TN 需 pynini/WeTextProcessing，已验证关闭不影响音质
-            enable_normalize_tts_text=False,
-        )
-        with wave.open(self.out, "rb") as w:
-            sr = w.getframerate()
-            pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).reshape(-1, 2)
+        with self._synth_lock:
+            self.runtime.synthesize(
+                text=text,
+                voice="",
+                prompt_audio_path=prompt,
+                output_audio_path=self.out,
+                sample_mode="fixed",    # P0-1 已回滚：greedy 在 macOS x86_64 ORT 走慢速内核（50.4s vs 2.8s，18x）
+                streaming=False,
+                max_new_frames=375,
+                enable_wetext=False,               # TN 需 pynini/WeTextProcessing，已验证关闭不影响音质
+                enable_normalize_tts_text=False,
+            )
+            with wave.open(self.out, "rb") as w:
+                sr = w.getframerate()
+                pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).reshape(-1, 2)
         # 爆破音修复：MOSS 句首从波形中段硬切入（实测首样本达 17-36% 满幅），
         # 句间拼接必产生咔哒声。处理：DC 去除 + 首 8ms 淡入 / 末 8ms 淡出。
         f = pcm.astype(np.float32)
@@ -113,12 +119,13 @@ class MossEngine:
 
     @staticmethod
     def _chunk_to_int16_stereo(a: np.ndarray) -> np.ndarray:
-        """(n, ch) float32 [-1,1] @48k → (n, ch) int16。
+        """(n, ch) float32 [-1,1] @48k → (n, ch) int16 C-contiguous。
 
         codec 原生输出即 48k（codec_meta codec_config.sample_rate=48000），
         无需重采样——曾误加 2x 上采样导致半速音频/CER 全崩（pn-arm-firstframe-001 教训）。
+        入参可能是转置视图（非连续），PortAudio write 要求 C-contiguous，必须显式拷贝。
         """
-        return np.clip(a * 32767.0, -32768, 32767).astype(np.int16)
+        return np.ascontiguousarray(np.clip(a * 32767.0, -32768, 32767)).astype(np.int16)
 
     def synth_streaming(self, text: str):
         """流式合成 generator：yield (pcm (n,2) int16 @48k, sr=48000)。
@@ -150,12 +157,15 @@ class MossEngine:
         def worker():
             codec.run_frames = timed_run
             try:
-                self.runtime.synthesize(
-                    text=text, voice="", prompt_audio_path=prompt,
-                    output_audio_path=self.out,
-                    sample_mode="fixed", streaming=True,
-                    max_new_frames=375, enable_wetext=False,
-                    enable_normalize_tts_text=False)
+                # 持合成锁：与整段 synth / 其他流式请求串行（session 非线程安全）。
+                # 停止场景下若残留 AR 线程在跑，新请求在此排队至多一句时长。
+                with self._synth_lock:
+                    self.runtime.synthesize(
+                        text=text, voice="", prompt_audio_path=prompt,
+                        output_audio_path=self.out,
+                        sample_mode="fixed", streaming=True,
+                        max_new_frames=375, enable_wetext=False,
+                        enable_normalize_tts_text=False)
             except Exception as e:
                 q.put(e)
             finally:

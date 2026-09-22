@@ -53,8 +53,13 @@ python3.12 -m venv .venv-moss
 
 ```bash
 ./scripts/run.sh "要朗读的文本"          # 推荐：run.sh 自动用 .venv-moss 的 python
+./scripts/ttsay.py --stop               # 停止当前播放（可从另一个终端/连接发起）
 echo "多行文本" | ./scripts/speak.py -   # 直连合成（不依赖守护进程；moss/say 按 config 分发）
 ```
+
+**停止语义**：`--stop` 立即 kill monitor（本地扬声器静音），虚拟麦侧丢弃未播块（≤0.2s 内静音）；
+被停止的会话回 `done(stopped=true)`，守护进程状态干净、后续请求正常。实现上全程不 abort/close
+音频流（CoreAudio 状态破坏与同设备重开挂起均已实测），只在播放块边界（0.2s 子块）检查停止信号。
 
 调用约定：脚本 shebang 是 `#!/usr/bin/env python3`，而依赖装在 `.venv-moss` 里——
 **始终通过 `run.sh` 或显式 `.venv-moss/bin/python <script>.py` 调用**，直接 `./ttsay.py` 会因系统 python 缺依赖报 ImportError。

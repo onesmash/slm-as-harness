@@ -142,6 +142,12 @@ def main():
     # 音量策略 v2：不碰系统音量。BlackHole 设备音量可能被系统重置到近零（-40dB），
     # 改用数字域自动增益补偿（启动校准 + 每句峰值限制），用户音量完全不受影响。
 
+    # 停止播放（pn 停止指令）：活跃会话的本地停止 Event 经 ACTIVE 指针投递。
+    # 不可用全局共享 Event——新会话 clear 信号会破坏进行中会话的停止（实测竞态）。
+    # 停止不触碰音频流（abort/kill 均会引发 CoreAudio 状态损坏或子进程死锁），
+    # 只置信号让会话在块边界丢弃剩余块——流式块 ~80ms，静音延迟可忽略。
+    ACTIVE = {"af": None, "stop": None}
+
     def send_event(conn, ev: dict) -> None:
         """客户端断开只丢事件，绝不影响播放流水线。"""
         try:
@@ -184,7 +190,6 @@ def main():
 
     def serve(conn):
         bh = open_output(CFG["device"]["name"])   # BlackHole 虚拟设备，按连接持有
-        # monitor 每句重开（跟随系统默认输出，支持播放中切设备）
         sd.sleep(30)
         t_recv = time.perf_counter()
         buf = b""
@@ -206,6 +211,23 @@ def main():
                 req = json.loads(line)
             except json.JSONDecodeError:
                 continue
+            if req.get("cmd") == "stop":
+                # 停止播放：置活跃会话的本地停止信号，kill monitor 立即静音；bh 侧丢弃剩余块（~80ms 内静音）。
+                # 正在播放的会话在下一个块/句检查点退出并回 done(stopped=true)。
+                stop_ev = ACTIVE.get("stop")
+                if stop_ev is not None:
+                    stop_ev.set()
+                af = ACTIVE.get("af")
+                if af is not None and af.poll() is None:
+                    try:
+                        af.kill()
+                    except Exception:
+                        pass
+                # 不 abort bh 流：abort 会破坏 CoreAudio 设备状态（后续流 write 永久阻塞）。
+                # 流式块粒度 ~80ms，丢弃剩余块即可快速静音虚拟麦。
+                log("收到停止指令")
+                send_event(conn, {"event": "stopped"})
+                continue
             text = (req.get("text") or "").strip()
             if not text:
                 continue
@@ -219,32 +241,54 @@ def main():
                 m = _re.search(r"^(.{2,12}?[，、：；,;])", sentences[0])   # perf-20260922: 4→2 字（HS-4：2字前缀"你好，"不切分是首音 8050ms 根因）
                 if m and m.end() < len(sentences[0]):
                     sentences = [m.group(1)] + [sentences[0][m.end():]] + sentences[1:]
+            session_stop = threading.Event()   # 会话本地停止信号（避免跨会话竞态）
+            ACTIVE["stop"] = session_stop
             synth_q = queue.Queue(maxsize=4)   # 有界队列 → 自然背压
             stats = {"synth": 0.0, "audio": 0.0, "first_audio": None}
             use_stream = bool(CFG["engine"].get("streaming_first_audio", True))
 
+            def _put(item):
+                """入队；停止置位后放弃入队（play_worker 已退出，避免阻塞 join）。"""
+                while not session_stop.is_set():
+                    try:
+                        synth_q.put(item, timeout=0.2)
+                        return True
+                    except queue.Full:
+                        continue
+                return False
+
             def synth_worker():
                 t_start = time.perf_counter()
                 streamed = False
-                for idx, s in enumerate(sentences):
-                    if idx == 0 and use_stream:
-                        try:
-                            # 流式首句：AR 首帧生成即出块（首块 ~110ms），块级入队
-                            for pcm, sr in engine.synth_streaming(s):
-                                stats["audio"] += len(pcm) / sr
-                                synth_q.put((pcm, sr))
-                            streamed = True
-                            continue
-                        except Exception as e:
-                            log(f"流式首句失败，回落整段合成: {e}")
-                    t = time.perf_counter()
-                    pcm, sr = engine.synth(s)
-                    stats["synth"] += time.perf_counter() - t
-                    stats["audio"] += len(pcm) / sr
-                    synth_q.put((pcm, sr))
-                if streamed:
-                    stats["synth"] += time.perf_counter() - t_start
-                synth_q.put(None)
+                try:
+                    for idx, s in enumerate(sentences):
+                        if session_stop.is_set():
+                            break
+                        if idx == 0 and use_stream:
+                            try:
+                                # 流式首句：AR 首帧生成即出块（首块 ~110ms），块级入队
+                                for pcm, sr in engine.synth_streaming(s):
+                                    if session_stop.is_set():
+                                        break
+                                    stats["audio"] += len(pcm) / sr
+                                    _put((pcm, sr))
+                                streamed = True
+                                continue
+                            except Exception as e:
+                                log(f"流式首句失败，回落整段合成: {e}")
+                        t = time.perf_counter()
+                        pcm, sr = engine.synth(s)
+                        stats["synth"] += time.perf_counter() - t
+                        stats["audio"] += len(pcm) / sr
+                        if session_stop.is_set():
+                            break
+                        _put((pcm, sr))
+                    if streamed:
+                        stats["synth"] += time.perf_counter() - t_start
+                except Exception as e:
+                    log(f"synth_worker 异常（哨兵仍投递以保证播放线程退出）: {e}")
+                if not session_stop.is_set():
+                    synth_q.put(None)
 
             def feed(tag, stream, pcm, sr):
                 try:
@@ -261,8 +305,16 @@ def main():
 
             def play_worker():
                 first = True
+                stopped = False
+                sub_frames = int(48000 * 0.2)   # 0.2s 子块：停止检查粒度，全程不触碰流对象
                 while True:
-                    item = synth_q.get()
+                    try:
+                        item = synth_q.get(timeout=0.2)   # 超时轮询：停止置位时 synth_worker 不再投哨兵
+                    except queue.Empty:
+                        if session_stop.is_set():
+                            stopped = True
+                            break
+                        continue
                     if item is None:
                         break
                     pcm, sr = item
@@ -278,23 +330,39 @@ def main():
                         w.writeframes(pcm.tobytes())
                     af = subprocess.Popen(["afplay", mon_wav],
                                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    feed("bh", bh, pcm, sr)
+                    ACTIVE["af"] = af
+                    # bh 按 0.2s 子块写：块间检查停止信号；停止后剩余子块丢弃（≤0.2s 内静音）。
+                    # 全程不 abort/close 流——CoreAudio 状态破坏与同设备重开挂起均已实测。
+                    for i in range(0, len(pcm), sub_frames):
+                        if session_stop.is_set():
+                            stopped = True
+                            break
+                        feed("bh", bh, pcm[i:i + sub_frames], sr)
+                    if stopped:
+                        break
                     try:
                         af.wait(timeout=60)
                         os.remove(mon_wav)
                     except Exception:
                         pass
+                if stopped:
+                    return True
 
             tw = threading.Thread(target=synth_worker); tw.start()
-            play_worker()
+            _stopped = play_worker()
             tw.join()
+            if session_stop.is_set():
+                _stopped = True
+            ACTIVE["af"] = None
+            ACTIVE["stop"] = None
             send_event(conn, {"event": "done",
                               "audio_seconds": round(stats["audio"], 2),
                               "synth_seconds": round(stats["synth"], 2),
-                              "sentences": len(sentences)})
+                              "sentences": len(sentences),
+                              "stopped": bool(_stopped)})
             try:
                 bh.stop(); bh.close()
-                log("本请求输出流已关闭（monitor 为每句新开，无句柄过期问题）")
+                log("本请求输出流已关闭")
             except Exception:
                 pass
 
