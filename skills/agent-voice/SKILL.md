@@ -145,6 +145,10 @@ arm64 = 4          # M4 Pro 实测（pn-arm-threads-001）：t=1 +31.6%、t=12 +
 
 ## 已知问题与修复（全部经实测验证）
 
+> **音调/韵律稳定性**的完整诊断与修复记录（现象归属裁决、根因链、四条已实施修复的实测数字与代价、
+> 五个已证伪杠杆、验收判据与局限）见 [`references/PITCH_STABILITY_REPORT.md`](references/PITCH_STABILITY_REPORT.md)。
+> 要点：逐句独立随机实现 + 标点孤儿块 + 增益自噬三因叠加；验收**不要**用句间 F0 SD（合成已比自然人声更稳）。
+
 ### 模型下载静默失败：hf-mirror 不支持 Xet 协议
 **症状**：守护进程反复崩溃重启（KeepAlive 循环）；日志 `RuntimeError: ... cas-server.xethub.hf.co ... 401 Unauthorized`，随后 `FileNotFoundError: codec_browser_onnx_meta.json`。models 目录只有几百 KB 的 json、没有 onnx/data。
 **根因**：huggingface_hub ≥1.0 默认走 Xet 存储协议，hf-mirror 只代理经典 HTTP 通道。
@@ -208,13 +212,21 @@ cd scripts && .venv-moss/bin/python selftest.py
 
 | 测试 | 验证内容 | 通过判据 |
 |---|---|---|
-| T1 | say 离线合成 | WAV 有效、非静音 |
+| T1 | say 兜底引擎合成（**不覆盖 MOSS 生产路径**） | WAV 有效、非静音 |
 | T2 | BlackHole 输出通路 | 写入无异常 |
-| T3 | BlackHole 输入通路 | 采集成功 |
+| T3 | BlackHole 输入通路 / TCC | 收到真实回调且 callback 无错误标记；电平如实上报（dBFS 进报告），不做硬门禁 |
 | T4 | 端到端回环 | 互相关检测到信号 |
 | T5 | 延迟实测 | 3 档 p50_ms 数值物理自洽：0<p50≤200ms、p50 ≈ blocksize 缓冲周期整数倍、同档重复极差 ≤1ms、随 blocksize 单调不降 |
 
-结果写 `scripts/selftest_report.json`。T3–T5 依赖 T3 通路；报告里任一失败即 overall=fail。
+| T6 | MOSS 生产路径硬门禁（去长度偏置） | 时长 <29.95s、RMS ≥−60 dBFS、有声音频 ≥0.4s |
+| T7 | 切分层不变量（零合成） | 任何返回 chunk 去标点后非空（守护标点-only 孤儿块修复） |
+
+结果写 `scripts/selftest_report.json`。T3–T5 依赖 T3 通路；报告里任一失败即 overall=fail。T6/T7 不依赖 BlackHole。
+
+**抖动验收（独立于 selftest，需 K×n 次合成）**：`tools/verify_render_stability.py` —— 配对 σ_render 相对门禁
+（同句集、同仪器 YIN 40ms/10ms@16kHz；K=16×n=3 时要求降幅 ≥40% 且不过 1.5× 非劣性守卫），基线 σ_render=1.08 半音（df=24）。
+不用句间 F0 SD：合成侧跨句离散（1.54–1.85 半音）已小于自然人声（2.68 半音），该口径判不出用户抱怨的抖动。
+绝对阈值不可用——本机穷举 42 个自然语音文件无「同说话人重复同句」样本。
 
 闭环 CER 验证（合成路径改动后的语义等价回归）：
 

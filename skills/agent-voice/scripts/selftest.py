@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """selftest.py — 部署自测（T1–T5），对应 report.md 部署期验证清单。
 
-T1 离线合成       say → WAV 有效（采样率/时长/非静音）
+T1 兜底引擎合成   say（macOS）→ WAV 有效（采样率/时长/非静音）；**不覆盖 MOSS 生产路径**，见 T6
 T2 输出通路       sounddevice 写 BlackHole 输出端无异常
 T3 输入通路       从 BlackHole 输入端采集（触发 TCC 门禁，挂起=待授权）
 T4 端到端回环     同时播放+采集，互相关验证信号到达
@@ -10,6 +10,7 @@ T5 延迟实测       playrec 同流互相关 3 档 blocksize × 3 run，回填 
 结果写入 selftest_report.json；任何失败 fail-closed 并给出修复指引。
 """
 import json
+import math
 import subprocess
 import sys
 import time
@@ -108,11 +109,22 @@ def t3_capture(dev_in):
                      tcc_blocked=True)
     if result.get("err"):
         return check("T3_capture", False, f"采集异常: {result['err']}")
+    if got["frames"] is None:
+        return check("T3_capture", False, "0.6s 内无采集回调——输入通路未真正打开")
     frames, status = got["frames"]
     rms = float(np.sqrt(np.mean((frames.astype(np.float32) / 32768) ** 2)))
     flags = str(status) if status else "none"
-    return check("T3_capture", True, f"0.6s 采集成功 RMS={rms:.5f} callback_status={flags}",
-                 rms=rms, callback_status=flags)
+    # 修复（research-nex r4 [83][84]）：原实现把断言硬编码为 True，连回调带错误标记也判 PASS。
+    # T3 的语义是「输入通路/TCC 可用」：现要求①真实收到回调 ②callback 无错误标记；
+    # 电平只如实上报（dBFS 进报告）而**不做硬门禁**——T2 的测试音常在 T3 开流前已播完，
+    # 正常情况下也会采到静音（实测 −240 dBFS）。真实信号电平由 T4（回环互相关）
+    # 与 T6（MOSS 生产路径：RMS<−60 dBFS / 时长≥29.95s / 有声<0.4s 即 FAIL）断言。
+    db = 20 * math.log10(max(rms, 1e-12))
+    ok = (flags == "none")
+    return check("T3_capture", ok,
+                 f"0.6s 采集 RMS={rms:.5f} ({db:.1f} dBFS) callback_status={flags}"
+                 + ("" if ok else "；回调报告错误标记"),
+                 rms=rms, rms_dbfs=round(db, 1), callback_status=flags)
 
 
 def t4_loopback(dev_out, dev_in, seconds=2.5):
@@ -229,6 +241,71 @@ def t5_latency(dev_out, dev_in):
     return check("T5_latency", not reasons, detail, measurements=results)
 
 
+def t6_moss_gates():
+    """MOSS 生产路径硬门禁（research-nex r4 [61][62][63][83]）。
+
+    覆盖 T1 的盲区：T1 走 macOS say，而生产用 MossEngine。门禁用去长度偏置的判据：
+      ① 时长 ≥ 29.95s ⇒ FAIL（撞满 max_new_frames=375 的 30.00s 截断，实测 28.6% 概率）
+      ② 整体 RMS < 1e-3（−60 dBFS）⇒ FAIL（近数字静音的断续死气）
+      ③ 有声音频时长 < 0.4s ⇒ FAIL（旧门禁「有声帧<30」有长度偏置，会整批删掉短句）
+    """
+    text = "今天下午三点开会，讨论音调稳定性的问题。"
+    try:
+        sys.path.insert(0, str(HERE))
+        from moss_engine import MossEngine
+    except Exception as e:                                    # noqa: BLE001
+        return check("T6_moss_gates", False, f"MossEngine 导入失败: {e}")
+    try:
+        pcm, sr = MossEngine().synth(text)
+    except Exception as e:                                    # noqa: BLE001
+        return check("T6_moss_gates", False, f"MOSS 合成异常: {e}")
+    x = pcm.astype(np.float32).mean(axis=1) / 32768.0
+    dur = len(x) / sr
+    rms = float(np.sqrt(np.mean(x ** 2)))
+    frame, hop = int(0.04 * sr), int(0.01 * sr)
+    voiced = sum(1 for i in range(max(1, (len(x) - frame) // hop))
+                 if float(np.sqrt(np.mean(x[i * hop:i * hop + frame] ** 2))) > 0.01) * hop / sr
+    bad = []
+    if dur >= 29.95:
+        bad.append(f"时长 {dur:.2f}s 撞满解码上限")
+    if rms < 1e-3:
+        bad.append(f"RMS {rms:.2e} 近静音")
+    if voiced < 0.4:
+        bad.append(f"有声音频仅 {voiced:.2f}s")
+    return check("T6_moss_gates", not bad,
+                 f"MOSS 生产路径 {dur:.2f}s RMS={rms:.4f} 有声={voiced:.2f}s"
+                 + ("；" + "；".join(bad) if bad else "（三项硬门禁通过）"),
+                 seconds=round(dur, 3), rms=round(rms, 5), voiced_seconds=round(voiced, 3))
+
+
+def t7_split_layer():
+    """切分层不变量（零合成）：任何返回的 chunk 都不得「去标点后为空」。
+
+    守护 research-nex r4 [79][80] 的修复——token 预算切分器会在恰好吃满预算时把句末标点
+    切成 1-2 token 的孤儿块，该块实测有 28.6% 概率撞满 max_new_frames 生成 30s 断续死气。
+    这里直接调上游切分函数（需要 runtime 实例，故与 T6 共用引擎加载成本）。
+    """
+    cases = ["无标点长串" * 18 + "。", "短句。", "带，逗号，的句子。" * 6]
+    try:
+        sys.path.insert(0, str(HERE))
+        from moss_engine import MossEngine
+        rt = MossEngine().runtime
+    except Exception as e:                                    # noqa: BLE001
+        return check("T7_split_layer", False, f"runtime 不可用: {e}")
+    offenders = []
+    for text in cases:
+        try:
+            chunks = rt.split_voice_clone_text(text, max_tokens=75)
+        except Exception as e:                                # noqa: BLE001
+            return check("T7_split_layer", False, f"切分异常: {e}")
+        for c in chunks:
+            if c and not any(ch.isalnum() for ch in c):
+                offenders.append(repr(c))
+    return check("T7_split_layer", not offenders,
+                 f"{len(cases)} 组输入无标点-only 块"
+                 + (f"；违规 {offenders}" if offenders else "（切分层不变量通过）"))
+
+
 def main():
     dev_out, dev_in = bh_devices()
     if dev_out is None:
@@ -238,6 +315,8 @@ def main():
         REPORT["tests"]["device"] = {"ok": True, "detail": f"out=#{dev_out} in=#{dev_in}"}
         print(f"[ OK ] device: BlackHole out=#{dev_out} in=#{dev_in}")
         t1_synthesis()
+        t6_moss_gates()
+        t7_split_layer()
         if not t2_playback(dev_out):
             pass
         if dev_in is not None:
