@@ -244,12 +244,6 @@ def main():
                     sentences = [m.group(1)] + [sentences[0][m.end():]] + sentences[1:]
             session_stop = threading.Event()   # 会话本地停止信号（避免跨会话竞态）
             ACTIVE["stop"] = session_stop
-            # 跨句前缀是会话状态：新请求必须清空，否则会把上一段文本的韵律带进来。
-            # 注意 engine 是 ttsd 的 Engine 包装类，MossEngine 实例在 engine.tts；
-            # 且 say/MixedTTS 分支没有该方法，故用守卫调用（曾因直接调用而打断 serve 线程）。
-            _tts = getattr(engine, "tts", None)
-            if hasattr(_tts, "reset_prefix_state"):
-                _tts.reset_prefix_state("新请求")
             synth_q = queue.Queue(maxsize=4)   # 有界队列 → 自然背压
             stats = {"synth": 0.0, "audio": 0.0, "first_audio": None}
             use_stream = bool(CFG["engine"].get("streaming_first_audio", True))

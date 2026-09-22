@@ -57,10 +57,6 @@ def resolve_platform_threads(config_value, fallback: int = 4) -> int:
 
 
 class MossEngine:
-    PREFIX_WINDOW = 2          # 前缀窗：最近 ≤2 句（实测优于无限累积，成本仅其 57%）
-    PREFIX_MIN_FRAMES = 4      # 退化前缀门控：<4 帧的上一句不入窗
-    PREFIX_RESET_TIMEOUT_S = 20.0   # 静默超过此时长视为新会话
-
     def __init__(self, model_dir: Path | None = None,
                  prompt_audio: str = "assets/audio/zh_6.wav",
                  thread_count: int = 4,   # Intel 实测 t=4（perf-20260922，ORT 1.23.2，156/156 bit-exact parity）。
@@ -85,13 +81,6 @@ class MossEngine:
         # perf-20260922: 参考音频 codes 记忆化 —— 画像实测每句重复编码同一 prompt 约 423ms（HS-2）。
         # 缓存键 = (voice, prompt_audio_path)；确定性编码，输出 bit-exact 已验证（parity.json 156/156）。
         self._prompt_codes_cache: dict = {}
-        # ── 跨句前缀条件化（research-nex r4，实测句间 F0 极差 −49.3% / SD −45.3%，成本 +81.9 ms/句）──
-        # 注入点是 resolve_prompt_audio_codes：返回「参考 codes + 最近 ≤2 句 codes」。
-        # 会话状态必须被清空，否则跨请求继承上段韵律（一次错前缀即 +4.55 半音）；
-        # 清空时机 = 新文本 / 换语音 / 换 prompt / 超时 / 停止 五类事件。
-        self._prefix_frames: list = []          # 最近 ≤PREFIX_WINDOW 句的帧列表
-        self._prefix_prompt_key = None          # 换 prompt ⇒ 清空
-        self._prefix_last_t = 0.0               # 静默超时 ⇒ 清空
         # 合成互斥锁：ORT/codec streaming session 非线程安全。停止播放后残留的
         # 流式 AR 线程与新请求并发调用 synthesize 会互踩 session 状态（实测合成链挂死），
         # 因此所有 runtime 访问必须串行化。
@@ -103,57 +92,18 @@ class MossEngine:
                 kwargs.get("voice", ""), kwargs.get("prompt_audio_path", ""))
             if key not in self._prompt_codes_cache:
                 self._prompt_codes_cache[key] = _orig_resolve(*args, **kwargs)
-            ref = self._prompt_codes_cache[key]
-            if not self._prefix_frames:
-                return ref
-            # 参考 codes + 最近 ≤2 句 codes。上游 build_audio_prefix_rows 只遍历「帧行」，
-            # 故返回帧列表拼接即可，无需改上游代码（零改动注入点）。
-            # 注意展平：_prefix_frames 是「每句一个帧列表」的两层结构，而上游要的是
-            # 扁平帧序列（build_audio_prefix_rows 逐帧取 code_row[index]）。曾按两层拼接
-            # 导致 int(list) 报错——此处显式展平。
-            return list(ref) + [_frame for _sent in self._prefix_frames for _frame in _sent]
+            return self._prompt_codes_cache[key]
 
         self.runtime.resolve_prompt_audio_codes = _resolve_cached
         self.prompt_audio = prompt_audio
         self.out = "/tmp/moss_engine_out.wav"
 
-    def reset_prefix_state(self, reason: str = "") -> None:
-        """清空跨句前缀窗。调用时机（五类事件）：新文本 / 换语音 / 换 prompt / 超时 / 停止。
-
-        由守护进程在每次请求开始时调用（见 ttsd.py 的 serve()），超时与换 prompt 另在
-        _prefix_guard() 内兜底。不清空的后果是把上一段文本的韵律带进新请求。
-        """
-        self._prefix_frames = []
-        self._prefix_last_t = time.time()
-
-    def _prefix_guard(self, prompt: str) -> None:
-        """会话边界守卫：换 prompt 或静默超时即清空（新文本/换语音/停止由调用方显式重置）。"""
-        if prompt != self._prefix_prompt_key:
-            self._prefix_prompt_key = prompt
-            self._prefix_frames = []
-        elif self._prefix_frames and (time.time() - self._prefix_last_t) > self.PREFIX_RESET_TIMEOUT_S:
-            self._prefix_frames = []
-
-    def _record_sentence_codes(self, result) -> None:
-        """把本句生成的 audio codes 记入前缀窗（≤2 句；<4 帧的退化句不入窗）。"""
-        ids = result.get("audio_token_ids") if isinstance(result, dict) else None
-        if ids is None:
-            return
-        rows = ids.tolist() if hasattr(ids, "tolist") else [list(r) for r in ids]
-        if len(rows) < self.PREFIX_MIN_FRAMES:      # 门控：过短前缀无信息且易放大噪声
-            return
-        self._prefix_frames.append(rows)
-        while len(self._prefix_frames) > self.PREFIX_WINDOW:
-            self._prefix_frames.pop(0)
-        self._prefix_last_t = time.time()
-
     def synth(self, text: str) -> tuple[np.ndarray, int]:
         prompt = self.prompt_audio
         if not os.path.isabs(prompt):   # 相对路径锚定到 MOSS-TTS-Nano 目录
             prompt = str(MOSS_DIR / prompt)
-        self._prefix_guard(prompt)
         with self._synth_lock:
-            _result = self.runtime.synthesize(
+            self.runtime.synthesize(
                 text=text,
                 voice="",
                 prompt_audio_path=prompt,
@@ -165,7 +115,6 @@ class MossEngine:
                 enable_normalize_tts_text=False,
                 seed=stable_seed(text),            # 同文本逐位可复现（见 stable_seed 注释）
             )
-            self._record_sentence_codes(_result)   # 记入跨句前缀窗（锁内，避免与流式请求交叉）
             with wave.open(self.out, "rb") as w:
                 sr = w.getframerate()
                 pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).reshape(-1, 2)
@@ -226,13 +175,12 @@ class MossEngine:
                 # 持合成锁：与整段 synth / 其他流式请求串行（session 非线程安全）。
                 # 停止场景下若残留 AR 线程在跑，新请求在此排队至多一句时长。
                 with self._synth_lock:
-                    _result = self.runtime.synthesize(
+                    self.runtime.synthesize(
                         text=text, voice="", prompt_audio_path=prompt,
                         output_audio_path=self.out,
                         sample_mode="fixed", streaming=True,
                         max_new_frames=375, enable_wetext=False,
                         enable_normalize_tts_text=False, seed=stable_seed(text))
-                    self._record_sentence_codes(_result)
             except Exception as e:
                 q.put(e)
             finally:
