@@ -1,11 +1,15 @@
 #!/usr/bin/env python3
-"""speak.py — 文本 → 本地 TTS(say) → 播放到虚拟回环设备(BlackHole)。
+"""speak.py — 【内部调试工具，不是播放入口】直连合成：文本 → 本地 TTS → BlackHole 播放。
 
-用法:
-    .venv-dwr/bin/python speak.py "你好，这是本地合成语音"
-    echo "多行文本会按句切分" | .venv-dwr/bin/python speak.py -
+对外播放入口只有一个：`scripts/run.sh`（走 ttsd 常驻服务，见 SKILL.md「朗读文本」）。
+本脚本绕开守护进程、自己开音频流，仅用于离线调试与历史兼容；不要把它当作
+agent/用户可用的朗读方式，否则会绕开常驻服务（首音更慢、播放状态无人管理）。
 
-链路: say(-o WAV, LEI16@48000) → sounddevice.OutputStream(BlackHole 2ch, low latency)
+用法（内部调试）:
+    .venv-moss/bin/python speak.py "你好，这是本地合成语音"
+    echo "多行文本会按句切分" | .venv-moss/bin/python speak.py -
+
+链路: TTS(-o WAV, LEI16@48000) → sounddevice.OutputStream(BlackHole 2ch, low latency)
 消费方 App 将 "BlackHole 2ch" 选为麦克风即可收音。
 """
 import argparse

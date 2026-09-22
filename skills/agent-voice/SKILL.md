@@ -14,6 +14,8 @@ description: "在 macOS 上从零搭建'文本→本地 TTS→虚拟麦克风'�
 
 把文字转成语音，通过 BlackHole 虚拟声卡"假装"成麦克风输入。任何 App（Zoom、微信、QuickTime…）把麦克风切到 **BlackHole 2ch** 就能收到合成语音。
 
+**播放入口只有一个：`./scripts/run.sh`**（朗读、停止都走它）。不要绕过它去直接执行 `scripts/` 里的 python 脚本——原因见[朗读文本](#朗读文本)。
+
 ## 快速部署（推荐）
 
 ```bash
@@ -46,26 +48,34 @@ python3.12 -m venv .venv-moss
   transformers piper-tts cn2an pypinyin pypinyin-dict jieba ordered-set \
   torch torchaudio torchcodec huggingface_hub   # 后五个是 MOSS 引擎运行必需，不可省
 # launchd：plist 由 com.moss.ttsd.plist.tmpl 模板按本机路径实例化（见 setup.sh 第 4 步）
-# 手动调试可不走 launchd：cd scripts && .venv-moss/bin/python ttsd.py
+# 守护进程只由 launchd 管理：不要手动再起一个实例（历史上会造成实例风暴）
 ```
 
 ## 朗读文本
 
 ```bash
-./scripts/run.sh "要朗读的文本"          # 推荐：run.sh 自动用 .venv-moss 的 python
-./scripts/ttsay.py --stop               # 停止当前播放（可从另一个终端/连接发起）
-echo "多行文本" | ./scripts/speak.py -   # 直连合成（不依赖守护进程；moss/say 按 config 分发）
+./scripts/run.sh "要朗读的文本"   # 朗读：阻塞至播放完成；文本可含换行，整段作为单个参数传入
+./scripts/run.sh "$(cat 稿子.txt)"  # 长文本/多行：用命令替换整段传入，仍是同一个入口（不要用管道）
+./scripts/run.sh --stop          # 停止当前播放（可从另一个终端/连接发起）
 ```
+
+`run.sh` 自己不含合成逻辑，只做两件事：定位 `.venv-moss` 的 python、把参数原样转给它背后的常驻
+服务客户端；客户端把文本交给 ttsd 守护进程，阻塞到播放结束，并打印首音延迟/音频时长/句数。
+
+**为什么只留这一个入口**：脚本 shebang 是 `#!/usr/bin/env python3`，而依赖只装在 `.venv-moss` 里，
+绕过 `run.sh` 直接执行脚本会因系统 python 缺依赖报 ImportError；更关键的是，"直连合成"或"手动起
+服务"这类旁路都会绕开常驻服务——首音更慢、播放状态无人管理，历史上还出现过多个管理器抢 socket/
+音频流的实例风暴。排障时也从 `run.sh` 出发，不要临时改走别的入口。
+
+**守护进程不在时的预期行为**：`run.sh` 不自己拉起守护进程，只等 launchd（KeepAlive）拉起，最多等
+60s；冷启动首个请求要加载+预热引擎（Apple Silicon ~5s，Intel 15–71s），期间没有输出属正常现象，
+不要判定为卡死，也不要手动再起一个实例。
 
 **停止语义**：`--stop` 置会话停止信号，两路输出（monitor 扬声器 + BlackHole 虚拟麦）在当前
 0.2s 子块播完后丢弃剩余块（≤0.2s 内静音）；被停止的会话回 `done(stopped=true)`，守护进程状态
 干净、后续请求正常。monitor 为会话级常驻流 + 独立线程块级写（**不是** afplay 子进程——afplay
 每块启停的间隙曾是"播放开头卡顿"的根因）；实现全程不 abort/close 音频流（CoreAudio 状态破坏
 与同设备重开挂起均已实测）。
-
-调用约定：脚本 shebang 是 `#!/usr/bin/env python3`，而依赖装在 `.venv-moss` 里——
-**始终通过 `run.sh` 或显式 `.venv-moss/bin/python <script>.py` 调用**，直接 `./ttsay.py` 会因系统 python 缺依赖报 ImportError。
-`ttsay.py` 只作为 ttsd 客户端工作（发文本给守护进程），守护进程未运行时它会等待 launchd 拉起，绝不自行 spawn（多管理器实例风暴是历史事故根因）。
 
 ## 配置（config.toml）
 
@@ -85,7 +95,7 @@ latency = "low"         # 必须显式 low；默认提示为 high
 enabled = true           # 本地同播（扬声器/耳机同步可听）
 ```
 
-**用户覆盖**：`~/.config/agent-voice/config.toml` 存在时，ttsd.py 以内置 `scripts/config.toml` 为基底**逐键合并**（用户优先；dict 递归合并，标量/列表整体替换），用户配置只需写要改的键。改配置后需重启守护进程生效。`speak.py` 只读内置 config.toml。
+**用户覆盖**：`~/.config/agent-voice/config.toml` 存在时，ttsd.py 以内置 `scripts/config.toml` 为基底**逐键合并**（用户优先；dict 递归合并，标量/列表整体替换），用户配置只需写要改的键。改配置后需重启守护进程生效（`launchctl kickstart -k gui/$(id -u)/com.moss.ttsd`）。
 
 ## 架构
 
@@ -93,7 +103,7 @@ enabled = true           # 本地同播（扬声器/耳机同步可听）
 文本 → cn2an 数字归一化 → 品牌词映射 → 句级切分(≤60字)
   → MOSS AR 合成（逐句流水线）→ 有界队列(4)
     → BlackHole 输出（虚拟麦克风 → 其他 App）
-    → afplay 独立进程（monitor → 本地扬声器/耳机）
+    → 会话级常驻输出流（monitor → 本地扬声器/耳机）
 ```
 
 ## 性能基线

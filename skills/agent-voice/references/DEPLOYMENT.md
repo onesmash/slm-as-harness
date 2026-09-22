@@ -1,5 +1,9 @@
 # 部署与自测报告 — tts-mic-loopback
 
+> ⚠️ **历史存档（2025-09）**：本文按当时的实现状态逐轮记录，命令与结论可能已被后续迭代取代。
+> 当前对外播放入口只有一个：`./scripts/run.sh`（含 `--stop`），见 [SKILL.md](../SKILL.md)「朗读文本」。
+> 文中出现的 `speak.py` 直连、手动执行 `ttsd.py`、客户端自动 spawn 守护进程等写法均为历史记录，**勿照做**。
+
 日期：2025-09-18 · 主机：macOS 15.7.9 (24G830) · 对应方案：[report.md](../report.md)（Report scope: complete）
 
 ## 1. 部署步骤记录
