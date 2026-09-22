@@ -381,6 +381,11 @@ class OrtCpuRuntime:
     def _session(self, path_value: Path) -> ort.InferenceSession:
         options = ort.SessionOptions()
         options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
+        # 线程池自旋开关（performance-nex 候选）：原生采样显示 ORT 在线 CPU 的 45.7% 花在
+        # ThreadPoolTempl::WorkerLoop 自旋等活上（/usr/bin/sample，朗读期 12s）。
+        # 关闭自旋改由条件变量唤醒，预期降低 CPU（代价：并行段启动延迟略增）。
+        options.add_session_config_entry("session.intra_op.allow_spinning", "0")
+        options.add_session_config_entry("session.inter_op.allow_spinning", "0")
         options.intra_op_num_threads = self.thread_count
         options.inter_op_num_threads = 1
         session = ort.InferenceSession(str(path_value), sess_options=options, providers=self.ort_providers)
