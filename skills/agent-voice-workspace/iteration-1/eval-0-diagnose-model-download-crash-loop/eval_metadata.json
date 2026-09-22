@@ -1,0 +1,12 @@
+{
+  "eval_id": 0,
+  "eval_name": "diagnose-model-download-crash-loop",
+  "prompt": "我按 agent-voice 部署的 TTS 守护进程一直在反复重启，朗读没声音。日志末尾反复出现：\n\nRuntimeError: Task error: File reconstruction error: CAS Client Error: Request error: HTTP status client error (401 Unauthorized), domain: https://cas-server.xethub.hf.co/v2/reconstructions/...\nFileNotFoundError: [Errno 2] No such file or directory: '.../MOSS-TTS-Nano/models/MOSS-Audio-Tokenizer-Nano-ONNX/codec_browser_onnx_meta.json'\n\n模型目录里只有两个几百 KB 的 json 文件，没有 onnx。网络是通的（brew 都能正常用）。帮我看看怎么回事，怎么修？",
+  "assertions": [
+    {"text": "识别根因为 hf-mirror 镜像不支持 Xet 存储协议（报告中出现 Xet/xethub 与 hf-mirror/镜像的关联）"},
+    {"text": "给出 HF_HUB_DISABLE_XET=1 禁用 Xet 的修复"},
+    {"text": "给出手动 snapshot_download 补下模型的可复制命令（含正确的 repo id）"},
+    {"text": "指出模型需下载完整（TTS 100M-ONNX 与 Audio-Tokenizer-ONNX 两个目录）"},
+    {"text": "未误诊为网络断开、防火墙拦截或磁盘空间不足（用户已声明网络正常）"}
+  ]
+}

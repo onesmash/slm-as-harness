@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/xuhui/Code/research/.venv-dwr/bin/python
 """ttsd.py — 常驻 TTS 服务（report.md T7 形态 B/C）。
 
 模型只加载一次并预热；文本经 Unix domain socket 进来，按句切分后

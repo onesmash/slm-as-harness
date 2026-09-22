@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/xuhui/Code/research/research-output/tts-mic-loopback/deployment/.venv-moss/bin/python
 """read_and_score.py — 朗读→录音→STT→CER 闭环第一步。
 
 流程:

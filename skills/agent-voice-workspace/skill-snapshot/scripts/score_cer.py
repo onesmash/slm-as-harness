@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/xuhui/Code/research/research-output/tts-mic-loopback/deployment/.venv-moss/bin/python
 """score_cer.py — STT 转写 + 与原文对比 CER + 最差段报告。
 
 用法:

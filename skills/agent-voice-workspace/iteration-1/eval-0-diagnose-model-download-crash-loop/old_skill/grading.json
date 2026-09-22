@@ -1,0 +1,10 @@
+{
+  "run_id": "eval-0-old_skill",
+  "expectations": [
+    {"text": "识别根因为 hf-mirror 镜像不支持 Xet 存储协议", "passed": true, "evidence": "正确诊断 hf_xet 对 Xet CAS 401、镜像只代理经典 HTTP；通过阅读 snapshot 中 moss_engine.py 的修复代码推理得出（旧 SKILL.md 无此排障条目）"},
+    {"text": "给出 HF_HUB_DISABLE_XET=1 禁用 Xet 的修复", "passed": true, "evidence": "修复方案含同步修复版 moss_engine.py + plist EnvironmentVariables 双保险"},
+    {"text": "给出手动 snapshot_download 补下模型的可复制命令（含正确的 repo id）", "passed": true, "evidence": "前台经典 HTTP 通道重新 snapshot_download 约 745MB，两仓库齐全"},
+    {"text": "指出模型需下载完整（两个目录）", "passed": true, "evidence": "明确 rm 半成品目录防断点续传污染后重下两仓库，验证含模型目录文件齐全"},
+    {"text": "未误诊为网络断开、防火墙拦截或磁盘空间不足", "passed": true, "evidence": "明确'brew 正常不矛盾：是鉴权/协议不匹配，不是连通性问题'"}
+  ]
+}

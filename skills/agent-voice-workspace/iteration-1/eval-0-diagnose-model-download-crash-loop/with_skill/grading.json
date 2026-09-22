@@ -1,0 +1,10 @@
+{
+  "run_id": "eval-0-with_skill",
+  "expectations": [
+    {"text": "识别根因为 hf-mirror 镜像不支持 Xet 存储协议", "passed": true, "evidence": "报告明确定位 huggingface_hub ≥1.0 Xet 协议与 hf-mirror 只代理经典 HTTP 的冲突，401 来自 cas-server.xethub.hf.co 鉴权失败"},
+    {"text": "给出 HF_HUB_DISABLE_XET=1 禁用 Xet 的修复", "passed": true, "evidence": "修复命令含 HF_ENDPOINT=https://hf-mirror.com HF_HUB_DISABLE_XET=1 snapshot_download，并给出 3 种修复失效可能性的只读排查"},
+    {"text": "给出手动 snapshot_download 补下模型的可复制命令（含正确的 repo id）", "passed": true, "evidence": "两个 repo id 均正确（MOSS-TTS-Nano-100M-ONNX 与 MOSS-Audio-Tokenizer-Nano-ONNX），local_dir 路径正确"},
+    {"text": "指出模型需下载完整（两个目录）", "passed": true, "evidence": "明确列出两个仓库需补齐、约 730MB，验证判据含 models 目录出现完整 onnx"},
+    {"text": "未误诊为网络断开、防火墙拦截或磁盘空间不足", "passed": true, "evidence": "明确说明'失败是协议层 401，不是断网'，与 brew 正常的证据自洽"}
+  ]
+}

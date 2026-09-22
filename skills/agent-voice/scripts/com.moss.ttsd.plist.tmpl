@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.moss.ttsd</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>@@VENV_PYTHON@@</string>
+        <string>@@SCRIPTS_DIR@@/ttsd.py</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>@@SCRIPTS_DIR@@</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>@@STATE_DIR@@/ttsd.log</string>
+    <key>StandardErrorPath</key>
+    <string>@@STATE_DIR@@/ttsd.log</string>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>

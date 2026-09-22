@@ -1,0 +1,8 @@
+{
+  "run_id": "eval-2-with_skill",
+  "expectations": [
+    {"text": "朗读成功完成（客户端收到 playback_started 与 done 事件）", "passed": true, "evidence": "playback_started first_audio_ms=452.8；done audio_seconds=2.24 synth_seconds=0.45；exit code 0"},
+    {"text": "使用了正确入口：run.sh 或 .venv-moss/bin/python 显式调用", "passed": true, "evidence": "按 SKILL.md 推荐入口执行 ./scripts/run.sh，内部 exec .venv-moss/bin/python ttsay.py"},
+    {"text": "未重装依赖、未重启/改动 launchd 服务", "passed": true, "evidence": "仅只读检查（pgrep/launchctl print/读源码）+ 一次朗读调用，com.moss.ttsd 保持 running"}
+  ]
+}

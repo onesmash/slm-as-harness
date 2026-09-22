@@ -1,0 +1,12 @@
+{
+  "eval_id": 1,
+  "eval_name": "diagnose-prompt-audio-decode-failure",
+  "prompt": "agent-voice 的守护进程一启动就崩，日志报：\n\nRuntimeError: Failed to decode audio samples: decode_av_frame, ... Could not receive frame from decoder: Invalid data found when processing input\n\n出错位置是加载声音克隆参考音频 assets/audio/zh_6.wav 的时候。我用 sox 检查过这个 wav 文件本身是能读的，ffmpeg 是 brew 装的最新版。TTS 模型都下载齐了。怎么回事？",
+  "assertions": [
+    {"text": "识别 torchcodec 是解码后端（报告中出现 torchcodec）"},
+    {"text": "指出 torchaudio 2.9+/新版移除 soundfile 后端、强制走 torchcodec"},
+    {"text": "指出 torchcodec 预编译 wheel 与系统 FFmpeg 9.x 不兼容是根因"},
+    {"text": "修复方案为 soundfile 读取回退（skill 已内置）或等效方案（装兼容版本 FFmpeg/降级 torchaudio）"},
+    {"text": "未误诊为 wav 文件损坏（用户已用 sox 验证文件可读）"}
+  ]
+}

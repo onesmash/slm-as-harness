@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/xuhui/Code/research/research-output/tts-mic-loopback/.venv-moss/bin/python
 """moss_engine.py — MOSS-TTS-Nano ONNX 引擎适配器（质量档，单声音原生中英混读）。
 
 依赖：.venv-moss（py3.12 + onnxruntime + torch2.2.2 + transformers）+ MOSS-TTS-Nano 仓库文件

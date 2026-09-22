@@ -1,0 +1,45 @@
+{
+  "skill_name": "agent-voice",
+  "evals": [
+    {
+      "id": 0,
+      "eval_name": "diagnose-model-download-crash-loop",
+      "prompt": "我按 agent-voice 部署的 TTS 守护进程一直在反复重启，朗读没声音。日志末尾反复出现：\n\nRuntimeError: Task error: File reconstruction error: CAS Client Error: Request error: HTTP status client error (401 Unauthorized), domain: https://cas-server.xethub.hf.co/v2/reconstructions/...\nFileNotFoundError: [Errno 2] No such file or directory: '.../MOSS-TTS-Nano/models/MOSS-Audio-Tokenizer-Nano-ONNX/codec_browser_onnx_meta.json'\n\n模型目录里只有两个几百 KB 的 json 文件，没有 onnx。网络是通的（brew 都能正常用）。帮我看看怎么回事，怎么修？",
+      "expected_output": "诊断出 hf-mirror 镜像不支持 Xet 协议导致模型下载失败；给出 HF_HUB_DISABLE_XET=1 的修复方案或手动 snapshot_download 命令",
+      "assertions": [
+        "识别根因为 hf-mirror 镜像不支持 Xet 存储协议",
+        "给出 HF_HUB_DISABLE_XET=1 禁用 Xet 的修复",
+        "给出手动 snapshot_download 补下模型的可复制命令（含正确的 repo id）",
+        "指出模型需下载完整（TTS 100M-ONNX 与 Audio-Tokenizer-ONNX 两个目录）",
+        "未误诊为网络断开、防火墙拦截或磁盘空间不足"
+      ],
+      "files": []
+    },
+    {
+      "id": 1,
+      "eval_name": "diagnose-prompt-audio-decode-failure",
+      "prompt": "agent-voice 的守护进程一启动就崩，日志报：\n\nRuntimeError: Failed to decode audio samples: decode_av_frame, ... Could not receive frame from decoder: Invalid data found when processing input\n\n出错位置是加载声音克隆参考音频 assets/audio/zh_6.wav 的时候。我用 sox 检查过这个 wav 文件本身是能读的，ffmpeg 是 brew 装的最新版。TTS 模型都下载齐了。怎么回事？",
+      "expected_output": "诊断出 torchaudio 2.9+ 强制 torchcodec 后端与系统 FFmpeg 8/9 不兼容；指出 soundfile 回退方案（skill 已内置）或降级方案；不误诊为 wav 文件损坏",
+      "assertions": [
+        "识别 torchcodec 是解码后端",
+        "指出 torchaudio 2.9+/新版移除 soundfile 后端、强制走 torchcodec",
+        "指出 torchcodec 预编译 wheel 与系统 FFmpeg 9.x 不兼容是根因",
+        "修复方案为 soundfile 读取回退（skill 已内置）或等效方案",
+        "未误诊为 wav 文件损坏"
+      ],
+      "files": []
+    },
+    {
+      "id": 2,
+      "eval_name": "ttsay-usage-correct-entry",
+      "prompt": "agent-voice 系统已经部署好了，帮我把这段话朗读出来：\"优化后的技能测试成功\"。如果播放不出来，找出原因。",
+      "expected_output": "使用 run.sh 或 .venv-moss/bin/python ttsay.py 调用（而非直接 ./ttsay.py），播放成功",
+      "assertions": [
+        "朗读成功完成（客户端收到 playback_started 与 done 事件）",
+        "使用了正确入口：run.sh 或 .venv-moss/bin/python 显式调用",
+        "未重装依赖、未重启/改动 launchd 服务"
+      ],
+      "files": []
+    }
+  ]
+}

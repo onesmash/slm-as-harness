@@ -1,0 +1,4 @@
+语音合成自测第一句：拨打 12306 查询车票，票价 8,999 元，余票 133.1 万张。
+第二句覆盖品牌与术语：用 ffmpeg 录制 BlackHole 的输入端，vivo X300 Ultra 已调价，Python 3.12 环境部署 Kubernetes。
+第三句覆盖多音字：我想去银行查行长长征的重量，还清了欠款，脑袋重了三斤。
+第四句中英混排收尾：The quick brown fox 和 lazy dog 都是常用的测试句，mixed language works now。

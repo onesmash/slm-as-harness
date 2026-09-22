@@ -20,10 +20,3 @@ deployment/MOSS-TTS-Nano/
 # 模型权重（体积过大，按 DEPLOYMENT.md 获取）
 scripts/MOSS-TTS-Nano/models/
 scripts/MOSS-TTS-Nano/generated_audio/
-
-# 部署期产物（selftest 报告 / T5 临时测量输出 / 实例化后的 plist 含本机路径）
-scripts/selftest_report.json
-scripts/_t1.wav
-scripts/_t5_bs*.json
-scripts/com.moss.ttsd.plist
-scripts/tools/*.json

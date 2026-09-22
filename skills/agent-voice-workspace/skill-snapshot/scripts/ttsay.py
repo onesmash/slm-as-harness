@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/xuhui/Code/research/.venv-dwr/bin/python
 """ttsay.py — ttsd 常驻服务客户端。守护进程未启动时自动拉起。
 
 用法: ./ttsay.py "要朗读的文本"

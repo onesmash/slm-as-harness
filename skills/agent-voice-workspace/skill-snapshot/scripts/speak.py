@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/Users/xuhui/Code/research/research-output/tts-mic-loopback/.venv-moss/bin/python
 """speak.py — 文本 → 本地 TTS(say) → 播放到虚拟回环设备(BlackHole)。
 
 用法:
