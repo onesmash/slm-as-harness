@@ -244,6 +244,12 @@ def main():
                     sentences = [m.group(1)] + [sentences[0][m.end():]] + sentences[1:]
             session_stop = threading.Event()   # 会话本地停止信号（避免跨会话竞态）
             ACTIVE["stop"] = session_stop
+            # 跨句前缀是会话状态：新请求必须清空，否则会把上一段文本的韵律带进来。
+            # 注意 engine 是 ttsd 的 Engine 包装类，MossEngine 实例在 engine.tts；
+            # 且 say/MixedTTS 分支没有该方法，故用守卫调用（曾因直接调用而打断 serve 线程）。
+            _tts = getattr(engine, "tts", None)
+            if hasattr(_tts, "reset_prefix_state"):
+                _tts.reset_prefix_state("新请求")
             synth_q = queue.Queue(maxsize=4)   # 有界队列 → 自然背压
             stats = {"synth": 0.0, "audio": 0.0, "first_audio": None}
             use_stream = bool(CFG["engine"].get("streaming_first_audio", True))
@@ -291,11 +297,16 @@ def main():
                 if not session_stop.is_set():
                     synth_q.put(None)
 
-            def feed(tag, stream, pcm, sr):
+            def feed(tag, stream, pcm, sr, g=None):
                 try:
                     out = pcm
-                    if tag == "bh" and BH_GAIN["v"] > 1.0:
-                        f = pcm.astype(np.float32) * BH_GAIN["v"]
+                    # 增益域（research-nex r4 [81][82]）：g = 「每单元常量增益」，由 play_worker
+                    # 按整段只求一次峰算出。逐 0.2s 子块重算会把每块峰值都顶到 0.95 FS，等价于
+                    # 200ms 峰值 AGC：实测块动态被压中位 5.24 dB、块间增益摆动 9.63 dB。
+                    # 传入 g 后下面的 0.95 FS 分支退化为安全网（零饱和）。
+                    gain = BH_GAIN["v"] if g is None else g
+                    if tag == "bh" and gain > 1.0:
+                        f = pcm.astype(np.float32) * gain
                         peak = np.abs(f).max()
                         if peak > 0.95 * 32768:
                             f = f / peak * 0.95 * 32768
@@ -329,11 +340,15 @@ def main():
                     mon_q.put((pcm, sr))
                     # bh 按 0.2s 子块写：块间检查停止信号；停止后剩余子块丢弃（≤0.2s 内静音）。
                     # 全程不 abort/close 流——CoreAudio 状态破坏与同设备重开挂起均已实测。
+                    # 每单元只求一次峰：投递天花板仍 = 0.95·a（与 BH_GAIN 无关），但块间动态保住。
+                    # 代价：投递 RMS 比旧链低约 4.3 dB（旧链把弱块也顶到天花板）；需要更响请抬设备音量。
+                    _peak = float(np.abs(pcm).max())
+                    g_unit = 0.95 * 32768 / _peak if _peak > 1e-9 else BH_GAIN["v"]
                     for i in range(0, len(pcm), sub_frames):
                         if session_stop.is_set():
                             stopped = True
                             break
-                        feed("bh", bh, pcm[i:i + sub_frames], sr)
+                        feed("bh", bh, pcm[i:i + sub_frames], sr, g=g_unit)
                     if stopped:
                         break
 

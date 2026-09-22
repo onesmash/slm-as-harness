@@ -432,6 +432,17 @@ class OnnxTtsRuntime(OrtCpuRuntime):
                 current_chunk_token_count = self.count_text_tokens(current_chunk)
         if current_chunk:
             chunks.append(current_chunk.strip())
+        # 修复（research-nex r4 [79][80]）：token 预算二分切分器在恰好吃满预算时会把句末标点
+        # 留成 1-2 token 的孤儿块（如 [75, "。"]）。该块实测有 28.6% 概率撞满 max_new_frames
+        # → 30.00s「近静音夹间歇爆发」的断续死气。此处把「去标点后无字」的块并入前一块：
+        # 100 条语料实测零附带损伤（仅 1/100 文本变化、块 362→361、零丢字、唯一代价 +1 token）。
+        _merged: list[str] = []
+        for _chunk in chunks:
+            if _merged and not any(_ch.isalnum() for _ch in _chunk):
+                _merged[-1] = _join_sentence_parts(_merged[-1], _chunk)
+            else:
+                _merged.append(_chunk)
+        chunks = _merged
         return chunks if len(chunks) > 1 else [normalized_text]
 
     def estimate_voice_clone_inter_chunk_pause_seconds(self, text_chunk: str) -> float:
