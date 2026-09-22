@@ -57,9 +57,11 @@ python3.12 -m venv .venv-moss
 echo "多行文本" | ./scripts/speak.py -   # 直连合成（不依赖守护进程；moss/say 按 config 分发）
 ```
 
-**停止语义**：`--stop` 立即 kill monitor（本地扬声器静音），虚拟麦侧丢弃未播块（≤0.2s 内静音）；
-被停止的会话回 `done(stopped=true)`，守护进程状态干净、后续请求正常。实现上全程不 abort/close
-音频流（CoreAudio 状态破坏与同设备重开挂起均已实测），只在播放块边界（0.2s 子块）检查停止信号。
+**停止语义**：`--stop` 置会话停止信号，两路输出（monitor 扬声器 + BlackHole 虚拟麦）在当前
+0.2s 子块播完后丢弃剩余块（≤0.2s 内静音）；被停止的会话回 `done(stopped=true)`，守护进程状态
+干净、后续请求正常。monitor 为会话级常驻流 + 独立线程块级写（**不是** afplay 子进程——afplay
+每块启停的间隙曾是"播放开头卡顿"的根因）；实现全程不 abort/close 音频流（CoreAudio 状态破坏
+与同设备重开挂起均已实测）。
 
 调用约定：脚本 shebang 是 `#!/usr/bin/env python3`，而依赖装在 `.venv-moss` 里——
 **始终通过 `run.sh` 或显式 `.venv-moss/bin/python <script>.py` 调用**，直接 `./ttsay.py` 会因系统 python 缺依赖报 ImportError。
@@ -167,6 +169,16 @@ HF_ENDPOINT=https://hf-mirror.com HF_HUB_DISABLE_XET=1 \
 ### 偶发 AR 过生成
 **症状**：个别请求合成时长远超文本合理长度（实测一次 6.5s 合成出 24.7s 音频，复测消失）。
 **现状**：MOSS 自回归模型的偶发长尾，`max_new_frames=375` 帧上限兜底，不阻塞使用。若频发，检查文本是否含异常字符/无标点长串。
+
+### 播放开头卡顿 / 合成 RTF 间歇性退化 6-14 倍（LaunchAgent QoS，未完全定位）
+**症状**：daemon 里流式块产出间隔 ~1s（正常 ~0.15s），RTF 0.17→1.5-3.0 波动，卡顿时 CPU 多核满转（300%+）。独立进程跑同一合成代码完全正常（RTF 0.17-0.2，20/20）。
+**已排除**：系统负载、thermal（pmset -g therm 无警告）、内存（59% free）、代码路径（MossEngine 直测与 daemon 同代码）、QoS 数值（已显式设 USER_INITIATED，PRI 37/31 正常，仍慢）。
+**定位工具**：`taskpolicy -c background .venv-moss/bin/python /tmp/bench_stream_rtf.py` 可在终端稳定复现同症状（RTF 3.0 + ORT mutex crash），是判别基准。
+**缓解（三选一）**：
+1. `config.toml` 设 `streaming_first_audio = false` 回整段模式（整段 RTF 0.169 稳定，无流式饥饿；首帧变慢但无卡顿）——最可靠。
+2. 重启 daemon（kickstart）有时恢复——间歇性，不可依赖。
+3. 待深挖：sudo powermetrics 看 P/E 核分配；Instruments attach daemon。root 级工具当前受限。
+**进展**：QoS 已显式 USER_INITIATED（ttsd.py 进程内 ctypes，PRI 37/31 正常）；流式 decode budget 已调优（首块 1 帧保首音，后续 4/8/16 快速建缓冲）。
 
 ### USB 声卡硬件噪音（电流声/爆破音）
 **症状**：内置扬声器干净但 USB 耳机有杂音。

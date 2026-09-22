@@ -190,6 +190,7 @@ def main():
 
     def serve(conn):
         bh = open_output(CFG["device"]["name"])   # BlackHole 虚拟设备，按连接持有
+        mon = open_output(None)                    # monitor：系统默认输出（会话级常驻流，块级写，无间隙）
         sd.sleep(30)
         t_recv = time.perf_counter()
         buf = b""
@@ -323,14 +324,9 @@ def main():
                         send_event(conn, {"event": "playback_started",
                                           "first_audio_ms": round(stats["first_audio"], 1)})
                         first = False
-                    # monitor 同播：afplay 独立进程（跟随系统默认输出，零欠载）
-                    mon_wav = f"/tmp/ttsd_mon_{int(time.perf_counter()*1000)}.wav"
-                    with wave.open(mon_wav, "wb") as w:
-                        w.setnchannels(2); w.setsampwidth(2); w.setframerate(sr)
-                        w.writeframes(pcm.tobytes())
-                    af = subprocess.Popen(["afplay", mon_wav],
-                                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    ACTIVE["af"] = af
+                    # monitor 同播：块交 mon 线程写常驻流（替代原每块一个 afplay 子进程——
+                    # afplay 启动/退出间隙以块频率出现，是"播放开头卡顿"的根因）
+                    mon_q.put((pcm, sr))
                     # bh 按 0.2s 子块写：块间检查停止信号；停止后剩余子块丢弃（≤0.2s 内静音）。
                     # 全程不 abort/close 流——CoreAudio 状态破坏与同设备重开挂起均已实测。
                     for i in range(0, len(pcm), sub_frames):
@@ -340,20 +336,30 @@ def main():
                         feed("bh", bh, pcm[i:i + sub_frames], sr)
                     if stopped:
                         break
-                    try:
-                        af.wait(timeout=60)
-                        os.remove(mon_wav)
-                    except Exception:
-                        pass
-                if stopped:
-                    return True
 
+            def mon_worker():
+                """monitor 线程：块级写系统默认输出流，与 bh 实时并行、无子进程、无间隙。"""
+                while True:
+                    try:
+                        item = mon_q.get(timeout=0.2)
+                    except queue.Empty:
+                        if session_stop.is_set():
+                            return
+                        continue
+                    if item is None:
+                        return
+                    feed("mon", mon, *item)
+
+            mon_q = queue.Queue()
+            mt = threading.Thread(target=mon_worker, daemon=True)
+            mt.start()
             tw = threading.Thread(target=synth_worker); tw.start()
             _stopped = play_worker()
             tw.join()
             if session_stop.is_set():
                 _stopped = True
-            ACTIVE["af"] = None
+            mon_q.put(None)
+            mt.join(timeout=10)
             ACTIVE["stop"] = None
             send_event(conn, {"event": "done",
                               "audio_seconds": round(stats["audio"], 2),
@@ -362,7 +368,8 @@ def main():
                               "stopped": bool(_stopped)})
             try:
                 bh.stop(); bh.close()
-                log("本请求输出流已关闭")
+                mon.stop(); mon.close()
+                log("本请求输出流已关闭（bh + monitor）")
             except Exception:
                 pass
 
@@ -398,6 +405,23 @@ def main():
 
 
 if __name__ == "__main__":
+    import faulthandler
+    faulthandler.dump_traceback_later(60, repeat=True)   # 诊断保留: 每 60s 线程栈快照入日志
+
+    # QoS 修复（pn 停止功能排障中发现）：launchd LaunchAgent 无 ProcessType 保障时，
+    # macOS 可能把本进程判为 background QoS → 线程被调度到 E 核并限频，
+    # ORT 推理 RTF 退化 ~14 倍（实测 0.17→3.0，CPU 多核满转），听感为"播放开头卡顿"。
+    # 显式声明 USER_INITIATED：工作线程继承主线程 QoS，稳定跑 P 核。
+    try:
+        import ctypes
+        _lib = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
+        _lib.pthread_set_qos_class_self_np.argtypes = [ctypes.c_int, ctypes.c_int]
+        _lib.pthread_set_qos_class_self_np.restype = ctypes.c_int
+        QOS_CLASS_USER_INITIATED = 0x19
+        _rc = _lib.pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0)
+        print(f"[ttsd] QoS=user-initiated (rc={_rc})", flush=True)
+    except Exception as _e:
+        print(f"[ttsd] QoS 设置失败（继续以系统默认运行）: {_e}", flush=True)
     try:
         main()
     except KeyboardInterrupt:

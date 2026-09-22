@@ -248,13 +248,15 @@ def _resolve_stream_decode_frame_budget(
     first_audio_emitted_at_seconds: float | None,
 ) -> int:
     lead_seconds = _compute_stream_lead_seconds(emitted_samples_total, sample_rate, first_audio_emitted_at_seconds)
+    # agent-voice 调优（pn-arm-firstframe-001）：首块保持 1 帧保首音；
+    # 首块后快速加大解码批量建立播放缓冲，避免 AR 稳态段播放饥饿（听感=开头后卡顿）。
     if not first_audio_emitted_at_seconds or lead_seconds < 0.20:
         return 1
     if lead_seconds < 0.55:
-        return 2
-    if lead_seconds < 1.10:
         return 4
-    return 8
+    if lead_seconds < 1.10:
+        return 8
+    return 16
 
 
 @dataclass
