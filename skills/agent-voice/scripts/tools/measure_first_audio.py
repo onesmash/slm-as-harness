@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""measure_first_audio.py — BlackHole 回环延迟实测（playrec 同流双标记差分）。
+"""measure_first_audio.py — BlackHole 回环延迟实测（playrec 同流互相关，单 burst）。
 
 原理：用 sd.playrec 在「同一 PortAudio 流」里同时播放+采集（输入输出样本严格对齐），
 输出信号 = 前导静音(0.3s) + 50ms 1kHz 标记 burst + 尾静音；录制中用互相关定位
-burst 实际到达样本，与理论位置之差即全环路延迟（输出缓冲→BlackHole→输入采集）。
+burst 实际到达样本，与理论位置之差即全流回环延迟（输出缓冲→BlackHole→输入采集）。
+注意：该值恒为 blocksize 的整数倍（同流全双工回调按缓冲周期对齐，实测 5/3/3 个周期），
+是**缓冲周期计数**而非声学时延，与 CPU 架构无关；仅 blocksize/采样率/驱动版本会改变它。
+（旧的「双标记差分」脚本锚定 PortAudio 自报 Stream.latency，已废弃，两代口径不可比较。）
 
 用法:
     measure_first_audio.py --blocksize 256 --runs 3 --json out.json

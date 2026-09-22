@@ -5,7 +5,7 @@ T1 离线合成       say → WAV 有效（采样率/时长/非静音）
 T2 输出通路       sounddevice 写 BlackHole 输出端无异常
 T3 输入通路       从 BlackHole 输入端采集（触发 TCC 门禁，挂起=待授权）
 T4 端到端回环     同时播放+采集，互相关验证信号到达
-T5 延迟实测       双标记差分 3 档 blocksize × 3 run，回填 P50/P95
+T5 延迟实测       playrec 同流互相关 3 档 blocksize × 3 run，回填 P50/P95
 
 结果写入 selftest_report.json；任何失败 fail-closed 并给出修复指引。
 """
@@ -166,8 +166,46 @@ def t4_loopback(dev_out, dev_in, seconds=2.5):
                  rms=rms, xcorr_peak=peak)
 
 
+def t5_verdict(results, sr=48000):
+    """T5 数值判定（fail-closed）：不只看探针是否产出，还要求数值物理自洽。
+
+    同流全双工回环延迟恒为 blocksize 的整数倍缓冲周期（见 tools/measure_first_audio.py 口径），
+    故判据：① 三档都有数值 p50_ms；② 0 < p50 ≤ 200ms；③ p50 ≈ 缓冲周期整数倍；
+    ④ 同档重复测量极差 ≤ 1ms（不稳定即视为测量无效）；⑤ p50 随 blocksize 单调不降。
+    返回失败原因列表；空列表 = 通过。
+    """
+    bad = []
+    for bs in (256, 512, 1024):
+        v = results.get(bs)
+        if not isinstance(v, dict) or "p50_ms" not in v:
+            bad.append(f"bs{bs} 无 p50_ms（探针未产出）")
+            continue
+        try:
+            p50 = float(v["p50_ms"])
+        except (TypeError, ValueError):
+            bad.append(f"bs{bs} p50_ms 非数值: {v['p50_ms']!r}")
+            continue
+        if not 0 < p50 <= 200:
+            bad.append(f"bs{bs} p50={p50}ms 超出合理区间 (0,200]")
+        period = bs / sr * 1000.0
+        k = p50 / period
+        if k < 1 or abs(k - round(k)) > 0.05:
+            bad.append(f"bs{bs} p50={p50}ms 非缓冲周期整数倍（k={k:.3f}，周期={period:.3f}ms）")
+        samples = v.get("samples")
+        if isinstance(samples, list) and len(samples) >= 2:
+            spread = max(samples) - min(samples)
+            if spread > 1.0:
+                bad.append(f"bs{bs} 重复测量极差 {spread:.2f}ms > 1ms（不稳定）")
+    p50s = [float(results[bs]["p50_ms"]) for bs in (256, 512, 1024)
+            if isinstance(results.get(bs), dict)
+            and isinstance(results[bs].get("p50_ms"), (int, float))]
+    if len(p50s) == 3 and not (p50s[0] <= p50s[1] <= p50s[2]):
+        bad.append(f"p50 随 blocksize 非单调不降: {p50s}")
+    return bad
+
+
 def t5_latency(dev_out, dev_in):
-    """调用双标记差分脚本 3 档 blocksize × 3 run。"""
+    """调用同流 playrec 互相关脚本 3 档 blocksize × 3 run。"""
     script = HERE / "tools" / "measure_first_audio.py"
     if not script.exists():
         return check("T5_latency", False, f"测量脚本不存在: {script}")
@@ -184,10 +222,11 @@ def t5_latency(dev_out, dev_in):
             except Exception:
                 data = None
         results[bs] = data if data is not None else {"raw": r.stdout[-200:], "stderr": r.stderr[-200:]}
-    ok = all("excess_ms" in json.dumps(v) or "p50" in json.dumps(v).lower() for v in results.values())
-    return check("T5_latency", ok, f"3 档实测完成: " +
-                 ", ".join(f"bs{b}={json.dumps(v)[:80]}" for b, v in results.items()),
-                 measurements=results)
+    reasons = t5_verdict(results)
+    detail = "3 档实测完成: " + ", ".join(f"bs{b}={json.dumps(v)[:80]}" for b, v in results.items())
+    if reasons:
+        detail += "；判定失败: " + "; ".join(reasons)
+    return check("T5_latency", not reasons, detail, measurements=results)
 
 
 def main():

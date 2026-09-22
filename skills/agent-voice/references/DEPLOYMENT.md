@@ -26,7 +26,7 @@
 | T2 输出通路 | sounddevice 写 BlackHole 输出端 | ✅ PASS | 0.5s/440Hz 无异常 |
 | T3 输入通路 | 从 BlackHole 输入端采集 | ✅ PASS | 0.6s 采集成功，callback 无错误 |
 | T4 端到端回环 | 播放 chirp→BlackHole，同时从输入端录制+互相关 | ✅ PASS | 互相关峰值 1499.6，**检测到回环信号** |
-| T5 延迟实测 | 双标记差分 3 档 blocksize × 3 run | ✅ PASS | 9/9 有效，零欠载/溢出（下表） |
+| T5 延迟实测 | playrec 同流互相关 3 档 blocksize × 3 run | ✅ PASS | 9/9 有效，零欠载/溢出（下表为旧口径，见 §3 注） |
 
 **部署即用**（任选其一，均位置无关）：
 
@@ -41,7 +41,9 @@ cd /Users/xuhui/Code/research/research-output/tts-mic-loopback/deployment
 
 ## 3. 端到端延迟实测（BlackHole 输出端→输入端真实环路）
 
-| blocksize | 环路延迟（abs−200ms 合成延迟参数） | 首音延迟 P50 (abs_ms) | P95 | PortAudio 回读 out+in |
+> **⚠ 本节为旧口径（2026-09-18 首装，已废弃，勿与当前 T5 并列比较）**：下列「环路延迟」= 旧双标记差分脚本的 `abs_ms` 减去 200ms 合成延迟参数，而 `abs_ms` 锚定在 PortAudio 自报 `Stream.latency` 上。三值均**小于**同表自报 out+in 缓冲（5.4<16.0；16.0<21.3；26.7<42.7ms），故**不可能是真实回环时延**，只是锚定残差；该口径且呈线性（每 +256 帧 ≈ +10.7ms）。当前 T5 口径是另一个量：同流全双工互相关，实测 26.7/32.0/64.0ms（= 5/3/3 个 blocksize 缓冲周期，**与 CPU 架构无关**），且不线性（+5.3/+32.0ms）。当前口径见 `SKILL.md`「性能基线」脚注。
+
+| blocksize | 旧口径「环路延迟」（abs−200ms 合成延迟参数） | 首音延迟 P50 (abs_ms) | P95 | PortAudio 回读 out+in |
 |---|---|---|---|---|
 | 256 帧 | **≈5.4 ms** | 205.4 ms | 205.4 ms | 5.33+10.67=16.0 ms |
 | 512 帧 | **≈16.0 ms** | 216.0 ms | 216.0 ms | 10.67+10.67=21.3 ms |

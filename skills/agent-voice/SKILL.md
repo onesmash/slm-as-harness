@@ -44,9 +44,12 @@ description: "在 macOS 上从零搭建'文本→本地 TTS→虚拟麦克风'�
 ```bash
 cd scripts/
 python3.12 -m venv .venv-moss
-.venv-moss/bin/pip install numpy onnxruntime sentencepiece sounddevice soundfile \
-  transformers piper-tts cn2an pypinyin pypinyin-dict jieba ordered-set \
-  torch torchaudio torchcodec huggingface_hub   # 后五个是 MOSS 引擎运行必需，不可省
+# 版本 pin 按平台隔离（同 setup.sh，勿跨平台复用）：x86_64 必须锁——Intel macOS 上 torch 止步
+# 2.2.2，numpy 2.x 会让 torch .numpy() 报 "Numpy is not available"；transformers 5.x 还要求
+# torch>=2.5 会静默禁用 torch 后端。arm64 有持续更新的轮子，按原样不锁。
+.venv-moss/bin/pip install "numpy<2" "onnxruntime==1.23.2" sentencepiece sounddevice soundfile \
+  "transformers==4.57.1" "piper-tts==1.8.0" cn2an pypinyin pypinyin-dict jieba ordered-set \
+  "torch==2.2.2" "torchaudio==2.2.2" torchcodec huggingface_hub   # 后五个是 MOSS 引擎运行必需，不可省
 # launchd：plist 由 com.moss.ttsd.plist.tmpl 模板按本机路径实例化（见 setup.sh 第 4 步）
 # 守护进程只由 launchd 管理：不要手动再起一个实例（历史上会造成实例风暴）
 ```
@@ -113,13 +116,16 @@ enabled = true           # 本地同播（扬声器/耳机同步可听）
 | 稳态合成 RTF | 0.85–1.05（threads=2） | 0.18–0.21 |
 | 首帧延迟（热态，流式） | —（未启用） | **81–170ms，与句长无关**（整段模式 428–1470ms） |
 | 引擎冷启动（加载+预热） | 15–71s | ~5s（含流式 kernel + 首连接开流/校准预热） |
-| BlackHole 回环延迟 @256/512/1024 帧 | 5.4/16.0/26.7ms | 26.7/32.0/64.0ms |
+| BlackHole 同流全双工回环 @256/512/1024 帧（48kHz，T5） | 26.7/32.0/64.0ms（= 1280/1536/3072 采样 = 5/3/3 个 blocksize 缓冲周期） | 同左（缓冲周期计数，**与 CPU 架构无关**） |
 
-两代硬件绝对值差异大，但**相对行为一致**（延迟随 blocksize 线性增长、RTF 远小于 1 即健康）。判断健康看趋势，不要硬套另一台机器的数值。
+> **口径（T5 当前实现）**：`scripts/tools/measure_first_audio.py` 用 `sd.playrec` 在**同一 PortAudio 全双工流**内播放「0.3s 前导 + 50ms 1kHz burst」，以互相关定位 burst 到达样本，取「到达样本 − 理论样本」。该值恒为 blocksize 的整数倍（5/3/3 个回调周期），由 PortAudio/CoreAudio/BlackHole 缓冲深度决定，**不随 CPU 架构变化**—— Intel 与 Apple Silicon 数值相同不是巧合；仅当 blocksize、采样率或 BlackHole/macOS 版本变化时才会变。它不是声学/硬件时延（BlackHole 自报 out+in 缓冲为 16.0/21.3/42.7ms）。
+> **历史口径（2026-09-18 首装，已废弃，勿与上表并列比较）**：旧 `measure_first_audio.py`（双标记差分版，脚本已随工作区删除、不在本仓库）给出 `abs_p50 = 205.4/216.0/226.7ms`，减去 200ms 合成延迟参数得 **5.4/16.0/26.7ms**——该三值均**小于**同表 PortAudio 自报 out+in 缓冲（16.0/21.3/42.7ms），故不可能是真实回环时延，仅为锚定在自报 `Stream.latency` 上的残差。
+
+两代硬件绝对值差异大，但**相对行为一致**（RTF 远小于 1 即健康）。判断健康看趋势，不要硬套另一台机器的数值——**回环延迟一项两代口径不同**（新口径不线性：+5.3/+32.0ms；旧口径线性：每 +256 帧 ≈ +10.7ms），不可跨机器/跨版本直接比较。
 
 ### 首帧流式合成
 
-`config.toml [engine] streaming_first_audio = true`（默认开）：首句 AR 逐帧解码出块，首块出声 ~85–170ms 且与句长无关；整段模式为 428–1470ms（随首块字数线性增长）。CER 闭环 n=3 无系统劣化（pn-arm-firstframe-001）；音频为采样变体（非 bit-exact，听感建议人工确认一次）。回滚：设为 `false`。排障：daemon 日志 grep「回落」可发现流式异常静默回退整段。
+`config.toml [engine] streaming_first_audio`：**内置 config.toml 出厂为 `false`（整段模式）**——它是下方「播放开头卡顿（LaunchAgent QoS）」问题最可靠的缓解，故默认不启用（实测首音 1.0–1.7s，落在整段模式 428–1470ms 区间内属预期）；键缺失时代码兜底为 `true`（`ttsd.py`）。设为 `true` 启用流式：首句 AR 逐帧解码出块，首块出声 ~85–170ms 且与句长无关；整段模式为 428–1470ms（随首块字数线性增长）。CER 闭环 n=3 无系统劣化（pn-arm-firstframe-001）；音频为采样变体（非 bit-exact，听感建议人工确认一次）。回滚：设为 `false`。排障：daemon 日志 grep「回落」可发现流式异常静默回退整段。
 
 ### 平台隔离调优（重要）
 
@@ -206,7 +212,7 @@ cd scripts && .venv-moss/bin/python selftest.py
 | T2 | BlackHole 输出通路 | 写入无异常 |
 | T3 | BlackHole 输入通路 | 采集成功 |
 | T4 | 端到端回环 | 互相关检测到信号 |
-| T5 | 延迟实测 | 3 档 blocksize P50/P95（`tools/measure_first_audio.py`） |
+| T5 | 延迟实测 | 3 档 p50_ms 数值物理自洽：0<p50≤200ms、p50 ≈ blocksize 缓冲周期整数倍、同档重复极差 ≤1ms、随 blocksize 单调不降 |
 
 结果写 `scripts/selftest_report.json`。T3–T5 依赖 T3 通路；报告里任一失败即 overall=fail。
 

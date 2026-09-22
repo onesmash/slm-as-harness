@@ -51,12 +51,36 @@ fi
 # torch/torchaudio/torchcodec/huggingface_hub 为 MOSS 引擎运行必需，不可省
 log "安装 Python 依赖（torch 较大，首次约 2-5 分钟）..."
 .venv-moss/bin/pip install --quiet --upgrade pip
-.venv-moss/bin/pip install --quiet \
-  numpy onnxruntime sentencepiece sounddevice soundfile \
-  transformers piper-tts cn2an pypinyin pypinyin-dict jieba ordered-set \
-  torch torchaudio torchcodec huggingface_hub opencc faster-whisper \
-  || fail "pip install 失败，查看上方 pip 输出"
-log "依赖安装完成"
+
+# 版本 pin —— 按平台隔离（同 config.toml [engine.threads] 的原则，勿跨平台复用）。
+# 目标组合见 references/DEPLOYMENT.md「守护进程统一运行时」。
+# x86_64 必须锁：macOS Intel 上 torch 止步 2.2.2（针对 numpy 1.x 编译）
+#   1) numpy 2.x × torch 2.2.2 → torch .numpy() 抛 "RuntimeError: Numpy is not available"，
+#      守护进程启动即崩、KeepAlive 反复重启（2026-09-22 实测）
+#   2) transformers 5.x 要求 torch>=2.5 → 静默禁用 torch 后端（"PyTorch was not found"）
+# arm64 有持续更新的轮子，不锁版本，避免把 M 系列环境降级到 Intel 组合。
+case "$(uname -m)" in
+  x86_64)
+    log "依赖 pin（x86_64）: numpy<2 / torch==2.2.2 / torchaudio==2.2.2 / transformers==4.57.1 / piper-tts==1.8.0 / onnxruntime==1.23.2"
+    .venv-moss/bin/pip install --quiet \
+      "numpy<2" "onnxruntime==1.23.2" sentencepiece sounddevice soundfile \
+      "transformers==4.57.1" "piper-tts==1.8.0" cn2an pypinyin pypinyin-dict jieba ordered-set \
+      "torch==2.2.2" "torchaudio==2.2.2" torchcodec huggingface_hub opencc faster-whisper \
+      || fail "pip install 失败，查看上方 pip 输出"
+    ;;
+  *)
+    .venv-moss/bin/pip install --quiet \
+      numpy onnxruntime sentencepiece sounddevice soundfile \
+      transformers piper-tts cn2an pypinyin pypinyin-dict jieba ordered-set \
+      torch torchaudio torchcodec huggingface_hub opencc faster-whisper \
+      || fail "pip install 失败，查看上方 pip 输出"
+    ;;
+esac
+
+# fail-closed 冒烟：torch↔numpy 互操作（版本不匹配会在此暴露，而不是等守护进程崩溃循环）
+.venv-moss/bin/python -c "import numpy, torch; torch.zeros(1).numpy()" \
+  || fail "torch 与 numpy 版本不匹配（torch 无法转 numpy），见上方报错"
+log "依赖安装完成（torch↔numpy 互操作已校验）"
 
 # ── 4. launchd 服务（plist 从模板实例化，路径随部署环境自适应）──
 sed -e "s|@@VENV_PYTHON@@|$DIR/.venv-moss/bin/python|g" \
