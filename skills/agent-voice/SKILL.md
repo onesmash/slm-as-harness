@@ -94,11 +94,15 @@ enabled = true           # 本地同播（扬声器/耳机同步可听）
 | 指标 | Intel MBP 实测 | Apple Silicon 实测（M4 Pro，2026-09） |
 |---|---|---|
 | 稳态合成 RTF | 0.85–1.05（threads=2） | 0.18–0.21 |
-| 首音延迟（热态） | 150–370ms | 418–514ms |
-| 引擎冷启动（加载+预热） | 15–71s | 2.4–2.5s |
+| 首帧延迟（热态，流式） | —（未启用） | **81–170ms，与句长无关**（整段模式 428–1470ms） |
+| 引擎冷启动（加载+预热） | 15–71s | ~5s（含流式 kernel + 首连接开流/校准预热） |
 | BlackHole 回环延迟 @256/512/1024 帧 | 5.4/16.0/26.7ms | 26.7/32.0/64.0ms |
 
 两代硬件绝对值差异大，但**相对行为一致**（延迟随 blocksize 线性增长、RTF 远小于 1 即健康）。判断健康看趋势，不要硬套另一台机器的数值。
+
+### 首帧流式合成
+
+`config.toml [engine] streaming_first_audio = true`（默认开）：首句 AR 逐帧解码出块，首块出声 ~85–170ms 且与句长无关；整段模式为 428–1470ms（随首块字数线性增长）。CER 闭环 n=3 无系统劣化（pn-arm-firstframe-001）；音频为采样变体（非 bit-exact，听感建议人工确认一次）。回滚：设为 `false`。排障：daemon 日志 grep「回落」可发现流式异常静默回退整段。
 
 ### 平台隔离调优（重要）
 
@@ -179,7 +183,14 @@ cd scripts && .venv-moss/bin/python selftest.py
 
 结果写 `scripts/selftest_report.json`。T3–T5 依赖 T3 通路；报告里任一失败即 overall=fail。
 
-闭环 CER 评分（`read_and_score.py` + `score_cer.py`）还需要 faster-whisper-base 模型（见 `models/README.txt`，需从 hf-mirror 手动下载），缺模型时跳过该环节、不影响 T1–T5。
+闭环 CER 验证（合成路径改动后的语义等价回归）：
+
+```bash
+cd scripts && .venv-moss/bin/python tools/verify_tts_cer.py                 # 默认 nonstream vs stream 对比，n=3
+.venv-moss/bin/python tools/verify_tts_cer.py --modes stream --repeats 5   # 只测流式 / 加密重复
+```
+
+依赖 faster-whisper + opencc（setup.sh 已含）与 faster-whisper-base 模型（`scripts/models/faster-whisper-base`，缺失见 `models/README.txt` 从 hf-mirror 下载）。判据：对比模式逐句中位 CER 双方 < 0.15 且 |差| < 0.10；合成是采样模型，绝对 CER 波动属正常，看模式间相对差异。
 
 ## 验证收音（等价于 Zoom/微信收音）
 

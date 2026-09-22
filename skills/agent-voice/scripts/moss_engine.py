@@ -106,3 +106,78 @@ class MossEngine:
         f[-fade:, :] *= np.linspace(1.0, 0.0, fade)[:, None]
         pcm = np.clip(f, -32768, 32767).astype(np.int16)
         return pcm, sr
+
+    # ---- 流式合成（首帧优化，pn-arm-firstframe-001）----
+    # CER 闭环裁决（n=3/模式/句）：与整段模式中位 CER 逐句相同或更好，无系统劣化。
+    # 首块出声 ~114ms 且与句长无关（整段模式 371-1860ms）。
+
+    @staticmethod
+    def _chunk_to_int16_stereo(a: np.ndarray) -> np.ndarray:
+        """(n, ch) float32 [-1,1] @48k → (n, ch) int16。
+
+        codec 原生输出即 48k（codec_meta codec_config.sample_rate=48000），
+        无需重采样——曾误加 2x 上采样导致半速音频/CER 全崩（pn-arm-firstframe-001 教训）。
+        """
+        return np.clip(a * 32767.0, -32768, 32767).astype(np.int16)
+
+    def synth_streaming(self, text: str):
+        """流式合成 generator：yield (pcm (n,2) int16 @48k, sr=48000)。
+
+        AR 每出一帧即经流式 codec 增量解码；通过包装 codec.run_frames 把
+        每个解码块推入队列，首块即"AR 首帧生成 + 一次解码"≈110ms。
+        音频内容与整段模式为同模型采样变体（非 bit-exact，CER 等价已验证）。
+        """
+        import queue
+        import threading
+        prompt = self.prompt_audio
+        if not os.path.isabs(prompt):
+            prompt = str(MOSS_DIR / prompt)
+        q: queue.Queue = queue.Queue()
+        codec = self.runtime.codec_streaming_session
+        orig_run = codec.run_frames
+
+        def timed_run(frames):
+            out = orig_run(frames)
+            try:
+                if out is not None:
+                    audio, alen = out
+                    if alen and alen > 0:
+                        q.put(audio[0, :, :alen].T.astype(np.float32))  # (alen, ch)
+            except Exception as e:
+                q.put(e)
+            return out
+
+        def worker():
+            codec.run_frames = timed_run
+            try:
+                self.runtime.synthesize(
+                    text=text, voice="", prompt_audio_path=prompt,
+                    output_audio_path=self.out,
+                    sample_mode="fixed", streaming=True,
+                    max_new_frames=375, enable_wetext=False,
+                    enable_normalize_tts_text=False)
+            except Exception as e:
+                q.put(e)
+            finally:
+                codec.run_frames = orig_run
+                q.put(None)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+        first = True
+        while True:
+            item = q.get()
+            if item is None:
+                break
+            if isinstance(item, Exception):
+                raise item
+            pcm48 = self._chunk_to_int16_stereo(item)
+            if len(pcm48) == 0:
+                continue
+            if first:   # 爆破音修复（流式版）：仅首块淡入；块间波形天然连续
+                fade = min(len(pcm48), max(1, int(48000 * 0.008)))
+                f = pcm48.astype(np.float32)
+                f[:fade, :] *= np.linspace(0.0, 1.0, fade)[:, None]
+                pcm48 = np.clip(f, -32768, 32767).astype(np.int16)
+                first = False
+            yield pcm48, 48000

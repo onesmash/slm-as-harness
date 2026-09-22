@@ -11,6 +11,11 @@ hf_endpoint = "https://hf-mirror.com"        # bert-base-chinese tokenizer 下�
 samplerate = 48000
 format = "LEI16@48000"
 
+# 首帧流式合成（pn-arm-firstframe-001）：首句 AR 逐帧解码出块，首块出声 ~114ms 且与句长无关
+# （整段模式 371-1860ms）。CER 闭环 n=3 无系统劣化；代价：首句总合成 +28%（不影响后续句流水线）。
+# 回滚：设为 false 即回到整段模式。
+streaming_first_audio = true
+
 # ORT intra_op 线程数 —— 按平台隔离（各平台实测值互不覆盖，勿跨平台复用）
 # 依据：线程最优值依赖 CPU 拓扑（Intel 均匀核 vs Apple P/E 异构核）
 [engine.threads]

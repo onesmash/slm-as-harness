@@ -114,6 +114,11 @@ class Engine:
             self.tts = MossEngine(prompt_audio=CFG["engine"].get("prompt_audio", "assets/audio/zh_6.wav"),
                                   thread_count=resolve_platform_threads(CFG["engine"].get("threads", 4)))
             self.tts.synth("预热。")   # perf-20260922: 无标点预热会 AR 失控跑满帧上限（46.1s vs 4.1s 配对实测，HS-3）
+            # 流式路径预热（pn-arm-firstframe-001）：codec streaming 内核首次执行 ~2-3s 冷启动，
+            # 不暖机则落在首个真实请求上（实测首音 3.0s vs 热态 85ms）。
+            if CFG["engine"].get("streaming_first_audio", True):
+                for _chunk in self.tts.synth_streaming("暖机。"):
+                    pass
         else:
             from mixed_tts import MixedTTS
             self.tts = MixedTTS(models_dir=ROOT / "models",
@@ -124,6 +129,9 @@ class Engine:
 
     def synth(self, text):
         return self.tts.synth(text)
+
+    def synth_streaming(self, text):
+        return self.tts.synth_streaming(text)
 
 
 def main():
@@ -213,14 +221,29 @@ def main():
                     sentences = [m.group(1)] + [sentences[0][m.end():]] + sentences[1:]
             synth_q = queue.Queue(maxsize=4)   # 有界队列 → 自然背压
             stats = {"synth": 0.0, "audio": 0.0, "first_audio": None}
+            use_stream = bool(CFG["engine"].get("streaming_first_audio", True))
 
             def synth_worker():
-                for s in sentences:
+                t_start = time.perf_counter()
+                streamed = False
+                for idx, s in enumerate(sentences):
+                    if idx == 0 and use_stream:
+                        try:
+                            # 流式首句：AR 首帧生成即出块（首块 ~110ms），块级入队
+                            for pcm, sr in engine.synth_streaming(s):
+                                stats["audio"] += len(pcm) / sr
+                                synth_q.put((pcm, sr))
+                            streamed = True
+                            continue
+                        except Exception as e:
+                            log(f"流式首句失败，回落整段合成: {e}")
                     t = time.perf_counter()
                     pcm, sr = engine.synth(s)
                     stats["synth"] += time.perf_counter() - t
                     stats["audio"] += len(pcm) / sr
                     synth_q.put((pcm, sr))
+                if streamed:
+                    stats["synth"] += time.perf_counter() - t_start
                 synth_q.put(None)
 
             def feed(tag, stream, pcm, sr):
@@ -285,6 +308,16 @@ def main():
         sys.exit(0)
     if SOCK.exists():
         SOCK.unlink()
+    # 首连接冷启动预热（pn-arm-firstframe-001）：AUHAL 首次开流 + 回环校准实测 ~2-3s，
+    # 全部落在生命周期首个请求的客户端计时窗口内。提前到监听之前消化。
+    try:
+        _bh0 = open_output(CFG["device"]["name"])
+        _g, _m = calibrate_bh_gain(_bh0)
+        BH_GAIN["v"] = _g
+        log(f"启动预热: BlackHole 首开 + 校准 RMS={_m:.4f} → 增益 ×{_g:.1f}")
+        _bh0.stop(); _bh0.close()
+    except Exception as e:
+        log(f"启动预热失败（首个请求将承担冷启动）: {e}")
     srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     srv.bind(str(SOCK))
     srv.listen(4)

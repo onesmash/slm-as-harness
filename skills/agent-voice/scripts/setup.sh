@@ -54,7 +54,7 @@ log "安装 Python 依赖（torch 较大，首次约 2-5 分钟）..."
 .venv-moss/bin/pip install --quiet \
   numpy onnxruntime sentencepiece sounddevice soundfile \
   transformers piper-tts cn2an pypinyin pypinyin-dict jieba ordered-set \
-  torch torchaudio torchcodec huggingface_hub \
+  torch torchaudio torchcodec huggingface_hub opencc faster-whisper \
   || fail "pip install 失败，查看上方 pip 输出"
 log "依赖安装完成"
 

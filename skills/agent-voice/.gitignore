@@ -27,3 +27,9 @@ scripts/_t1.wav
 scripts/_t5_bs*.json
 scripts/com.moss.ttsd.plist
 scripts/tools/*.json
+
+# CER 验证用的 ASR 模型（体积大，setup.sh/README 指引下载）
+scripts/models/
+
+# skill-creator 工作区（过程产物，不入库）
+skills/*-workspace/
