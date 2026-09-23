@@ -243,6 +243,29 @@ def _join_sentence_parts(left: str, right: str) -> str:
     return f"{left} {right}"
 
 
+_PUNCTUATION_AND_SPACE_CHARS = (
+    SENTENCE_END_PUNCTUATION
+    | CLAUSE_SPLIT_PUNCTUATION
+    | CLOSING_PUNCTUATION
+    | set("、。〃〈〉《》「」『』【】〔〕〖〗〝〞–—…·～﹏！？｡｢｣､")
+    | set("-–—~～·…*_+=<>|/\\!?\"'`^$%&@#")
+    | set(" \t\r\n")
+)
+
+
+def _is_punctuation_only_chunk(text: str) -> bool:
+    """块是否「只由标点/空白构成」——即 r4 意义上的退化孤儿块。
+
+    与旧的 `not any(_ch.isalnum())` 不同，emoji、货币号、数学符号等**非标点符号**不算标点块：
+    它们有语义、应当被合成，且被并入前块会撑爆 token 预算（实测 60 emoji → 205 token 单块
+    → 撞满 375 帧）。空块返回 False，交由调用方的既有裁剪逻辑处理。
+    """
+    stripped = str(text or "").strip()
+    if not stripped:
+        return False
+    return all(_ch in _PUNCTUATION_AND_SPACE_CHARS for _ch in stripped)
+
+
 def _merge_audio_channels(channel_arrays: list[np.ndarray]) -> np.ndarray:
     if not channel_arrays:
         return np.zeros((0, 1), dtype=np.float32)
@@ -436,9 +459,15 @@ class OnnxTtsRuntime(OrtCpuRuntime):
         # 留成 1-2 token 的孤儿块（如 [75, "。"]）。该块实测有 28.6% 概率撞满 max_new_frames
         # → 30.00s「近静音夹间歇爆发」的断续死气。此处把「去标点后无字」的块并入前一块：
         # 100 条语料实测零附带损伤（仅 1/100 文本变化、块 362→361、零丢字、唯一代价 +1 token）。
+        #
+        # v2 收紧（cross-sentence-consistency 研究 [126][156]）：原判据 `not any(isalnum)`
+        # 对**符号块**同样为真，于是 60 个 emoji 的 3 个预算片 [73,73,61] 被并成单个 205 token
+        # 的 chunk（2.73 倍预算），定点合成实测三个 seed 分别生成 375/327/375 帧
+        # （30.00/26.16/30.00 s 的「有声非语音」）。改为只并「纯标点块」：r4 要修的孤儿块是标点，
+        # emoji/符号块必须留在原预算片内。
         _merged: list[str] = []
         for _chunk in chunks:
-            if _merged and not any(_ch.isalnum() for _ch in _chunk):
+            if _merged and _is_punctuation_only_chunk(_chunk):
                 _merged[-1] = _join_sentence_parts(_merged[-1], _chunk)
             else:
                 _merged.append(_chunk)

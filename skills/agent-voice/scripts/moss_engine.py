@@ -6,6 +6,7 @@
 注意：MOSS 为自回归模型，本机（Intel CPU）RTF≈0.6-1.3；threads=4 实测最优（perf-20260922，ORT 1.23.2）。
 接口与其他引擎一致：synth(text) -> (48k 立体声 int16, sr)
 """
+import logging
 import os
 import platform
 import sys
@@ -19,6 +20,16 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent          # scripts/
 BASE = ROOT.parent                               # tts-mic-loopback/
 MOSS_DIR = ROOT / "MOSS-TTS-Nano"
+
+# ---- 跑飞守卫（cross-sentence-consistency 研究 [143][144][151]）----
+# 背景：生产路径实测「帧数/字数」比稳定在 1.89–4.62；而短单元（≤3 字）与符号块会出现
+# 125–187.5 帧/字的量级（2 字「在吗」→ 375 帧=30.00s），即模型不终止并撞满 max_new_frames。
+# 判据 `帧数 > 帧/字比 × 字数 + 常数`；命中即换一个 seed 重渲（不改变正常渲染的读法）。
+RUNAWAY_FRAMES_PER_CHAR = 5.0        # 生产最大实测 4.62；取 5.0 留 8% 余量，且不误伤 32 字短切单元（实测 188 帧 < 220 上限）
+RUNAWAY_FRAME_BUFFER = 60            # 绝对余量，避免短文本触发过紧
+RUNAWAY_MAX_RETRIES = 1              # 重试次数上限（=1 时单句最多 2 次合成）
+RUNAWAY_HARD_CAP_MULTIPLIER = 4      # 截断上限 = 4× 检测上限（生产最大比 4.62 ⇒ 正常渲染永不触发）
+FRAME_SECONDS = 0.08                 # 每帧 80 ms（codec 帧率；实测 total_s ≡ 0.080×帧数）
 
 
 def stable_seed(text: str) -> int:
@@ -56,13 +67,37 @@ def resolve_platform_threads(config_value, fallback: int = 4) -> int:
     return int(config_value)
 
 
+log = logging.getLogger("moss_engine")
+
+
+def runaway_frame_cap(text: str, frames_per_char: float = RUNAWAY_FRAMES_PER_CHAR,
+                      buffer_frames: int = RUNAWAY_FRAME_BUFFER,
+                      max_new_frames: int = 375) -> int:
+    """返回该文本的「跑飞」帧数上限：超过即判为不终止。"""
+    return min(int(max_new_frames),
+               int(frames_per_char * max(1, len(text or "")) + buffer_frames))
+
+
+def runaway_hard_cap(text: str, cap: int | None = None,
+                     multiplier: int = RUNAWAY_HARD_CAP_MULTIPLIER,
+                     max_new_frames: int = 375) -> int:
+    """截断上限 = 检测上限的 multiplier 倍（上限为运行时的 max_new_frames）。
+
+    为什么用倍数而不是再拟合一条帧/字曲线：检测上限已随字数缩放，
+    「4× 检测上限」对短文本收紧、对长文本放宽，且保证截断只在重试彻底失败时发生。
+    """
+    base = runaway_frame_cap(text) if cap is None else int(cap)
+    return min(int(max_new_frames), max(20, int(multiplier) * base))
+
+
 class MossEngine:
     def __init__(self, model_dir: Path | None = None,
                  prompt_audio: str = "assets/audio/zh_6.wav",
                  thread_count: int = 4,   # Intel 实测 t=4（perf-20260922，ORT 1.23.2，156/156 bit-exact parity）。
                                           # ARM 平台值请经 config.toml [engine.threads] 按平台隔离配置，
                                           # 由 resolve_platform_threads() 解析后传入；勿将 Intel 值跨平台复用。
-                  do_sample: bool = False):
+                  do_sample: bool = False,
+                  runaway_max_retries: int = RUNAWAY_MAX_RETRIES):
         sys_path = str(MOSS_DIR)
         if sys_path not in sys.path:
             sys.path.insert(0, sys_path)
@@ -97,27 +132,59 @@ class MossEngine:
         self.runtime.resolve_prompt_audio_codes = _resolve_cached
         self.prompt_audio = prompt_audio
         self.out = "/tmp/moss_engine_out.wav"
+        # 跑飞守卫的重试预算：0 = 只检测并记账，不重试（回滚到旧行为的最小开关）
+        self.runaway_max_retries = max(0, int(runaway_max_retries))
 
     def synth(self, text: str) -> tuple[np.ndarray, int]:
         prompt = self.prompt_audio
         if not os.path.isabs(prompt):   # 相对路径锚定到 MOSS-TTS-Nano 目录
             prompt = str(MOSS_DIR / prompt)
+        cap = runaway_frame_cap(text)
+        hard_cap = runaway_hard_cap(text, cap)
+        base_seed = stable_seed(text)
+        frames = 0
         with self._synth_lock:
-            self.runtime.synthesize(
-                text=text,
-                voice="",
-                prompt_audio_path=prompt,
-                output_audio_path=self.out,
-                sample_mode="fixed",    # P0-1 已回滚：greedy 在 macOS x86_64 ORT 走慢速内核（50.4s vs 2.8s，18x）
-                streaming=False,
-                max_new_frames=375,
-                enable_wetext=False,               # TN 需 pynini/WeTextProcessing，已验证关闭不影响音质
-                enable_normalize_tts_text=False,
-                seed=stable_seed(text),            # 同文本逐位可复现（见 stable_seed 注释）
-            )
+            for attempt in range(self.runaway_max_retries + 1):
+                # 重试只换 seed、不改文本：同 (text, seed) 逐位可复现，故重试路径完全可回放
+                seed = base_seed if attempt == 0 else stable_seed(f"{text}#retry{attempt}")
+                result = self.runtime.synthesize(
+                    text=text,
+                    voice="",
+                    prompt_audio_path=prompt,
+                    output_audio_path=self.out,
+                    sample_mode="fixed",    # P0-1 已回滚：greedy 在 macOS x86_64 ORT 走慢速内核（50.4s vs 2.8s，18x）
+                    streaming=False,
+                    max_new_frames=375,
+                    enable_wetext=False,               # TN 需 pynini/WeTextProcessing，已验证关闭不影响音质
+                    enable_normalize_tts_text=False,
+                    seed=seed,                         # 同文本逐位可复现（见 stable_seed 注释）
+                )
+                frames = int(np.asarray(result["audio_token_ids"]).shape[0])
+                if frames <= cap:
+                    break
+                last = attempt >= self.runaway_max_retries
+                log.warning(
+                    "跑飞守卫：文本 %r（%d 字）生成 %d 帧 > 上限 %d（第 %d/%d 次）%s",
+                    text[:20], len(text), frames, cap, attempt + 1,
+                    self.runaway_max_retries + 1,
+                    "重试已用尽：将按硬上限截断交付（该单元不再参与一致性评测）" if last
+                    else "换 seed 重试",
+                )
             with wave.open(self.out, "rb") as w:
                 sr = w.getframerate()
                 pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).reshape(-1, 2)
+            if frames > hard_cap:
+                # 兜底（研究 [151] 的实测退化形态）：重试仍不终止 ⇒ 按硬上限截断 + 淡出，
+                # 不把 40 s 级别的「有声非语音」交给播放链。硬上限 = 4× 检测上限，
+                # 而生产最大帧/字比 4.62 远低于检测比 5.0，故正常渲染永不进入此分支。
+                keep = max(1, int(hard_cap * FRAME_SECONDS * sr))
+                if len(pcm) > keep:
+                    f_tail = pcm[:keep].astype(np.float32)
+                    fade_len = min(max(1, int(sr * 0.008)), len(f_tail))
+                    f_tail[-fade_len:, :] *= np.linspace(1.0, 0.0, fade_len)[:, None]
+                    pcm = np.clip(f_tail, -32768, 32767).astype(np.int16)
+                    log.warning("跑飞守卫：%d 帧 > 硬上限 %d，输出已截断为 %.2f s",
+                                frames, hard_cap, len(pcm) / sr)
         # 爆破音修复：MOSS 句首从波形中段硬切入（实测首样本达 17-36% 满幅），
         # 句间拼接必产生咔哒声。处理：DC 去除 + 首 8ms 淡入 / 末 8ms 淡出。
         f = pcm.astype(np.float32)
