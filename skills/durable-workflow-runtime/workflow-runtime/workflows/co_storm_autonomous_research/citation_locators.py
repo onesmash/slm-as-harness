@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import os
 import re
+from collections import Counter
 from pathlib import Path
 
 _MAX_SAFE_REPO_TEXT_BYTES = 512 * 1024
 _MAX_SAFE_REPO_PATH_BYTES = 2048
+_MIN_SUBSTANTIVE_SECTIONS = 4
 _MAX_CITATION_ID_DIGITS = 6
 # Minimum locator length before the "repeated in report body" rejection applies,
 # so short or common tokens do not produce false positives.
@@ -20,17 +22,19 @@ _MIN_REPEAT_LOCATOR_LENGTH = 4
 _REGISTRY_ROW = re.compile(r"^[ \t]*\[([0-9]+)\][ \t]*(.+?)[ \t]*$")
 _MARKER = re.compile(r"\[([0-9]+)\]")
 _INDEX_HEADING = re.compile(
-    r"(?im)^[ ]{0,3}##[ \t]+(?:[0-9]+\.[ \t]*)?(?:Evidence index|证据索引)[ \t]*$"
+    r"(?im)^[ ]{0,3}##[ \t]+(?:[0-9]+[.)、][ \t]*)?(?:Evidence index|证据索引)[ \t]*$"
 )
 _SECTION_HEADING = re.compile(r"(?im)^[ ]{0,3}(##)[ \t]+(.+?)[ \t]*$")
 _INDEX_ROW = re.compile(r"^[ ]{0,3}-[ \t]+\[([0-9]+)\][ \t]+(.+?)[ \t]*$")
 _FENCE_OPEN = re.compile(r"^[ ]{0,3}(`{3,}|~{3,})")
+# Tag names exclude ':' so a bare autolink such as <https://example.com> is not
+# mistaken for a raw-HTML opening tag (which would then read as unclosed).
 _HTML_BLOCK_OPEN = re.compile(
-    r"^[ ]{0,3}<(?P<tag>[A-Za-z][A-Za-z0-9:-]*)(?:[ \t/>]|$)",
+    r"^[ ]{0,3}<(?P<tag>[A-Za-z][A-Za-z0-9-]*)(?:[ \t/>]|$)",
     re.IGNORECASE,
 )
 _HTML_BLOCK_CLOSE = re.compile(
-    r"^[ ]{0,3}</(?P<tag>[A-Za-z][A-Za-z0-9:-]*)[ \t]*>",
+    r"^[ ]{0,3}</(?P<tag>[A-Za-z][A-Za-z0-9-]*)[ \t]*>",
     re.IGNORECASE,
 )
 # HTML void elements are self-contained and must not open a raw-HTML block.
@@ -64,9 +68,28 @@ def _mask_html_comments(text: str) -> tuple[str, str | None]:
         cursor = end + 3
 
 
+def _blockquote_view(line: str) -> str:
+    """Return the line with every leading blockquote marker removed.
+
+    Every line-anchored Markdown pattern here (`^[ ]{0,3}```, `^[ ]{0,3}<tag`,
+    and four-space indented code) fails to match a blockquoted line. A marker
+    hidden in `>     [1] [2] [3]` therefore counted as visible prose and a report
+    with no readable citation passed the gate. Test the stripped view instead;
+    the original line is still what gets masked, so offsets are preserved.
+    """
+    while True:
+        stripped = re.sub(r"^[ ]{0,3}>[ ]?", "", line)
+        if stripped == line:
+            return line
+        line = stripped
+
+
 def _is_fence_close(line: str, marker: str) -> bool:
     char = re.escape(marker[0])
-    return re.fullmatch(rf"[ ]{{0,3}}{char}{{{len(marker)},}}[ \t]*", line) is not None
+    return (
+        re.fullmatch(rf"[ ]{{0,3}}{char}{{{len(marker)},}}[ \t]*", _blockquote_view(line))
+        is not None
+    )
 
 
 def _mask_markdown_blocks(text: str) -> tuple[str, str | None]:
@@ -74,17 +97,18 @@ def _mask_markdown_blocks(text: str) -> tuple[str, str | None]:
     active_fence: str | None = None
     for raw_line in text.splitlines(keepends=True):
         line = raw_line.rstrip("\n")
+        view = _blockquote_view(line)
         if active_fence is not None:
             masked_lines.append(_blank_non_newline(raw_line))
             if _is_fence_close(line, active_fence):
                 active_fence = None
             continue
-        opening = _FENCE_OPEN.match(line)
+        opening = _FENCE_OPEN.match(view)
         if opening is not None:
             active_fence = opening.group(1)
             masked_lines.append(_blank_non_newline(raw_line))
             continue
-        if re.match(r"^(?: {4}|\t)", line):
+        if re.match(r"^(?: {4}|\t)", view):
             masked_lines.append(_blank_non_newline(raw_line))
             continue
         masked_lines.append(raw_line)
@@ -99,24 +123,25 @@ def _mask_raw_html_blocks(text: str) -> tuple[str, str | None]:
     active_tag: str | None = None
     for raw_line in text.splitlines(keepends=True):
         line = raw_line.rstrip("\n")
+        view = _blockquote_view(line)
         if active_tag is not None:
             masked_lines.append(_blank_non_newline(raw_line))
-            if re.search(rf"</{re.escape(active_tag)}[ \t]*>", line, re.IGNORECASE):
+            if re.search(rf"</{re.escape(active_tag)}[ \t]*>", view, re.IGNORECASE):
                 active_tag = None
             continue
-        opening = _HTML_BLOCK_OPEN.match(line)
+        opening = _HTML_BLOCK_OPEN.match(view)
         if opening is not None:
             tag = opening.group("tag")
             masked_lines.append(_blank_non_newline(raw_line))
             if tag.casefold() in _HTML_VOID_ELEMENTS:
                 continue
-            if not re.search(rf"</{re.escape(tag)}[ \t]*>", line, re.IGNORECASE) and not re.search(
+            if not re.search(rf"</{re.escape(tag)}[ \t]*>", view, re.IGNORECASE) and not re.search(
                 r"/[ \t]*>[ \t]*$",
-                line,
+                view,
             ):
                 active_tag = tag
             continue
-        if _HTML_BLOCK_CLOSE.match(line) is not None:
+        if _HTML_BLOCK_CLOSE.match(view) is not None:
             masked_lines.append(_blank_non_newline(raw_line))
             continue
         masked_lines.append(raw_line)
@@ -419,18 +444,26 @@ def missing_substantive_report_sections(
         for start, end, name in all_headings
         if not _is_non_substantive_section(name)
     ]
-    if len(headings) < 2:
-        return "report must contain at least two substantive Markdown sections"
+    if len(headings) < _MIN_SUBSTANTIVE_SECTIONS:
+        return (
+            f"report must contain at least {_MIN_SUBSTANTIVE_SECTIONS} substantive "
+            f"Markdown sections; found {len(headings)}"
+        )
 
     heading_names = [name for _, _, name in headings]
     declared_names = [_normalize_section_name(section) for section in declared_sections]
+    duplicated_headings = sorted(
+        {name for name, count in Counter(heading_names).items() if count > 1}
+    )
+    if duplicated_headings:
+        return f"report sections must be unique; duplicated headings: {duplicated_headings}"
     if heading_names != declared_names:
-        missing_headings = [h for h in heading_names if h not in declared_names]
-        extra_headings = [h for h in declared_names if h not in heading_names]
+        rendered_counts = Counter(heading_names)
+        declared_counts = Counter(declared_names)
         return (
             "report_sections must match the report's rendered Markdown section headings; "
-            f"rendered headings not declared: {missing_headings}; "
-            f"declared headings not rendered: {extra_headings}"
+            f"rendered headings not declared: {sorted(rendered_counts - declared_counts)}; "
+            f"declared headings not rendered: {sorted(declared_counts - rendered_counts)}"
         )
 
     for start, end, name in headings:
@@ -537,10 +570,25 @@ def _resolve_safe_path(
     is_absolute, parts = parsed
     try:
         if is_absolute:
-            walked = _walk_without_symlinks(Path("/"), parts)
-            if walked is None:
+            # Resolve before walking: an absolute path may legitimately traverse
+            # a symlinked system ancestor (for example /tmp -> /private/tmp on
+            # macOS) while the equivalent relative path is accepted. The resolved
+            # path must still land inside the repository, and the walk uses the
+            # input's OWN trailing components so an in-repo symlink is rejected
+            # however the path is spelled.
+            resolved = (
+                Path("/").joinpath(*parts).resolve(strict=False)
+                if parts
+                else Path("/").resolve()
+            )
+            repo = Path(repo_root).expanduser().resolve()
+            try:
+                contained_parts = resolved.relative_to(repo).parts
+            except ValueError:
                 return None
-            resolved = Path("/").joinpath(*parts).resolve(strict=False) if parts else Path("/").resolve()
+            depth = len(contained_parts)
+            if depth and _walk_without_symlinks(repo, parts[-depth:]) is None:
+                return None
         else:
             repo = Path(repo_root).expanduser().resolve()
             walked = _walk_without_symlinks(repo, parts)
@@ -572,12 +620,18 @@ def report_path_is_within_output_dir(
     raw_report_path: object,
     raw_output_dir: object,
 ) -> bool:
-    """Authorize a report path when the workflow declares an output directory."""
+    """Authorize a report path when the workflow declares an output directory.
+
+    With no declared output directory the report must still live inside the
+    repository; an unset directory is not a licence to point anywhere.
+    """
+    report = resolve_safe_repo_file(repo_root, raw_report_path)
+    if report is None:
+        return False
     if raw_output_dir in (None, ""):
         return True
-    report = resolve_safe_repo_file(repo_root, raw_report_path)
     output_dir = resolve_safe_repo_directory(repo_root, raw_output_dir)
-    if report is None or output_dir is None:
+    if output_dir is None:
         return False
     try:
         report.relative_to(output_dir)

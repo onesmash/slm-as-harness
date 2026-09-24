@@ -21,11 +21,12 @@ REPAIR_STAGE_IDS = (
 )
 DECLARED_RECOVERY_STAGE_IDS = ('repair_report',)
 FINAL_STAGE_ID = 'finalize_collaborative_report'
-RUNTIME_DEFAULTS = {'max_steps': 24,
+RUNTIME_DEFAULTS = {'max_steps': 36,
  'max_rounds': 8,
  'min_evidence_items': 3,
  'coverage_threshold': 2,
- 'max_reorganizations': 3}
+ 'max_reorganizations': 3,
+ 'max_report_synthesis_attempts': 4}
 MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE = 32
 MAX_ARTIFACT_JOURNAL_BYTES = 64 * 1024
 MAX_ARTIFACT_PATH_BYTES = 2048

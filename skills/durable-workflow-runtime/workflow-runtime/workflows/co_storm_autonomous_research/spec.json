@@ -1,6 +1,6 @@
 {
   "workflow_id": "co-storm-autonomous-research",
-  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff. NOTE: the warm-start stage seeds the full planned topic set with no numeric ceiling and every seeded topic must be assessed before the report can be complete; set constraints.max_rounds (default 8) and constraints.max_steps (default 24) large enough to cover the planned topics, otherwise the run ends as an explicitly partial report. constraints.coverage_threshold remains only a deterministic lower bound on distinct assessed topics.",
+  "flow_description": "Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff. NOTE: the warm-start stage seeds the full planned topic set with no numeric ceiling and every seeded topic must be assessed before the report can be complete; set constraints.max_rounds (default 8) and constraints.max_steps (default 36) large enough to cover the planned topics, otherwise the run ends as an explicitly partial report. constraints.coverage_threshold remains only a deterministic lower bound on distinct assessed topics.",
   "start_input_schema": {
     "task_input": {
       "goal": "string",
@@ -18,15 +18,17 @@
       "max_rounds": "integer?",
       "min_evidence_items": "integer?",
       "coverage_threshold": "integer?",
-      "max_reorganizations": "integer?"
+      "max_reorganizations": "integer?",
+      "max_report_synthesis_attempts": "integer?"
     }
   },
   "runtime_defaults": {
-    "max_steps": 24,
+    "max_steps": 36,
     "max_rounds": 8,
     "min_evidence_items": 3,
     "coverage_threshold": 2,
-    "max_reorganizations": 3
+    "max_reorganizations": 3,
+    "max_report_synthesis_attempts": 4
   },
   "repair_policy": {
     "max_self_repair_attempts": 3,
@@ -997,12 +999,20 @@
       "step_id": "synthesize_report",
       "stage_kind": "main",
       "require_passing_verifier": true,
-      "cycle_limit": null,
+      "cycle_limit": {
+        "output_key": "report_ready_for_verification",
+        "constraint_key": "max_report_synthesis_attempts",
+        "next_node": "finalize_collaborative_report",
+        "branch_kind": "partial",
+        "reason": "report synthesis attempt budget exhausted; finalize as a degraded partial handoff with the current report artifact and its unresolved repair findings instead of looping the synthesize/verify/repair cycle further",
+        "counter_state_key": null,
+        "check_before_failure_routes": true
+      },
       "unmatched_transition": null,
       "recovery_return_node": null,
       "intent": "synthesize_the_cited_report",
       "expected_artifact": "structured report artifact with sections, compact numeric [n] citations, one consolidated Evidence index mapping each used citation to its exact source locator, and a report summary",
-      "prompt": "/content-research-writer {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{coverage_decision_rationale}}, {{next_round_validation_plan}}, {{report_scope_status}}, {{output_dir}}, and {{conversation_transcript}}; synthesize the autonomous Co-STORM knowledge space into a structured, cited report that uses compact [n] markers in the body, finishes with one literal `## Evidence index` section containing one exact locator row for each used marker, and preserves the Moderator's complete-or-partial scope decision for every substantive section.",
+      "prompt": "/report-nex {{workflow_goal}} using {{knowledge_map_summary}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{coverage_decision_rationale}}, {{next_round_validation_plan}}, {{report_scope_status}}, {{output_dir}}, and {{conversation_transcript}}; synthesize the autonomous Co-STORM knowledge space into a structured, cited report that uses compact [n] markers in the body, finishes with one literal `## Evidence index` section containing one exact locator row for each used marker, and preserves the Moderator's complete-or-partial scope decision for every substantive section.",
       "prompt_sections": {
         "stage_goal": "Turn the current shared knowledge space into a coherent report whose outline follows the map, whose numeric [n] citations match evidence_registry, and whose final Evidence index provides the exact source locator for each citation without repeating long locators in the body.",
         "context": [
@@ -1022,23 +1032,28 @@
         "boundaries": [
           "Do not introduce unsupported facts, uncited substantive claims, or sections absent from the knowledge map without marking them as limitations.",
           "Keep stable numeric [n] markers that match evidence_registry. Use number-only markers in the report body; do not emit or repeat any evidence_registry locator, URL, or file path beside claims.",
-          "Finish the report with exactly one literal `## Evidence index` section. Add exactly one row in the form `- [n] locator` for every citation id used in the report body, copying only the locator from an evidence_registry row of the form `[n] locator — claim`; only the locator text in a row may have one surrounding Markdown-backtick pair, never the heading. Include no unused ids or substantive report text after this section. The verifier accepts a numeric heading prefix and the equivalent Chinese heading for compatibility with existing reports.",
-          "Use at least two substantive Markdown sections and make the report_sections output list match their rendered headings exactly. Do not use raw HTML blocks, fenced code, indented code, or inline code to carry report claims, citations, or the Evidence index.",
+          "Finish the report with exactly one `## Evidence index` heading (a leading numeric prefix such as `3. ` and the equivalent `## 证据索引` heading are also accepted). Add exactly one row in the form `- [n] locator` for every citation id used in the report body, copying only the locator from an evidence_registry row of the form `[n] locator — claim`; only the locator text in a row may have one surrounding Markdown-backtick pair, never the heading. Include no unused ids or substantive report text after this section. The verifier accepts a numeric heading prefix and the equivalent Chinese heading for compatibility with existing reports.",
+          "Use at least four substantive Markdown sections and make the report_sections output list match their rendered headings exactly. Do not use raw HTML blocks, fenced code, indented code, or inline code to carry report claims, citations, or the Evidence index; such content is ignored by the citation gates, so hidden markers cannot satisfy this stage. Malformed regions are not ignored: an unclosed fence, comment, or HTML block, and an Evidence index row hidden inside code, are all hard failures.",
           "Do not fabricate locators, URLs, or citation identifiers.",
+          "Treat every `[n] locator — claim` row in {{evidence_registry}} as this workflow's complete claim-ledger entry for citation n: claim_id = n, claim_text = the text after the first ` — ` separator, claim_type inferred from the claim, section_anchor = the section where [n] is used, evidence_ids = the row's locator, support_state = supported unless the claim is explicitly contested, verification_state = verified, verifier = local-evidence, last_verified_at = this run's date, confidence_label = medium when the report flags weak or contested evidence. This workflow is not V4-scoped, so V1 is satisfied by this mapping alone: no external claim_evidence_map, source_matrix, or verification_ledger is required, and no claim-ledger schema validator run is required for it.",
           "Return the report artifact and its path before handoff.",
+          "Run this stage autonomously without pausing for user input: do not stop for mid-stage confirmation, outline approval, or phased section-by-section expansion, and never ask a 'please select' or 'which mode' question. Run the invoked skill's internal quality and revision loop to completion inside this stage rather than skipping it. When the requested length exceeds any internal progressive-disclosure threshold, still return the complete report artifact by the end of this stage. If the deliverable genuinely cannot be produced, return `blocked` with blocked_reason naming the unmet declared blocked condition (add missing_inputs only when an input is actually absent), or `partial` only when a partial-coverage report is still handed to verification; a `Report scope: partial` marker never substitutes for the stage status.",
+          "Operate in the invoked skill's M1 technical-report mode (`tech_report`) for a cited research report. Do not adopt its IMRAD-based M2 academic-paper, M12 biomedical, M13 AI/ML, or M14 qualitative modes, whose structural gates conflict with the report shape required here, and treat the final Evidence index as replacing any mode-required closing call to action.",
           "Do not declare final quality approval in this stage; return the report for an independent quality check.",
           "Include an exact `Report scope: complete` or `Report scope: partial` line. When partial, preserve every unresolved topic_id, open gap, validation metric, and top-level next-round plan item verbatim in a limitations and next-validation section; do not imply complete coverage.",
-          "When context.output_dir is set, write the report artifact under that directory. output_dir and report_path may be repository-relative POSIX paths or absolute POSIX paths; report_path must resolve inside output_dir. Reject backslashes, control characters, '.' or '..' path segments, and symbolic links.",
+          "Write the report artifact inside output_dir when it is set: choose the report path yourself on the first pass (repository-relative under output_dir, or absolute inside it) and reuse the persisted {{report_path}} on later passes, do not degrade to a chat-only report, and do not report success until that file exists on disk. Validate the configured path first: if output_dir or report_path contains a backslash, a control character, a '.' or '..' path segment, or a symbolic link, do not write and return `blocked` with blocked_reason naming the offending path. The invoked skill declares itself read-only (op_level R / modifies_files false), but creating this deliverable is this stage's sanctioned write. When output_dir is set, treat it as the invoked skill's artifact root and keep that skill's process and receipt files under {{output_dir}}/report-nex/ so no skill artifact lands outside the verified output directory.",
           "report_sections must equal the report's rendered Markdown ## headings, normalized: strip a leading numeric prefix like '1. ', strip any trailing parenthesized note, and keep punctuation exactly (顿号 included). Compare ONLY the headings that appear in the report body BEFORE the final '## Evidence index' heading — never include 'Evidence index' itself in report_sections.",
           "The report must contain exactly one literal line, either `Report scope: complete` or `Report scope: partial` matching report_scope_status, somewhere before the Evidence index.",
-          "Never repeat any evidence_registry locator text in the report body — not even inside a narrative sentence such as mentioning a filename that happens to equal a locator (e.g. 'Cargo.toml'); the body may only use compact [n] markers. The Evidence index is the only place locators appear.",
+          "Never repeat any evidence_registry locator text in the report body — not even inside a narrative sentence such as mentioning a filename that happens to equal a locator (e.g. 'Cargo.toml'); the body may only use compact [n] markers. The Evidence index is the only place locators appear. Code blocks, inline code, and raw HTML regions are exempt from this repeat check because they are not report prose.",
           "Produce a substantive report: 4 to 8 Markdown sections before the Evidence index (executive summary plus at least three deep sections), each section developing its claims in prose with at least two [n] citations; bullet-only sections and reports that merely restate registry rows are defective deliverables.",
           "Start with an executive summary as a level-2 Markdown `## Executive summary` heading (so it counts as a substantive section), under one page, stating the research question, the main conclusions with [n] citations, and the overall confidence level.",
           "Synthesize across the expert perspectives recorded in {{conversation_transcript}}: when experts disagree, present both positions with their evidence and note the disagreement; when they agree, state the convergence explicitly.",
           "Where {{evidence_registry}} and {{coverage_map}} support comparing approaches, options, or versions, use a comparison table with [n]-cited factual cells; keep table cells to prose, data, and [n] markers only — never place registry locators, URLs, or file paths in cells, and never use bare bracketed numbers in tables unless they are registry citation ids.",
           "Match language and depth to the requested deliverable: comply with language and length requirements expressed in {{deliverable_type}} or {{workflow_goal}} (for example 中文, 5000字); when none are given, write in the language of {{workflow_goal}} and aim for 1200-3000 words for standard overviews and 3000-8000 words for deep deliverables.",
           "Flag uncertainty inline where evidence is thin or contested (for example '证据较弱', '存在争议'), and keep every open gap in the limitations section when the report scope is partial.",
-          "Begin the report with exactly one top-level `# ` H1 title heading (the research question or deliverable title), followed by the executive summary; all other sections use `##` headings."
+          "Begin the report with exactly one top-level `# ` H1 title heading (the research question or deliverable title), followed by the executive summary; all other sections use `##` headings.",
+          "Treat the single final Evidence index as a reference list, not body prose: its `- [n] locator` rows are this stage's sanctioned exception to the invoked skill's no-bullet-body rule and its prose/bullet pre-check, and they must not be hidden in code or converted to a table.",
+          "The {{max_report_synthesis_attempts}} budget for this stage is checked before blocked, partial, failed, and verifier-failed routing, so once the attempt count reaches it this stage hands off to the final step instead of returning to repair — with one exception: a blocked stage still escalates through the shared repair path so the missing input can be named. Set report_ready_for_verification to your honest handoff state on every attempt; leaving it unset hides the attempt from the budget."
         ],
         "blocked_conditions": [
           "Block when the knowledge map or evidence registry is empty or internally inconsistent.",
@@ -1048,7 +1063,7 @@
       },
       "done_when": [
         "A report artifact exists.",
-        "The report has a clear outline with at least two substantive sections.",
+        "The report has a clear outline with at least four substantive sections.",
         "Inline numeric citations refer to the carried-forward evidence registry.",
         "The report has exactly one consolidated Evidence index with one exact locator row for every citation id used in the report body.",
         "Long source locators are not repeated beside body claims.",
@@ -1069,7 +1084,7 @@
       },
       "skill_routing": [
         {
-          "skill": "content-research-writer",
+          "skill": "report-nex",
           "operations": [
             "evidence-grounded report synthesis",
             "section organization",
@@ -1166,13 +1181,6 @@
       ],
       "verifier_templates": [
         {
-          "id": "report_requires_multiple_sections",
-          "template": "min_count",
-          "output_key": "report_sections",
-          "message": "The report must contain at least two substantive sections.",
-          "min_count": 2
-        },
-        {
           "id": "report_file_contains_headings",
           "template": "artifact_file_contains_sections",
           "output_key": "report_path",
@@ -1204,7 +1212,7 @@
           "hint_pseudocode": [
             "Read the report_path from structured_output as a repository-relative path under repo_root or as an absolute POSIX path.",
             "When context.output_dir is set, require the report artifact to remain under that output directory, which may itself be repository-relative or absolute.",
-            "Verify that report_sections names at least two substantive rendered Markdown sections and matches the report artifact rather than relying only on the LLM-declared count.",
+            "Verify that report_sections names at least four substantive rendered Markdown sections and matches the report artifact rather than relying only on the LLM-declared count.",
             "Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.",
             "Strip HTML comments and raw HTML blocks, then identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.",
             "Extract bounded ASCII numeric [n] markers from the rendered report body, ignoring inline and fenced or indented Markdown code; reject oversized citation identifiers and unclosed comments or code spans.",
@@ -1232,7 +1240,7 @@
       "recovery_return_node": null,
       "intent": "verify_report_quality_and_citation_integrity",
       "expected_artifact": "report quality and citation-integrity verdict under deterministic gate authority, with advisory LLM quality findings, a citation coverage summary, and repair findings if needed",
-      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{next_round_validation_plan}}, {{report_scope_status}}, and {{output_dir}}; independently verify section coverage, citation referential integrity, the final literal Evidence index for compact [n] markers, unsupported claims, duplication, coherence, and faithful disclosure of the Moderator's complete-or-partial scope decision, then return a structured pass or repair verdict.",
+      "prompt": "/report-nex {{workflow_goal}} using {{report_path}}, {{report_summary}}, {{report_sections}}, {{evidence_registry}}, {{coverage_map}}, {{coverage_assessment}}, {{next_round_validation_plan}}, {{report_scope_status}}, and {{output_dir}}; run this as a report-quality audit of an existing artifact in the invoked skill's M4 peer-review mode (`peer_review`), and independently verify section coverage, citation referential integrity, the final literal Evidence index for compact [n] markers, unsupported claims, duplication, coherence, and faithful disclosure of the Moderator's complete-or-partial scope decision, then return a structured pass or repair verdict.",
       "prompt_sections": {
         "stage_goal": "Apply the final deterministic quality gate, prove that body citations resolve to evidence_registry through one complete final Evidence index without requiring long locators beside every claim, and audit report substance (executive summary, prose depth, and cross-expert synthesis) so weak deliverables are sent back for repair.",
         "context": [
@@ -1249,17 +1257,22 @@
           "Knowledge-map summary: {{knowledge_map_summary}}"
         ],
         "boundaries": [
-          "Do not silently rewrite the report while performing verification; return concrete findings for the repair stage.",
+          "Audit the report without rewriting it: return concrete findings for the repair stage. This is a workflow instruction, not an independently enforced gate — no byte-level report immutability is verified here, and you have no pre-image to compare against, so never edit the file yourself and record under quality_findings anything you observe changing while you audit.",
+          "Run this stage autonomously without pausing for user input: do not stop for user confirmation or mode selection and never ask a 'please select' or 'which mode' question; choose the audit framing yourself and return the verdict.",
+          "This stage audits an existing artifact and produces no new report deliverable: do not re-route to a citation-audit, documentation, or research skill, and treat the audit dimensions named in this stage as the acceptance contract.",
+          "Operate in the invoked skill's M4 peer-review mode (`peer_review`) with {{report_path}} as the artifact under review, returning a recommendation consistent with the findings; do not adopt its M2 academic-paper, M3 literature-review, M12 biomedical, M13 AI/ML, or M14 qualitative modes and do not switch to M5 scholar-evaluation scoring. Treat this stage's own audit dimensions as the acceptance contract.",
+          "Treat every `[n] locator — claim` row in {{evidence_registry}} as the claim-ledger entry for citation n (claim_id = n, claim_text = the text after the first ` — `, evidence_ids = the row's locator, support_state = supported unless the claim is explicitly contested, verification_state = verified). No external claim_evidence_map, source_matrix, or verification_ledger exists and no ledger-schema validator run is required, so do not fail, defer, or degrade the audit because of it.",
           "Treat unknown citation identifiers, including numbers absent from the merged evidence_registry, missing section coverage, and unsupported substantive claims as failures.",
           "Treat number-only [n] body citations as valid only when the final literal Evidence index contains exactly one matching registry locator row; only the locator portion of an index row may be backtick-wrapped.",
-          "Treat raw HTML blocks, fenced code, indented code, and inline code as non-report content and reject any citation or index hidden within them.",
+          "Treat raw HTML blocks, fenced code, indented code, and inline code as non-report content: citation markers and index headings inside them are ignored, they never satisfy a citation requirement, and an Evidence index hidden that way does not count as the report's index. Cite claims in prose instead of relying on hidden markers. Malformed regions are not ignored: an unclosed fence, comment, or HTML block, and an Evidence index row hidden inside code, are all hard failures.",
           "A failed report verifier must still persist fail-closed audit fields (quality_verdict=repair, report_ready=false, findings including the verifier message) so repair_report can see them.",
           "A pass requires a report artifact, traceable citations, and no unresolved critical quality findings.",
           "A partial report may pass only when it contains the exact `Report scope: partial` marker and faithfully lists every unresolved topic id, open gap, validation metric, and next-round plan item; reject any partial report that presents itself as complete.",
           "A complete report may pass only when coverage_sufficient is true, next_round_validation_plan is empty, and the report contains the exact `Report scope: complete` marker.",
           "Return concrete findings and a pass or repair verdict without rewriting the report.",
-          "Audit substance in addition to mechanics: the report must contain an executive summary; every substantive section must contain prose argumentation with at least two cited claims (bullet-only sections are a defect); the body must synthesize expert positions rather than list registry rows; depth and language must match the requirements expressed in {{workflow_goal}}.",
-          "Return quality_verdict=repair with concrete quality_findings whenever the substance audit fails, even if citation mechanics pass, so the repair loop drives a substance-improving re-synthesis."
+          "Audit substance in addition to mechanics: the report must contain at least four substantive sections plus an executive summary; every substantive section must contain prose argumentation with at least two cited claims (bullet-only sections are a defect); the body must synthesize expert positions rather than list registry rows; depth and language must match the requirements expressed in {{workflow_goal}}.",
+          "Return quality_verdict=repair with concrete quality_findings whenever the substance audit fails, even if citation mechanics pass, so the repair loop drives a substance-improving re-synthesis.",
+          "Treat the single final Evidence index as a reference list, not body prose: its `- [n] locator` rows are this stage's sanctioned exception to the invoked skill's no-bullet-body rule and its prose/bullet pre-check, and they must not be hidden in code or converted to a table."
         ],
         "blocked_conditions": [
           "Block when the report artifact, evidence registry, or report sections are unavailable.",
@@ -1289,7 +1302,7 @@
       },
       "skill_routing": [
         {
-          "skill": "content-research-writer",
+          "skill": "report-nex",
           "operations": [
             "report quality audit",
             "citation coverage audit",
@@ -1479,7 +1492,7 @@
           "hint_pseudocode": [
             "Read the same report identified by persisted report_path and verified_report_path, as a repository-relative path under repo_root or as an absolute POSIX path.",
             "When context.output_dir is set, require both report paths to remain under that output directory, which may itself be repository-relative or absolute.",
-            "When report_sections is present, verify it against at least two substantive rendered Markdown sections.",
+            "When report_sections is present, verify it against at least four substantive rendered Markdown sections.",
             "Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.",
             "Strip HTML comments, raw HTML blocks, fenced or indented code, and inline code when identifying the rendered report body; reject malformed or unclosed hidden regions.",
             "Identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.",
@@ -1501,13 +1514,13 @@
     {
       "step_id": "repair_report",
       "stage_kind": "recovery",
-      "require_passing_verifier": true,
+      "require_passing_verifier": false,
       "cycle_limit": null,
       "unmatched_transition": null,
       "recovery_return_node": "synthesize_report",
       "intent": "repair_report_quality_or_grounding",
       "expected_artifact": "concrete report repair actions and a repaired-report handoff",
-      "prompt": "/content-research-writer {{workflow_goal}} using {{report_path}}, {{repair_summary}}, {{repair_requirements}}, {{repair_evidence}}, {{quality_findings}}, {{citation_coverage_summary}}, {{quality_verdict}}, and {{evidence_registry}}; translate audit findings into concrete repair actions including any missing or mismatched Evidence index rows and a handoff for the next synthesize_report pass without rewriting the report body in this stage.",
+      "prompt": "/report-nex {{workflow_goal}} using {{report_path}}, {{repair_summary}}, {{repair_requirements}}, {{repair_evidence}}, {{quality_findings}}, {{citation_coverage_summary}}, {{quality_verdict}}, and {{evidence_registry}}; translate audit findings into concrete repair actions including any missing or mismatched Evidence index rows and a handoff for the next synthesize_report pass without rewriting the report body in this stage.",
       "prompt_sections": {
         "stage_goal": "Translate report-audit findings into concrete repair actions, naming any missing or mismatched Evidence index rows, so the report can be regenerated and rechecked without changing the research scope.",
         "context": [
@@ -1524,10 +1537,14 @@
         "boundaries": [
           "Keep repairs limited to the report artifact and its evidence grounding; do not invent new research outside the shared evidence registry.",
           "Do not rewrite the report artifact in this recovery stage; return the repair plan for the next synthesize_report pass.",
+          "Run this stage autonomously without pausing for user input: do not stop for user confirmation or mode selection and never ask a 'please select' or 'which mode' question; choose the repair framing yourself and return the repair plan.",
+          "Treat every `[n] locator — claim` row in {{evidence_registry}} as the claim-ledger entry for citation n (claim_id = n, claim_text = the text after the first ` — `, evidence_ids = the row's locator). No external claim_evidence_map, source_matrix, or verification_ledger exists, so do not name a missing ledger among the repair actions.",
           "Return concrete repair actions and a handoff for the next report pass.",
           "Name every repair action that the next synthesis pass must apply.",
           "Name any missing or mismatched Evidence index rows by citation id and issue category so the next synthesize_report pass can restore the exact locator-only `- [n] locator` mapping without repeating long locators in the report body.",
-          "Prefer fail-closed quality_verdict/quality_findings and repair_summary over any prior LLM pass verdict when the report verifier failed."
+          "Prefer fail-closed quality_verdict/quality_findings and repair_summary over any prior LLM pass verdict when the report verifier failed.",
+          "Operate in the invoked skill's M1 technical-report mode (`tech_report`) and keep every repair action inside that report shape; do not adopt its M2/M3/M12/M13/M14 modes.",
+          "Treat the single final Evidence index as a reference list, not body prose: its `- [n] locator` rows are this stage's sanctioned exception to the invoked skill's no-bullet-body rule and its prose/bullet pre-check, and they must not be hidden in code or converted to a table."
         ],
         "blocked_conditions": [
           "Block when a concrete repair action cannot be derived from the available audit or repair context.",
@@ -1552,7 +1569,7 @@
       },
       "skill_routing": [
         {
-          "skill": "content-research-writer",
+          "skill": "report-nex",
           "operations": [
             "citation repair planning",
             "section coverage repair",
@@ -1746,13 +1763,13 @@
       "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill search-nex -g -y --agent claude-code cursor codex"
     },
     {
-      "id": "content-research-writer",
+      "id": "report-nex",
       "type": "skill",
       "required": true,
       "scope": "either",
-      "source": "skill-catalog:content-research-writer",
+      "source": "skill-catalog:report-nex",
       "purpose": "Own evidence-grounded report synthesis, report quality review, and citation repair.",
-      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill content-research-writer -g -y --agent claude-code cursor codex"
+      "install_command": "npx skills add git@git.zoom.us:ai-tools/skills.git --skill report-nex -g -y --agent claude-code cursor codex"
     }
   ],
   "installed": [
@@ -1773,10 +1790,10 @@
       "recorded_by": "workflow-creator"
     },
     {
-      "id": "content-research-writer",
+      "id": "report-nex",
       "type": "skill",
       "scope": "either",
-      "source": "skill-catalog:content-research-writer",
+      "source": "skill-catalog:report-nex",
       "recorded_at": "2026-08-06T00:00:00Z",
       "recorded_by": "workflow-creator"
     }
@@ -4173,7 +4190,9 @@
           "report_summary": "A complete grounded report.",
           "report_sections": [
             "History",
-            "Mechanism"
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
           ],
           "report_ready_for_verification": true
         }
@@ -4200,7 +4219,9 @@
           "report_summary": "A complete grounded report.",
           "report_sections": [
             "History",
-            "Mechanism"
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
           ],
           "report_ready_for_verification": true
         }
@@ -4227,7 +4248,9 @@
           "report_summary": "A complete grounded report.",
           "report_sections": [
             "History",
-            "Mechanism"
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
           ],
           "report_ready_for_verification": true
         }
@@ -4254,7 +4277,9 @@
           "report_summary": "A complete grounded report.",
           "report_sections": [
             "History",
-            "Mechanism"
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
           ],
           "report_ready_for_verification": true
         }
@@ -4281,7 +4306,9 @@
           "report_summary": "A complete grounded report.",
           "report_sections": [
             "History",
-            "Mechanism"
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
           ],
           "report_ready_for_verification": true
         }
@@ -4944,6 +4971,196 @@
       },
       "expected_passed": false,
       "state": {}
+    },
+    {
+      "name": "report_repair_without_verifier_result_returns_to_synthesis",
+      "type": "transition",
+      "current_step_id": "repair_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Report repair actions prepared with no verifier result available.",
+        "structured_output": {
+          "report_repair_summary": "Restore the Evidence index row for [2].",
+          "repair_actions": [
+            "restore missing Evidence index row"
+          ],
+          "repair_ready": true
+        }
+      },
+      "verifier_result": null,
+      "state": null,
+      "expected_next_node": "synthesize_report",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "report_synthesis_within_attempt_budget_continues_to_verification",
+      "type": "transition",
+      "current_step_id": "synthesize_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Report synthesized within the attempt budget.",
+        "structured_output": {
+          "outline": "History and mechanism",
+          "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md",
+          "report_summary": "A complete grounded report.",
+          "report_sections": [
+            "History",
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
+          ],
+          "report_ready_for_verification": true
+        }
+      },
+      "verifier_result": {
+        "passed": true,
+        "message": "report contract passed",
+        "details": {}
+      },
+      "state": {
+        "attempt_counts": {
+          "synthesize_report": 2
+        }
+      },
+      "expected_next_node": "verify_report",
+      "expected_branch_kind": "continue"
+    },
+    {
+      "name": "report_synthesis_attempt_budget_exhausted_degrades_to_final_handoff",
+      "type": "transition",
+      "current_step_id": "synthesize_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Report synthesized but the attempt budget is exhausted.",
+        "structured_output": {
+          "outline": "History and mechanism",
+          "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md",
+          "report_summary": "A complete grounded report.",
+          "report_sections": [
+            "History",
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
+          ],
+          "report_ready_for_verification": true
+        }
+      },
+      "verifier_result": {
+        "passed": true,
+        "message": "report contract passed",
+        "details": {}
+      },
+      "state": {
+        "attempt_counts": {
+          "synthesize_report": 3
+        }
+      },
+      "expected_next_node": "finalize_collaborative_report",
+      "expected_branch_kind": "partial"
+    },
+    {
+      "name": "report_synthesis_budget_preempts_a_failing_verifier",
+      "type": "transition",
+      "current_step_id": "synthesize_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Report synthesized but its own verifier keeps failing.",
+        "structured_output": {
+          "outline": "History and mechanism",
+          "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md",
+          "report_summary": "A complete grounded report.",
+          "report_sections": [
+            "History",
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
+          ],
+          "report_ready_for_verification": true
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "message": "report contract failed",
+        "details": {}
+      },
+      "state": {
+        "attempt_counts": {
+          "synthesize_report": 3
+        }
+      },
+      "expected_next_node": "finalize_collaborative_report",
+      "expected_branch_kind": "partial"
+    },
+    {
+      "name": "report_synthesis_budget_does_not_preempt_a_blocked_stage",
+      "type": "transition",
+      "current_step_id": "synthesize_report",
+      "observation": {
+        "status": "blocked",
+        "summary": "Report synthesis is blocked on a missing input.",
+        "structured_output": {
+          "outline": "History and mechanism",
+          "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md",
+          "report_summary": "A complete grounded report.",
+          "report_sections": [
+            "History",
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
+          ],
+          "report_ready_for_verification": true
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "message": "report contract failed",
+        "details": {}
+      },
+      "state": {
+        "attempt_counts": {
+          "synthesize_report": 3
+        }
+      },
+      "expected_next_node": "repair_and_resume",
+      "expected_branch_kind": "repair"
+    },
+    {
+      "name": "report_synthesis_budget_bounds_a_stage_that_reports_not_ready",
+      "type": "transition",
+      "current_step_id": "synthesize_report",
+      "observation": {
+        "status": "succeeded",
+        "summary": "Report synthesized but honestly not ready.",
+        "structured_output": {
+          "outline": "History and mechanism",
+          "report_path": "skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md",
+          "report_summary": "A complete grounded report.",
+          "report_sections": [
+            "History",
+            "Mechanism",
+            "Evidence quality",
+            "Limitations"
+          ],
+          "report_ready_for_verification": false
+        }
+      },
+      "verifier_result": {
+        "passed": false,
+        "message": "report contract failed",
+        "details": {}
+      },
+      "state": {
+        "attempt_counts": {
+          "synthesize_report": 3
+        }
+      },
+      "expected_next_node": "finalize_collaborative_report",
+      "expected_branch_kind": "partial"
     }
+  ],
+  "preserve_verifier_helpers": [
+    "_repo_path_policy_error",
+    "_artifact_list_policy_error",
+    "_safe_repo_path"
   ]
 }

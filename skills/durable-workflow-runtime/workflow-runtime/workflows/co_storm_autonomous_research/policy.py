@@ -231,6 +231,19 @@ def choose_next_node(
         )
 
     if current_step_id == "synthesize_report":
+        if observation.get("status") != "blocked":
+            raw_completed_cycles = (state.get("attempt_counts") or {}).get(current_step_id)
+            completed_cycles = raw_completed_cycles if isinstance(raw_completed_cycles, int) and not isinstance(raw_completed_cycles, bool) else 0
+            constraints = state.get("constraints") if isinstance(state, dict) else {}
+            raw_max_cycles = constraints.get('max_report_synthesis_attempts') if isinstance(constraints, dict) else None
+            max_cycles = raw_max_cycles if isinstance(raw_max_cycles, int) and not isinstance(raw_max_cycles, bool) and raw_max_cycles > 0 else 4
+            if completed_cycles >= max_cycles:
+                return TransitionDecision(
+                    next_node='finalize_collaborative_report',
+                    branch_kind='partial',
+                    reason='report synthesis attempt budget exhausted; finalize as a degraded partial handoff with the current report artifact and its unresolved repair findings instead of looping the synthesize/verify/repair cycle further',
+                    metadata={"degraded": True, "terminal_reason": "cycle_budget_exhausted"},
+                )
         if observation["status"] == "succeeded" and _verifier_result_is_valid(verifier_result) and not _verifier_is_passed(verifier_result):
             return TransitionDecision(
                 next_node='repair_report',
@@ -277,7 +290,7 @@ def choose_next_node(
                 branch_kind="repair",
                 reason="repair_report is blocked and should be triaged by shared repair first",
             )
-        if observation["status"] == "succeeded" and not _verifier_is_passed(verifier_result):
+        if verifier_result is not None and not _verifier_is_passed(verifier_result):
             return TransitionDecision(
                 next_node="repair_report",
                 branch_kind="retry",

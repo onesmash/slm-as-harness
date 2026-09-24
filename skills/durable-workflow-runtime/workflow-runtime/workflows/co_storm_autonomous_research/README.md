@@ -1,56 +1,44 @@
-# Workflow Skeleton
+# co-storm-autonomous-research
 
-Unless explicitly marked as a repo-local example, paths in this file are
-relative to `<skill-root>/`.
+Autonomous Co-STORM-style research: warm-start stable expert perspectives, collect one grounded result from an independent subagent for each expert in every round, merge any newly retrieved evidence into the shared registry, let the Moderator adjudicate semantic coverage with deterministic guardrails, reorganize the knowledge map, and synthesize a cited complete or explicitly partial report whose body uses compact numeric [n] markers and whose final Evidence index maps each used marker to its exact registry source locator, without user intervention; after bounded self-repair, hard blocks terminate with a partial handoff. NOTE: the warm-start stage seeds the full planned topic set with no numeric ceiling and every seeded topic must be assessed before the report can be complete; set constraints.max_rounds (default 8) and constraints.max_steps (default 36) large enough to cover the planned topics, otherwise the run ends as an explicitly partial report. constraints.coverage_threshold remains only a deterministic lower bound on distinct assessed topics.
 
-Copy this directory into:
+Generated from `spec.json` by `workflow-creator`. Treat `spec.json` as the
+source of truth; edit it and rerun the creator rather than editing the
+generated surfaces by hand.
 
-```text
-<skill-root>/workflow-runtime/workflows/<your_workflow_id>/
-```
+## Stage path
 
-Then make these replacements first:
+- `warm_start_shared_space` (main) - routes to `research-nex`
+- `launch_expert_subagents` (main) - routes to `research-nex`, `search-nex`
+- `autonomous_roundtable` (main) - routes to `research-nex`
+- `reorganize_knowledge_space` (main) - routes to `research-nex`
+- `synthesize_report` (main) - routes to `report-nex`
+- `verify_report` (main) - routes to `report-nex`
+- `repair_report` (recovery) - routes to `report-nex`
+- `finalize_collaborative_report` (final)
 
-1. Rename the directory from `co_storm_autonomous_research` to your real `workflow_id`.
-2. Replace `co-storm-autonomous-research` in:
-   - `contract.py`
-   - verifier `ref` strings
-   - any prompt wording that should mention the real workflow name
-3. Rename step IDs if your workflow needs different stage names.
-4. Update `references/flowchart.md` so it matches the real `policy.py`
-   transitions and first emitted node.
-5. Add the new workflow to `<skill-root>/workflow-binding.json`, including the
-   `start_input_schema` exported by `WORKFLOW_INPUT_CONTRACT`.
-6. Add the same `start_input_schema` to the workflow `manifest.json` if you add
-   one for preflight dependency checks.
-7. Add regression coverage to
-   `<skill-root>/tests/test_durable_workflow_runtime.py`.
+## Dependencies
 
-What this skeleton already demonstrates:
+- `research-nex` (skill, required) - Own autonomous perspective-guided research, grounded expert turns, and knowledge-space maintenance.
+- `search-nex` (skill, required) - Provide source discovery and web-search evidence support required by research-nex.
+- `report-nex` (skill, required) - Own evidence-grounded report synthesis, report quality review, and citation repair.
 
-- one main yielded stage: `run_primary_stage`
-- one shared unblock helper: `request_unblocking_input`
-- one shared repair owner: `repair_and_resume`
-- one explicit final node: `finalize_summary`
-- start-time input contract
-- yielded-step contracts
-- durable state with `return_stage_id` and `repair_context`
-- runtime-owned branch / retry / blocked routing
-- GraphBuilder `start` and `resume` preview helpers
-- developer-facing Mermaid flowchart in `references/flowchart.md`
+## Runtime defaults
 
-Use this as a starting point, not as a rule that every workflow must keep the
-same node names.
+- `max_steps`: 36
+- `max_rounds`: 8
+- `min_evidence_items`: 3
+- `coverage_threshold`: 2
+- `max_reorganizations`: 3
+- `max_report_synthesis_attempts`: 4
 
-Before editing `prompts/*.md`, read:
+## Durable state
 
-```text
-<skill-root>/references/prompt-placeholder-spec.md
-```
+- `state_mode`: `custom`
 
-Why:
+## Related files
 
-- prompt placeholders are not global magic variables
-- `run_primary_stage.md` only gets the keys explicitly passed by the start graph
-- repair/final prompts only get the keys returned by `build_template_context(...)`
-- a missing key will fail prompt rendering at runtime
+- `references/flowchart.md` - rendered graph documentation
+- `references/agent-review.md` - review checklist for this workflow
+- `prompts/` - one prompt asset per step
+- `tests/` - workflow-local regression coverage

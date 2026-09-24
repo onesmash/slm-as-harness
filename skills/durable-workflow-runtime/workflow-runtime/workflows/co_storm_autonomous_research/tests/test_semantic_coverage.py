@@ -283,6 +283,7 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         return {
             "report_path": path,
             "report_summary": "A complete grounded report.",
+            "report_sections": ["History", "Mechanism", "Evidence quality", "Limitations"],
             "evidence_registry": list(REGISTRY),
             "report_scope_status": "complete",
             "coverage_sufficient": True,
@@ -298,6 +299,12 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         return {
             "report_path": path,
             "report_summary": "A validated partial report.",
+            "report_sections": [
+                "Supported findings",
+                "Unresolved coverage and next validation",
+                "Evidence quality",
+                "Limitations",
+            ],
             "evidence_registry": list(REGISTRY),
             "report_scope_status": "partial",
             "coverage_sufficient": False,
@@ -427,7 +434,7 @@ class SemanticCoverageReviewTests(unittest.TestCase):
                 "outline": "History and mechanism",
                 "report_path": path,
                 "report_summary": "A complete grounded report.",
-                "report_sections": ["History", "Mechanism"],
+                "report_sections": ["History", "Mechanism", "Evidence quality", "Limitations"],
                 "report_ready_for_verification": True,
             },
         }
@@ -449,7 +456,10 @@ class SemanticCoverageReviewTests(unittest.TestCase):
             verifier_result=result,
         )
         self.assertEqual(workflow.report_path, path)
-        self.assertEqual(workflow.report_sections, ["History", "Mechanism"])
+        self.assertEqual(
+            workflow.report_sections,
+            ["History", "Mechanism", "Evidence quality", "Limitations"],
+        )
         state = self._complete_report_state()
         state["report_path"] = f"{FIXTURE_ROOT}/number_only_report.md"
         result = self._verify_report(state)
@@ -472,7 +482,7 @@ class SemanticCoverageReviewTests(unittest.TestCase):
                     "outline": "History and mechanism",
                     "report_path": f"{FIXTURE_ROOT}/complete_report.md",
                     "report_summary": "A complete grounded report.",
-                    "report_sections": ["Wrong heading", "Mechanism"],
+                    "report_sections": ["Wrong heading", "Mechanism", "Evidence quality", "Limitations"],
                     "report_ready_for_verification": True,
                 },
             },
@@ -537,6 +547,10 @@ class SemanticCoverageReviewTests(unittest.TestCase):
             "Mechanism finding.\n\n"
             "### 2.1 Detail\n\n"
             "Nested detail.\n\n"
+            "## 3. Evidence quality\n\n"
+            "Evidence finding.\n\n"
+            "## 4. Limitations\n\n"
+            "Limitation finding.\n\n"
             "## Review card\n\n"
             "Review metadata.\n\n"
             "## Evidence index\n\n"
@@ -545,9 +559,40 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         self.assertIsNone(
             missing_substantive_report_sections(
                 report,
-                ["History", "Mechanism"],
+                ["History", "Mechanism", "Evidence quality", "Limitations"],
             )
         )
+
+    def test_report_sections_reject_duplicate_headings(self):
+        """A repeated heading must not pad the four-section floor."""
+        from workflows.co_storm_autonomous_research.citation_locators import (
+            missing_substantive_report_sections,
+        )
+
+        report = (
+            "# Report\n\n"
+            "## History\n\nFirst.\n\n"
+            "## History\n\nSecond.\n\n"
+            "## Mechanism\n\nThird.\n\n"
+            "## Limitations\n\nFourth.\n\n"
+            "## Evidence index\n\n- [1] source-a\n"
+        )
+        result = missing_substantive_report_sections(
+            report,
+            ["History", "History", "Mechanism", "Limitations"],
+        )
+        self.assertIsNotNone(result)
+        self.assertIn("unique", result)
+
+    def test_report_sections_reject_fewer_than_four(self):
+        from workflows.co_storm_autonomous_research.citation_locators import (
+            missing_substantive_report_sections,
+        )
+
+        report = "# Report\n\n## A\n\nx\n\n## B\n\ny\n\n## C\n\nz\n"
+        result = missing_substantive_report_sections(report, ["A", "B", "C"])
+        self.assertIsNotNone(result)
+        self.assertIn("at least 4 substantive", result)
 
     def test_synthesize_report_rejects_missing_evidence_index(self):
         result = self._synthesize_report(f"{FIXTURE_ROOT}/number_only_report.md")
@@ -778,7 +823,7 @@ class SemanticCoverageReviewTests(unittest.TestCase):
                     "outline": "History and mechanism",
                     "report_path": path,
                     "report_summary": "A complete grounded report.",
-                    "report_sections": ["History", "Mechanism"],
+                    "report_sections": ["History", "Mechanism", "Evidence quality", "Limitations"],
                     "report_ready_for_verification": True,
                 },
             },

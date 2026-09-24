@@ -372,6 +372,7 @@ def _template_context_from_state(state: workflow_state.CoStormAutonomousResearch
         "min_evidence_items": _format_prompt_value(constraint_values.get("min_evidence_items")),
         "coverage_threshold": _format_prompt_value(constraint_values.get("coverage_threshold")),
         "max_reorganizations": _format_prompt_value(constraint_values.get("max_reorganizations")),
+        "max_report_synthesis_attempts": _format_prompt_value(constraint_values.get("max_report_synthesis_attempts")),
         }
     )
     return context

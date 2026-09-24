@@ -277,12 +277,7 @@ def verify_synthesize_report(
   'operator': 'is_true',
   'value': None,
   'message': 'Report synthesis must explicitly hand the artifact to verification.'}],
-        verifier_templates=[{'id': 'report_requires_multiple_sections',
-  'template': 'min_count',
-  'output_key': 'report_sections',
-  'message': 'The report must contain at least two substantive sections.',
-  'min_count': 2},
- {'id': 'report_file_contains_headings',
+        verifier_templates=[{'id': 'report_file_contains_headings',
   'template': 'artifact_file_contains_sections',
   'output_key': 'report_path',
   'message': 'The report file must contain a title and section headings.',
@@ -407,12 +402,13 @@ def _run_custom_verifier_requirements_warm_start_shared_space(
     )
     if message:
         errors.append(message)
-    return "; ".join(errors) if errors else None
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 # custom_verifier_stage_id: warm_start_shared_space
 # custom_verifier_requirement_id: warm_start_format_contract
 # template_version: 1
 # spec_fingerprint: 818d7bbbe9990a4f4e0d53dd0b71b9088fd2297f7be4259fbb9924f662373337
+# contract_fingerprint: e590e54803d816f2353ebc112f2db1841224a448b300c3e3c3aaf89165528d89
 # implementation_version: 1
 def _custom_verifier_requirement_warm_start_shared_space_warm_start_format_contract(
     *,
@@ -474,7 +470,7 @@ Test intent:
                     errors.append(f"evidence_registry contains duplicate citation identifier {evidence_id}")
                 else:
                     seen_registry_ids.add(evidence_id)
-    return "; ".join(errors) if errors else None
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 def _run_custom_verifier_requirements_launch_expert_subagents(
     *,
@@ -497,12 +493,13 @@ def _run_custom_verifier_requirements_launch_expert_subagents(
     )
     if message:
         errors.append(message)
-    return "; ".join(errors) if errors else None
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 # custom_verifier_stage_id: launch_expert_subagents
 # custom_verifier_requirement_id: expert_results_match_roster
 # template_version: 1
 # spec_fingerprint: f8e07030c6e0d4c3c64bae353a5a8e8c65096f6ccb65a53e0cd34e058d61ff54
+# contract_fingerprint: 9b6de50ca2907361231562bdf3c897e4eb30ba6ffe210ba606e0e27f75f2efa7
 # implementation_version: 7
 def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_roster(
     *,
@@ -757,12 +754,13 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
             cited_ids = summary_ids | artifact_ids
             if not cited_ids.intersection(merged_ids):
                 errors.append(f"expert_results[{index}] must cite at least one merged evidence entry")
-    return "; ".join(errors) if errors else None
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 # custom_verifier_stage_id: launch_expert_subagents
 # custom_verifier_requirement_id: evidence_registry_byte_budget
 # template_version: 1
 # spec_fingerprint: 9cf27f3130fa631319849a8873ba9942252240ac3267b8b4b4fbce828abc0b11
+# contract_fingerprint: 8eef0e5f27018ae9852ece837f3780e28de84c9f3a62be90287fac132b0fd7b2
 # implementation_version: none
 def _custom_verifier_requirement_launch_expert_subagents_evidence_registry_byte_budget(
     *,
@@ -819,12 +817,13 @@ def _run_custom_verifier_requirements_autonomous_roundtable(
     )
     if message:
         errors.append(message)
-    return "; ".join(errors) if errors else None
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 # custom_verifier_stage_id: autonomous_roundtable
 # custom_verifier_requirement_id: roundtable_flags_match_decision
 # template_version: 1
 # spec_fingerprint: c92dd49aca59b92cc1c7fdfbb2671387a5e7f9d5ed4a50745f8cf85dc1f95a6d
+# contract_fingerprint: 8ae905ef06c48e5df1d43825bf87288f39a4cf84cb93f501d17b9e10385cbab1
 # implementation_version: 6
 def _custom_verifier_requirement_autonomous_roundtable_roundtable_flags_match_decision(
     *,
@@ -1188,12 +1187,13 @@ Test intent:
             if not validation_plan:
                 errors.append("partial report requires a non-empty next_round_validation_plan")
 
-    return "; ".join(errors) if errors else None
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 # custom_verifier_stage_id: autonomous_roundtable
 # custom_verifier_requirement_id: merged_evidence_registry_is_preserved
 # template_version: 1
 # spec_fingerprint: bdddaa160dc52d3b77ec1a3cdbf3791a9361612f2692a4088d0d0b666bf5dced
+# contract_fingerprint: a3f2389d90a1d674dc91abcec5fdb2c65472cb72d1b0943f4ae0acbb011ecc51
 # implementation_version: 1
 def _custom_verifier_requirement_autonomous_roundtable_merged_evidence_registry_is_preserved(
     *,
@@ -1244,12 +1244,13 @@ def _run_custom_verifier_requirements_reorganize_knowledge_space(
     )
     if message:
         errors.append(message)
-    return "; ".join(errors) if errors else None
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 # custom_verifier_stage_id: reorganize_knowledge_space
 # custom_verifier_requirement_id: reorganization_budget_is_respected
 # template_version: 1
 # spec_fingerprint: a33b03befbc54107863f33320f4a91a651f60e982958f41977e8564cf5b8a839
+# contract_fingerprint: fc85d5e33c91e53380659f9a8ed2b45760ee1cc22924bd0ee335c4abd262fa55
 # implementation_version: 3
 def _custom_verifier_requirement_reorganize_knowledge_space_reorganization_budget_is_respected(
     *,
@@ -1347,12 +1348,13 @@ def _run_custom_verifier_requirements_synthesize_report(
     )
     if message:
         errors.append(message)
-    return "; ".join(errors) if errors else None
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 # custom_verifier_stage_id: synthesize_report
 # custom_verifier_requirement_id: report_uses_compact_evidence_index
 # template_version: 1
-# spec_fingerprint: 36dac8fe79be21df2779afe2f276edf328c199c772434db525619e4bd315dd37
+# spec_fingerprint: 2e9ca00f884ba18a3cf369b8d89dbaa6a9b6246cf88cdd4d64466732b1b9238a
+# contract_fingerprint: 34b62fc730419e3f57a2fdc90b27f5b65f16db196a309e943bb34177a1a7c966
 # implementation_version: 2
 def _custom_verifier_requirement_synthesize_report_report_uses_compact_evidence_index(
     *,
@@ -1371,7 +1373,7 @@ Implementation surfaces: verifiers.py, workflow-specific regression tests
 Hint pseudocode:
 - Read the repository-relative report_path from structured_output safely under repo_root.
 - When context.output_dir is set, require the report artifact to remain under that canonical repository-relative output directory.
-- Verify that report_sections names at least two substantive rendered Markdown sections and matches the report artifact rather than relying only on the LLM-declared count.
+- Verify that report_sections names at least four substantive rendered Markdown sections and matches the report artifact rather than relying only on the LLM-declared count.
 - Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
 - Strip HTML comments and raw HTML blocks, then identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.
 - Extract bounded ASCII numeric [n] markers from the rendered report body, ignoring inline and fenced or indented Markdown code; reject oversized citation identifiers and unclosed comments or code spans.
@@ -1401,18 +1403,21 @@ Test intent:
         return error
     if report_text is None:
         return "report file could not be loaded"
+    # Report both defects when both are present. Returning the section problem
+    # first used to hide a concrete citation defect behind the section-count
+    # message, so a repair pass was spent rediscovering the real cause.
     section_error = (
         workflows.co_storm_autonomous_research.citation_locators.missing_substantive_report_sections(
             report_text,
             output.get("report_sections"),
         )
     )
-    if section_error is not None:
-        return section_error
-    return workflows.co_storm_autonomous_research.citation_locators.missing_evidence_index(
+    index_error = workflows.co_storm_autonomous_research.citation_locators.missing_evidence_index(
         report_text,
         persisted_state.get("evidence_registry"),
     )
+    errors = [message for message in (section_error, index_error) if message is not None]
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 def _run_custom_verifier_requirements_verify_report(
     *,
@@ -1435,12 +1440,13 @@ def _run_custom_verifier_requirements_verify_report(
     )
     if message:
         errors.append(message)
-    return "; ".join(errors) if errors else None
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 # custom_verifier_stage_id: verify_report
 # custom_verifier_requirement_id: report_citation_integrity
 # template_version: 1
 # spec_fingerprint: 54cc2177df3ad2e34d0d028663636d900a194865d62f9045a4d0a3a7a19cb8f2
+# contract_fingerprint: 673366ffd3f7db9c9de89633e15290c8d69a14a72ee5259b512872b47d5a5851
 # implementation_version: 5
 def _custom_verifier_requirement_verify_report_report_citation_integrity(
     *,
@@ -1459,7 +1465,7 @@ Implementation surfaces: verifiers.py, workflow-specific regression tests
 Hint pseudocode:
 - Read the repository-relative report path safely under repo_root.
 - When context.output_dir is set, require report_path and verified_report_path to remain under that canonical repository-relative output directory.
-- Verify declared report_sections against at least two substantive rendered Markdown sections when the state carries report_sections.
+- Verify declared report_sections against at least four substantive rendered Markdown sections when the state carries report_sections.
 - Extract bounded ASCII numeric markers such as [1] from rendered Markdown and parse bounded numeric identifiers from evidence_registry entries; reject oversized identifiers instead of converting them to integers.
 - Reject unknown markers, missing or empty evidence entries, or a pass verdict with no citation markers.
 - Require verified_report_path to resolve to the same repository-relative regular file as report_path.
@@ -1513,15 +1519,10 @@ Test intent:
         return error
     if report_text is None:
         return "report file could not be loaded"
-    if persisted_state.get("report_sections"):
-        section_error = (
-            workflows.co_storm_autonomous_research.citation_locators.missing_substantive_report_sections(
-                report_text,
-                persisted_state.get("report_sections"),
-            )
-        )
-        if section_error is not None:
-            return section_error
+    # No section check here: the sibling requirement
+    # `report_uses_compact_evidence_index` already reports section defects, and
+    # duplicating it produced a stuttering message ("...found 2; ...found 2;
+    # Evidence index ...") that whole-message dedupe cannot collapse.
 
     registry = workflows.co_storm_autonomous_research.citation_locators.parse_registry_locators(
         persisted_state.get("evidence_registry")
@@ -1672,7 +1673,8 @@ Test intent:
 # custom_verifier_stage_id: verify_report
 # custom_verifier_requirement_id: report_uses_compact_evidence_index
 # template_version: 1
-# spec_fingerprint: 6970e24f8beb855ec9144502be800e8c8988e197f4a1f85b4e8f666f58f238f0
+# spec_fingerprint: 071fd19df066b0dd0a467cd9a25ef2bf7e4c7c12f343860f39714e280017e7ba
+# contract_fingerprint: e5f1a14a581c0e980e5f71a613ae416bf59937c449c3c342c25269beed09c01b
 # implementation_version: 2
 def _custom_verifier_requirement_verify_report_report_uses_compact_evidence_index(
     *,
@@ -1691,7 +1693,7 @@ Implementation surfaces: verifiers.py, workflow-specific regression tests
 Hint pseudocode:
 - Read the same repository-relative report identified by persisted report_path and verified_report_path.
 - When context.output_dir is set, require both report paths to remain under that canonical repository-relative output directory.
-- When report_sections is present, verify it against at least two substantive rendered Markdown sections.
+- When report_sections is present, verify it against at least four substantive rendered Markdown sections.
 - Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
 - Strip HTML comments, raw HTML blocks, fenced or indented code, and inline code when identifying the rendered report body; reject malformed or unclosed hidden regions.
 - Identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.
@@ -1740,19 +1742,32 @@ Test intent:
         return error
     if report_text is None:
         return "report file could not be loaded"
-    if persisted_state.get("report_sections"):
+    # Report both defects together, matching the synthesis-stage gate, so the
+    # section-count message cannot hide a concrete citation defect.
+    errors: list[str] = []
+    # Fail closed: every sibling signal in this requirement does, and skipping
+    # the check let a two-section report pass verification outright.
+    declared_sections = persisted_state.get("report_sections")
+    if not declared_sections:
+        errors.append(
+            "persisted report_sections is required to audit the report's substantive sections"
+        )
+    else:
         section_error = (
             workflows.co_storm_autonomous_research.citation_locators.missing_substantive_report_sections(
                 report_text,
-                persisted_state.get("report_sections"),
+                declared_sections,
             )
         )
         if section_error is not None:
-            return section_error
-    return workflows.co_storm_autonomous_research.citation_locators.missing_evidence_index(
+            errors.append(section_error)
+    index_error = workflows.co_storm_autonomous_research.citation_locators.missing_evidence_index(
         report_text,
         persisted_state.get("evidence_registry"),
     )
+    if index_error is not None:
+        errors.append(index_error)
+    return "; ".join(dict.fromkeys(errors)) if errors else None
 
 def _verify_structured_output_schema(
     *,

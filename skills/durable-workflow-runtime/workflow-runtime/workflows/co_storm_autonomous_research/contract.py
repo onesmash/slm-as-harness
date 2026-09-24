@@ -13,7 +13,8 @@ WORKFLOW_INPUT_CONTRACT = WorkflowInputContract(
  'max_rounds': 'integer?',
  'min_evidence_items': 'integer?',
  'coverage_threshold': 'integer?',
- 'max_reorganizations': 'integer?'},
+ 'max_reorganizations': 'integer?',
+ 'max_report_synthesis_attempts': 'integer?'},
 )
 
 WARM_START_SHARED_SPACE_ROUTE_1 = SkillRoute(
@@ -169,7 +170,7 @@ REORGANIZE_KNOWLEDGE_SPACE = StepContract(
 )
 
 SYNTHESIZE_REPORT_ROUTE_1 = SkillRoute(
-    skill='content-research-writer',
+    skill='report-nex',
     use_when=SkillUseWhen(
         operations=['evidence-grounded report synthesis',
  'section organization',
@@ -183,7 +184,7 @@ SYNTHESIZE_REPORT_ROUTE_1 = SkillRoute(
 
 SYNTHESIZE_REPORT = StepContract(
     done_when=['A report artifact exists.',
- 'The report has a clear outline with at least two substantive sections.',
+ 'The report has a clear outline with at least four substantive sections.',
  'Inline numeric citations refer to the carried-forward evidence registry.',
  'The report has exactly one consolidated Evidence index with one exact locator row for every '
  'citation id used in the report body.',
@@ -207,7 +208,7 @@ SYNTHESIZE_REPORT = StepContract(
 )
 
 VERIFY_REPORT_ROUTE_1 = SkillRoute(
-    skill='content-research-writer',
+    skill='report-nex',
     use_when=SkillUseWhen(
         operations=['report quality audit', 'citation coverage audit', 'unsupported-claim and duplication detection'],
         file_patterns=[],
@@ -243,7 +244,7 @@ VERIFY_REPORT = StepContract(
 )
 
 REPAIR_REPORT_ROUTE_1 = SkillRoute(
-    skill='content-research-writer',
+    skill='report-nex',
     use_when=SkillUseWhen(
         operations=['citation repair planning', 'section coverage repair', 'grounded report repair planning'],
         file_patterns=[],

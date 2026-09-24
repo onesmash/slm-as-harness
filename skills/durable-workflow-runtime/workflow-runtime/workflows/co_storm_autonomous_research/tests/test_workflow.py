@@ -1374,7 +1374,10 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'structured_output': {'outline': 'History and mechanism',
                        'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md',
                        'report_summary': 'A complete grounded report.',
-                       'report_sections': ['History', 'Mechanism'],
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
                        'report_ready_for_verification': True}},
             state={'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
         )
@@ -1390,7 +1393,10 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'structured_output': {'outline': 'History and mechanism',
                        'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md',
                        'report_summary': 'A complete grounded report.',
-                       'report_sections': ['History', 'Mechanism'],
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
                        'report_ready_for_verification': True}},
             state={'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
         )
@@ -1406,7 +1412,10 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'structured_output': {'outline': 'History and mechanism',
                        'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/distant_locator_report.md',
                        'report_summary': 'A complete grounded report.',
-                       'report_sections': ['History', 'Mechanism'],
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
                        'report_ready_for_verification': True}},
             state={'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
         )
@@ -1422,7 +1431,10 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'structured_output': {'outline': 'History and mechanism',
                        'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/body_locator_report.md',
                        'report_summary': 'A complete grounded report.',
-                       'report_sections': ['History', 'Mechanism'],
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
                        'report_ready_for_verification': True}},
             state={'evidence_registry': ['[1] source-a', '[2] source-b', '[3] source-c']},
         )
@@ -1437,7 +1449,10 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
  'structured_output': {'outline': 'History and mechanism',
                        'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/number_only_report.md',
                        'report_summary': 'A complete grounded report.',
-                       'report_sections': ['History', 'Mechanism'],
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
                        'report_ready_for_verification': True}},
             verifier_result={'passed': False, 'message': 'report is missing a valid Evidence index', 'details': {}},
         )
@@ -1791,6 +1806,115 @@ class CoStormAutonomousResearchWorkflowGeneratedTests(unittest.TestCase):
             state={},
         )
         self.assertIs(result['passed'], False)
+
+    def test_report_repair_without_verifier_result_returns_to_synthesis(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state(None),
+            current_step_id='repair_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Report repair actions prepared with no verifier result available.',
+ 'structured_output': {'report_repair_summary': 'Restore the Evidence index row for [2].',
+                       'repair_actions': ['restore missing Evidence index row'],
+                       'repair_ready': True}},
+            verifier_result=None,
+        )
+        self.assertEqual(result.step_id, 'synthesize_report')
+        self.assertEqual(result.branch_kind, 'continue')
+
+    def test_report_synthesis_within_attempt_budget_continues_to_verification(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'attempt_counts': {'synthesize_report': 2}}),
+            current_step_id='synthesize_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Report synthesized within the attempt budget.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
+                       'report_ready_for_verification': True}},
+            verifier_result={'passed': True, 'message': 'report contract passed', 'details': {}},
+        )
+        self.assertEqual(result.step_id, 'verify_report')
+        self.assertEqual(result.branch_kind, 'continue')
+
+    def test_report_synthesis_attempt_budget_exhausted_degrades_to_final_handoff(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'attempt_counts': {'synthesize_report': 3}}),
+            current_step_id='synthesize_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Report synthesized but the attempt budget is exhausted.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
+                       'report_ready_for_verification': True}},
+            verifier_result={'passed': True, 'message': 'report contract passed', 'details': {}},
+        )
+        self.assertEqual(result.step_id, 'finalize_collaborative_report')
+        self.assertEqual(result.branch_kind, 'partial')
+
+    def test_report_synthesis_budget_preempts_a_failing_verifier(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'attempt_counts': {'synthesize_report': 3}}),
+            current_step_id='synthesize_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Report synthesized but its own verifier keeps failing.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
+                       'report_ready_for_verification': True}},
+            verifier_result={'passed': False, 'message': 'report contract failed', 'details': {}},
+        )
+        self.assertEqual(result.step_id, 'finalize_collaborative_report')
+        self.assertEqual(result.branch_kind, 'partial')
+
+    def test_report_synthesis_budget_does_not_preempt_a_blocked_stage(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'attempt_counts': {'synthesize_report': 3}}),
+            current_step_id='synthesize_report',
+            observation={'status': 'blocked',
+ 'summary': 'Report synthesis is blocked on a missing input.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
+                       'report_ready_for_verification': True}},
+            verifier_result={'passed': False, 'message': 'report contract failed', 'details': {}},
+        )
+        self.assertEqual(result.step_id, 'repair_and_resume')
+        self.assertEqual(result.branch_kind, 'repair')
+
+    def test_report_synthesis_budget_bounds_a_stage_that_reports_not_ready(self):
+        result = graphbuilder_runtime.run_transition_preview(
+            state=self._make_state({'attempt_counts': {'synthesize_report': 3}}),
+            current_step_id='synthesize_report',
+            observation={'status': 'succeeded',
+ 'summary': 'Report synthesized but honestly not ready.',
+ 'structured_output': {'outline': 'History and mechanism',
+                       'report_path': 'skills/durable-workflow-runtime/workflow-runtime/workflows/co_storm_autonomous_research/tests/fixtures/complete_report.md',
+                       'report_summary': 'A complete grounded report.',
+                       'report_sections': ['History',
+                                           'Mechanism',
+                                           'Evidence quality',
+                                           'Limitations'],
+                       'report_ready_for_verification': False}},
+            verifier_result={'passed': False, 'message': 'report contract failed', 'details': {}},
+        )
+        self.assertEqual(result.step_id, 'finalize_collaborative_report')
+        self.assertEqual(result.branch_kind, 'partial')
 
 
 if __name__ == "__main__":

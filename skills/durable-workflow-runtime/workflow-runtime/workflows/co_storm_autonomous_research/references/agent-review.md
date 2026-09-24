@@ -167,7 +167,7 @@ the right workflow.
   Hint pseudocode:
     - Read the report_path from structured_output as a repository-relative path under repo_root or as an absolute POSIX path.
     - When context.output_dir is set, require the report artifact to remain under that output directory, which may itself be repository-relative or absolute.
-    - Verify that report_sections names at least two substantive rendered Markdown sections and matches the report artifact rather than relying only on the LLM-declared count.
+    - Verify that report_sections names at least four substantive rendered Markdown sections and matches the report artifact rather than relying only on the LLM-declared count.
     - Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
     - Strip HTML comments and raw HTML blocks, then identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.
     - Extract bounded ASCII numeric [n] markers from the rendered report body, ignoring inline and fenced or indented Markdown code; reject oversized citation identifiers and unclosed comments or code spans.
@@ -219,7 +219,7 @@ the right workflow.
   Hint pseudocode:
     - Read the same report identified by persisted report_path and verified_report_path, as a repository-relative path under repo_root or as an absolute POSIX path.
     - When context.output_dir is set, require both report paths to remain under that output directory, which may itself be repository-relative or absolute.
-    - When report_sections is present, verify it against at least two substantive rendered Markdown sections.
+    - When report_sections is present, verify it against at least four substantive rendered Markdown sections.
     - Parse evidence_registry rows as [n] locator — optional claim; the locator is the text after [n] and before an em-dash separator, else the remainder of the row.
     - Strip HTML comments, raw HTML blocks, fenced or indented code, and inline code when identifying the rendered report body; reject malformed or unclosed hidden regions.
     - Identify the report body as the content before exactly one `## Evidence index` heading, allowing an optional numeric section prefix or the equivalent Chinese `## 证据索引` heading.
@@ -286,6 +286,20 @@ the right workflow.
    separate `Stage Goal:` heading; review the action line and prompt body
    against `prompt_sections.stage_goal` in `spec.json` instead of expecting that
    heading to appear verbatim in `prompts/*.md`.
+5b. For every stage with `skill_routing`, verify the routed skill's declared
+   contract against that stage's prompt boundaries and blocked conditions:
+   - its operation level (`op_level` / `modifies_files`): the stage must
+     explicitly sanction any write the skill forbids, or the routed agent can
+     self-classify as read-only and return a chat-only answer;
+   - its interaction gates (confirmation prompts, mode-selection questions):
+     an autonomous stage must override them, or the run stalls mid-step;
+   - its mode vocabulary: pin a mode the skill actually declares, rather than a
+     mode name the workflow invented;
+   - its required inputs: map the workflow's own artifacts onto them, and say
+     what to do when an input the skill expects does not exist here.
+   Read the installed skill's `SKILL.md` (and the reference file it cites) to
+   confirm each of these; a boundary that names a non-existent mode, or that
+   promises a write the skill forbids, is a defect in `spec.json`.
 6. Verify output semantics in the spec: boolean fields must be booleans,
    enum-like fields should have `verifier_rules`, path fields should use
    `path_exists` when existence matters, common DSL-expressible invariants

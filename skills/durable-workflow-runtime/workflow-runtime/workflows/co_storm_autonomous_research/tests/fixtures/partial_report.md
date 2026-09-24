@@ -18,6 +18,14 @@ mechanism — Find two independent causal sources.
 
 The currently available mechanism discussion is grounded only in preliminary evidence [2].
 
+## Evidence quality
+
+The available sources agree on the main outline [1][2].
+
+## Limitations
+
+Coverage remains bounded by the sources cited above [1][2].
+
 ## Evidence index
 
 - [1] source-a
