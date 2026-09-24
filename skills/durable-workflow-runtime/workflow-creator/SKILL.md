@@ -1,9 +1,10 @@
 ---
-name: durable-workflow-runtime:workflow-creator
+name: workflow-creator
 description: |
-  Load when the user asks for `durable-workflow-runtime:workflow-creator`,
-  creating a new durable workflow, designing concrete workflow stages, generating
-  workflow contracts/prompts/policy/verifiers, or adding a business workflow to
+  Load when the user asks for `workflow-creator`,
+  `durable-workflow-runtime:workflow-creator`, creating a new durable workflow,
+  designing concrete workflow stages, generating workflow
+  contracts/prompts/policy/verifiers, or adding a business workflow to
   `workflow-binding.json`. Skip normal start/resume execution.
 ---
 

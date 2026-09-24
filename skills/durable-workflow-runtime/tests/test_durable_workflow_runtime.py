@@ -309,6 +309,19 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         )
         return shortcut_dir
 
+    def _write_test_companion_skill(self, runtime_root: Path) -> Path:
+        companion_dir = runtime_root / "workflow-creator"
+        (companion_dir / "references").mkdir(parents=True, exist_ok=True)
+        (companion_dir / "SKILL.md").write_text(
+            "---\nname: workflow-creator\ndescription: test companion\n---\n",
+            encoding="utf-8",
+        )
+        (companion_dir / "references" / "workflow-creator-cli-spec.md").write_text(
+            "# Test companion reference\n",
+            encoding="utf-8",
+        )
+        return companion_dir
+
     def _write_test_creator_runtime(self, runtime_root: Path) -> None:
         workflows_root = runtime_root / "workflow-runtime" / "workflows"
         templates_root = runtime_root / "workflow-runtime" / "templates"
@@ -878,6 +891,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
         self.assertIn("~/.claude/skills", setup_skill)
         self.assertIn("~/.agents/skills/<workflow_id>", setup_spec)
         self.assertIn("~/.claude/skills/<workflow_id>", setup_spec)
+        self.assertIn("workflow-creator", setup_skill)
+        self.assertIn("~/.agents/skills/workflow-creator", setup_spec)
+        self.assertIn("~/.claude/skills/workflow-creator", setup_spec)
+        self.assertIn("companion_skills", setup_spec)
         self.assertIn("<setup-skill-root>", setup_spec)
         self.assertIn("/durable-workflow-runtime setup", skill_md)
         self.assertIn("setup/scripts/setup.py", skill_md)
@@ -892,7 +909,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             WORKFLOW_CREATOR_SKILL_ROOT / "references" / "workflow-creator-cli-spec.md"
         ).read_text(encoding="utf-8")
 
-        self.assertIn("name: durable-workflow-runtime:workflow-creator", creator_skill)
+        # The frontmatter name has to stay a loadable kebab-case skill name so the
+        # global `workflow-creator` symlink exposes a usable skill.
+        self.assertIn("name: workflow-creator", creator_skill)
+        self.assertIn("durable-workflow-runtime:workflow-creator", creator_skill)
         self.assertIn("scripts/create_workflow.py", creator_skill)
         self.assertIn("workflow-authoring-guide.md", creator_skill)
         self.assertIn("durable-workflow-runtime:workflow-creator", creator_spec)
@@ -3085,6 +3105,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self._write_test_runtime_binding(runtime_root)
             demo_dir = self._write_test_shortcut_skill(runtime_root, "demo-prompt-loop")
             pdf_dir = self._write_test_shortcut_skill(runtime_root, "pdf-processing")
+            creator_dir = self._write_test_companion_skill(runtime_root)
             hidden_dir = runtime_root / "workflow-shortcuts" / ".hidden-shortcut"
             hidden_dir.mkdir()
             (hidden_dir / "SKILL.md").write_text("hidden\n", encoding="utf-8")
@@ -3116,6 +3137,10 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(payload["pruned"], [])
             linked_ids = {item["workflow_id"] for item in payload["links"]}
             self.assertEqual(linked_ids, {"demo-prompt-loop", "pdf-processing"})
+            self.assertEqual(
+                [item["skill_name"] for item in payload["companion_skills"]],
+                ["workflow-creator"],
+            )
 
             for shortcut_dir in (demo_dir, pdf_dir):
                 agents_link = agents_root / shortcut_dir.name
@@ -3125,9 +3150,52 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 self.assertEqual(agents_link.resolve(), shortcut_dir.resolve())
                 self.assertEqual(claude_link.resolve(), shortcut_dir.resolve())
 
+            companion = payload["companion_skills"][0]
+            companion_actions = {
+                Path(target["path"]).parents[1].name: target["action"]
+                for target in companion["targets"]
+            }
+            self.assertEqual(companion["source"], str(creator_dir.resolve()))
+            self.assertEqual(companion_actions, {".agents": "created", ".claude": "created"})
+            for skill_root in (agents_root, claude_root):
+                companion_link = skill_root / "workflow-creator"
+                self.assertTrue(companion_link.is_symlink())
+                self.assertEqual(companion_link.resolve(), creator_dir.resolve())
+                # The companion is linked as a real skill directory, so its
+                # authoring references stay reachable through the link.
+                self.assertTrue(
+                    (companion_link / "references" / "workflow-creator-cli-spec.md").is_file()
+                )
+
             self.assertFalse((agents_root / ".hidden-shortcut").exists())
             self.assertFalse((agents_root / "not-a-skill").exists())
             self.assertFalse((agents_root / "README.md").exists())
+
+    def test_setup_cli_requires_companion_skill_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            runtime_root = tmpdir_path / "durable-workflow-runtime"
+            agents_root = tmpdir_path / "home" / ".agents" / "skills"
+            self._write_test_runtime_binding(runtime_root)
+            self._write_test_shortcut_skill(runtime_root, "demo-prompt-loop")
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    str(SETUP_PATH),
+                    "--runtime-skill-root",
+                    str(runtime_root),
+                    "--skill-root",
+                    str(agents_root),
+                ],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+            )
+
+            self.assertEqual(result.returncode, 1)
+            self.assertIn("missing companion skill directory", result.stderr)
+            self.assertFalse((agents_root / "demo-prompt-loop").is_symlink())
 
     def test_setup_cli_is_idempotent_and_replaces_wrong_symlink(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -3137,12 +3205,14 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             claude_root = tmpdir_path / "home" / ".claude" / "skills"
             self._write_test_runtime_binding(runtime_root)
             demo_dir = self._write_test_shortcut_skill(runtime_root, "demo-prompt-loop")
+            creator_dir = self._write_test_companion_skill(runtime_root)
             other_dir = tmpdir_path / "other-skill"
             other_dir.mkdir()
             agents_root.mkdir(parents=True)
             claude_root.mkdir(parents=True)
             (agents_root / "demo-prompt-loop").symlink_to(demo_dir, target_is_directory=True)
             (claude_root / "demo-prompt-loop").symlink_to(other_dir, target_is_directory=True)
+            (claude_root / "workflow-creator").symlink_to(other_dir, target_is_directory=True)
 
             result = subprocess.run(
                 [
@@ -3170,6 +3240,14 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertEqual(actions[".claude"], "replaced")
             self.assertEqual((claude_root / "demo-prompt-loop").resolve(), demo_dir.resolve())
 
+            companion_actions = {
+                Path(target["path"]).parents[1].name: target["action"]
+                for target in payload["companion_skills"][0]["targets"]
+            }
+            self.assertEqual(companion_actions, {".agents": "created", ".claude": "replaced"})
+            self.assertEqual((agents_root / "workflow-creator").resolve(), creator_dir.resolve())
+            self.assertEqual((claude_root / "workflow-creator").resolve(), creator_dir.resolve())
+
     def test_setup_cli_refuses_non_symlink_collision(self) -> None:
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir_path = Path(tmpdir)
@@ -3177,6 +3255,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             agents_root = tmpdir_path / "home" / ".agents" / "skills"
             self._write_test_runtime_binding(runtime_root)
             self._write_test_shortcut_skill(runtime_root, "demo-prompt-loop")
+            self._write_test_companion_skill(runtime_root)
             collision = agents_root / "demo-prompt-loop"
             collision.mkdir(parents=True)
             (collision / "SKILL.md").write_text("real skill\n", encoding="utf-8")
@@ -3208,6 +3287,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             claude_root = tmpdir_path / "home" / ".claude" / "skills"
             self._write_test_runtime_binding(runtime_root)
             demo_dir = self._write_test_shortcut_skill(runtime_root, "demo-prompt-loop")
+            creator_dir = self._write_test_companion_skill(runtime_root)
             stale_dir = runtime_root / "workflow-shortcuts" / "old-demo"
             stale_dir.mkdir(parents=True)
             (stale_dir / "SKILL.md").write_text("old\n", encoding="utf-8")
@@ -3222,6 +3302,11 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             unrelated_target = tmpdir_path / "unrelated"
             unrelated_target.mkdir()
             unrelated.symlink_to(unrelated_target, target_is_directory=True)
+            # A link to the runtime bundle itself is not owned by this install
+            # surface, so setup must leave it alone even though it points inside
+            # the runtime directory.
+            bundle_link = agents_root / "durable-workflow-runtime"
+            bundle_link.symlink_to(runtime_root, target_is_directory=True)
             shutil.rmtree(stale_dir)
 
             result = subprocess.run(
@@ -3252,7 +3337,15 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertFalse((claude_root / "old-demo").exists())
             self.assertFalse((claude_root / "old-demo").is_symlink())
             self.assertTrue(unrelated.is_symlink())
+            self.assertTrue(bundle_link.is_symlink())
+            self.assertEqual(bundle_link.resolve(strict=False), runtime_root.resolve(strict=False))
             self.assertEqual((agents_root / "demo-prompt-loop").resolve(), demo_dir.resolve())
+            self.assertEqual(
+                (agents_root / "workflow-creator").resolve(), creator_dir.resolve()
+            )
+            self.assertEqual(
+                (claude_root / "workflow-creator").resolve(), creator_dir.resolve()
+            )
 
     def test_workflow_creator_rolls_back_binding_when_shortcut_write_fails(self) -> None:
         from unittest.mock import patch

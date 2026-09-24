@@ -35,10 +35,10 @@ re-evaluating applicability inside the conversation.
 These tokens are wrapper commands, not `workflow_id` values:
 
 - `setup`
-  Install slash-only skills from `workflow-shortcuts/` into
-  `~/.agents/skills` and `~/.claude/skills`. Follow `setup/SKILL.md` and run
-  `setup/scripts/setup.py`. Do not start a workflow afterward unless the user
-  separately asks to run one.
+  Install slash-only skills from `workflow-shortcuts/` and the
+  `workflow-creator` companion into `~/.agents/skills` and `~/.claude/skills`.
+  Follow `setup/SKILL.md` and run `setup/scripts/setup.py`. Do not start a
+  workflow afterward unless the user separately asks to run one.
 
 ## Primary contract
 
@@ -681,6 +681,8 @@ Authoring/debugging warning:
   `references/observation-format.md`,
   `references/skill-host-python-spec.md`
 - Internal authoring/debugging only:
+  `workflow-creator/SKILL.md` (also installed globally as the
+  `workflow-creator` skill by `setup/scripts/setup.py`),
   `references/workflow-authoring-guide.md`,
   `references/workflow-input-contract-spec.md`,
   `references/step-contract-spec.md`,

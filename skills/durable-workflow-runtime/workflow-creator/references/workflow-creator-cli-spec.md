@@ -3,7 +3,9 @@
 Read this file when invoking or maintaining:
 
 - `<workflow-creator-skill-root>/scripts/create_workflow.py`
-- the `durable-workflow-runtime:workflow-creator` authoring surface
+- the `durable-workflow-runtime:workflow-creator` authoring surface, which
+  `durable-workflow-runtime setup` also installs into `~/.agents/skills` and
+  `~/.claude/skills` as the top-level `workflow-creator` skill
 
 Unless explicitly marked as a repo-local example, paths in this file are
 relative to `<workflow-creator-skill-root>/`.

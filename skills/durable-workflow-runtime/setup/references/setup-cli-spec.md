@@ -10,12 +10,14 @@ relative to `<setup-skill-root>/`.
 
 ## Purpose
 
-`setup.py` installs slash-only workflow shortcut skills into the current user's
-global skill directories.
+`setup.py` installs slash-only workflow shortcut skills and the
+`workflow-creator` companion skill into the current user's global skill
+directories.
 
 This is an install surface, not a workflow execution surface:
 
-- it reads `durable-workflow-runtime/workflow-shortcuts/`
+- it reads `durable-workflow-runtime/workflow-shortcuts/` and
+  `durable-workflow-runtime/workflow-creator/`
 - it creates or repairs symlinks in `~/.agents/skills` and `~/.claude/skills`
 - it does not run dependency preflight
 - it does not allocate host I/O paths
@@ -61,19 +63,28 @@ durable-workflow-runtime/
 ```text
 ~/.agents/skills/<workflow_id> -> <runtime-skill-root>/workflow-shortcuts/<workflow_id>
 ~/.claude/skills/<workflow_id> -> <runtime-skill-root>/workflow-shortcuts/<workflow_id>
+~/.agents/skills/workflow-creator -> <runtime-skill-root>/workflow-creator
+~/.claude/skills/workflow-creator -> <runtime-skill-root>/workflow-creator
 ```
 
 Only child directories of `workflow-shortcuts/` that contain `SKILL.md` are
 installed. Hidden names are ignored.
 
+The `workflow-creator` companion is installed as a symlink to its real skill
+directory rather than to a generated stub, so the authoring `references/` and
+`scripts/create_workflow.py` resolve from either global skill root. Its
+frontmatter `name` is the loadable kebab-case `workflow-creator`; the bundle
+still addresses it internally as `durable-workflow-runtime:workflow-creator`.
+
 Link rules:
 
 - missing destination: create a directory symlink
-- existing symlink that already resolves to the same shortcut: leave unchanged
+- existing symlink that already resolves to the same shortcut or companion:
+  leave unchanged
 - existing symlink that points elsewhere: replace it
 - existing non-symlink file or directory: fail instead of overwriting
-- stale symlink in a target skill root that still points into this runtime's
-  `workflow-shortcuts/` but no longer has a matching shortcut: remove it
+- stale symlink in a target skill root that still points into this runtime
+  bundle but no longer has a matching shortcut or companion skill: remove it
 
 ## Success Output
 
@@ -91,11 +102,29 @@ On success, `setup.py` prints a JSON object:
   ],
   "links": [
     {
+      "kind": "workflow_shortcut",
       "workflow_id": "demo-prompt-loop",
       "source": "/abs/path/workflow-shortcuts/demo-prompt-loop",
       "targets": [
         {
           "path": "/Users/name/.agents/skills/demo-prompt-loop",
+          "action": "created | unchanged | replaced"
+        }
+      ]
+    }
+  ],
+  "companion_skills": [
+    {
+      "kind": "companion_skill",
+      "skill_name": "workflow-creator",
+      "source": "/abs/path/durable-workflow-runtime/workflow-creator",
+      "targets": [
+        {
+          "path": "/Users/name/.agents/skills/workflow-creator",
+          "action": "created | unchanged | replaced"
+        },
+        {
+          "path": "/Users/name/.claude/skills/workflow-creator",
           "action": "created | unchanged | replaced"
         }
       ]

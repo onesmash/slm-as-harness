@@ -12,6 +12,14 @@ DEFAULT_GLOBAL_SKILL_ROOTS = (
     Path.home() / ".agents" / "skills",
     Path.home() / ".claude" / "skills",
 )
+# Companion subskills that must also be reachable as top-level global skills.
+# Each entry maps the installed skill name to its directory inside the runtime
+# bundle. The installed name has to be a valid kebab-case skill name, because
+# hosts reject a skill whose frontmatter `name` is not loadable; the bundle
+# still addresses the companion by its namespaced route internally.
+COMPANION_SKILL_DIRS = {
+    "workflow-creator": "workflow-creator",
+}
 
 
 def ensure_workflow_shortcut_skill(
@@ -133,10 +141,14 @@ def install_global_workflow_shortcut_skills(
     runtime_skill_root: str | Path,
     skill_roots: list[str | Path] | None = None,
 ) -> dict[str, Any]:
+    """Publish shortcut skills and companion skills into the global skill roots."""
+
     runtime_root = Path(runtime_skill_root).expanduser().resolve()
     shortcuts_root = runtime_root / SHORTCUTS_DIRNAME
     shortcuts = list_workflow_shortcut_skills(runtime_root)
     shortcut_ids = {path.name for path in shortcuts}
+    companions = list_companion_skills(runtime_root)
+    companion_ids = {skill.name for skill, _ in companions}
     resolved_skill_roots = _resolve_skill_roots(skill_roots)
 
     links: list[dict[str, Any]] = []
@@ -148,7 +160,24 @@ def install_global_workflow_shortcut_skills(
             targets.append({"path": str(link_path), "action": action})
         links.append(
             {
+                "kind": "workflow_shortcut",
                 "workflow_id": source_dir.name,
+                "source": str(source_dir),
+                "targets": targets,
+            }
+        )
+
+    companion_links: list[dict[str, Any]] = []
+    for source_dir, skill_name in companions:
+        targets = []
+        for skill_root in resolved_skill_roots:
+            link_path = skill_root / skill_name
+            action = _ensure_shortcut_symlink(source_dir=source_dir, link_path=link_path)
+            targets.append({"path": str(link_path), "action": action})
+        companion_links.append(
+            {
+                "kind": "companion_skill",
+                "skill_name": skill_name,
                 "source": str(source_dir),
                 "targets": targets,
             }
@@ -156,8 +185,8 @@ def install_global_workflow_shortcut_skills(
 
     pruned = _prune_stale_shortcut_links(
         skill_roots=resolved_skill_roots,
-        shortcuts_root=shortcuts_root,
-        current_shortcut_ids=shortcut_ids,
+        owned_roots=[shortcuts_root, *[source for source, _ in companions]],
+        current_install_names=shortcut_ids | companion_ids,
     )
 
     return {
@@ -167,8 +196,22 @@ def install_global_workflow_shortcut_skills(
         "shortcut_count": len(shortcuts),
         "skill_roots": [str(path) for path in resolved_skill_roots],
         "links": links,
+        "companion_skills": companion_links,
         "pruned": pruned,
     }
+
+
+def list_companion_skills(runtime_skill_root: str | Path) -> list[tuple[Path, str]]:
+    runtime_root = Path(runtime_skill_root).expanduser().resolve()
+    companions: list[tuple[Path, str]] = []
+    for skill_name, relative_dir in COMPANION_SKILL_DIRS.items():
+        source_dir = runtime_root / relative_dir
+        if not source_dir.is_dir():
+            raise FileNotFoundError(f"missing companion skill directory: {source_dir}")
+        if not (source_dir / "SKILL.md").is_file():
+            raise FileNotFoundError(f"companion skill is missing SKILL.md: {source_dir}")
+        companions.append((source_dir, skill_name))
+    return companions
 
 
 def workflow_shortcut_skill_name(workflow_id: str) -> str:
@@ -227,20 +270,30 @@ def _ensure_shortcut_symlink(*, source_dir: Path, link_path: Path) -> str:
 def _prune_stale_shortcut_links(
     *,
     skill_roots: list[Path],
-    shortcuts_root: Path,
-    current_shortcut_ids: set[str],
+    owned_roots: list[Path],
+    current_install_names: set[str],
 ) -> list[dict[str, str]]:
-    shortcuts_root = shortcuts_root.expanduser().resolve()
+    """Remove symlinks this install surface owns but can no longer resolve.
+
+    A link is pruned only when it lives in an install root we publish into *and*
+    still points inside one of our own install sources (`workflow-shortcuts/` or
+    a published companion skill directory). Restricting the match to those
+    sources keeps unrelated links that merely point somewhere else in the
+    runtime bundle, such as the bundle's own `durable-workflow-runtime` link,
+    out of the cleanup.
+    """
+
+    owned = [root.expanduser().resolve() for root in owned_roots]
     stale_links: list[Path] = []
     for skill_root in skill_roots:
         if not skill_root.exists():
             continue
         for child in sorted(skill_root.iterdir()):
-            if child.name.startswith(".") or child.name in current_shortcut_ids:
+            if child.name.startswith(".") or child.name in current_install_names:
                 continue
             if not child.is_symlink():
                 continue
-            if not _symlink_points_into(child, shortcuts_root):
+            if not any(_symlink_points_into(child, root) for root in owned):
                 continue
             stale_links.append(child)
 
