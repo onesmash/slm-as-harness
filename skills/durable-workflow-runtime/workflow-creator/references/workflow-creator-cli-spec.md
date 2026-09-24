@@ -379,17 +379,25 @@ Generated observability contract:
 
 For each business stage, generated `policy.py` evaluates routing in this order:
 
-1. `stages[].outcome_routes` route declared `blocked`, `partial`, `failed`, or
+1. `stages[].cycle_limit` — only when
+   `cycle_limit.check_before_failure_routes` is true. A preempting budget is a
+   hard bound: it fires on the attempt count alone, whatever the stage reported.
+   `blocked` observations are exempt and fall through, so a missing external
+   input can still be named.
+2. `stages[].outcome_routes` route declared `blocked`, `partial`, `failed`, or
    `verifier_failed` outcomes to business-specific recovery nodes.
-2. Common runtime outcomes not matched above route to the shared repair path
+3. Common runtime outcomes not matched above route to the shared repair path
    first; `repair_and_resume` may then escalate to shared unblock only after
    three blocked self-repair attempts when external input is truly required.
-3. `stages[].repair_conditions` route a successful observation into repair when
+4. `stages[].cycle_limit` — the default position, after the failure routes. It
+   fires only when the stage's `output_key` is true, so it bounds runs whose
+   stage verifier passes but not retries driven by a failing verifier.
+5. `stages[].repair_conditions` route a successful observation into repair when
    the output is structurally present but not acceptable for continued business
    progress.
-4. `stages[].transitions` route a successful observation to another normal
+6. `stages[].transitions` route a successful observation to another normal
    workflow node or the final node.
-5. If no condition matches, the workflow follows the default linear happy path
+7. If no condition matches, the workflow follows the default linear happy path
    across `stage_kind: "main"` stages only. `stage_kind: "recovery"` stages
    return to `recovery_return_node` on success. Shared recovery helpers
    (`request_unblocking_input` and `repair_and_resume`) require

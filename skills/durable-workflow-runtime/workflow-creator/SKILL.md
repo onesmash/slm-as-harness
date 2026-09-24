@@ -203,6 +203,36 @@ regeneration.
 - If a custom verifier needs standard-library modules, declare their dotted
   module names in `python_imports`; the generator emits those imports before
   preserving the requirement-scoped implementation.
+- A hand-written implementation is preserved across regeneration as long as its
+  verifier *contract* is unchanged (`signals`, `python_imports`, and the stage
+  `output_schema`). Rewording `description`, `implementation_notes`,
+  `hint_pseudocode`, `test_intent`, or `implementation_surface` keeps the body
+  and reports it as a warning. Changing the contract replaces the body with an
+  empty scaffold and says so loudly — re-implement it before shipping.
+- When a workflow has hardened one of the generator's built-in `verifiers.py`
+  helpers, list it in the spec field `preserve_verifier_helpers` (for example
+  `["_safe_repo_path"]`). Regeneration then keeps the workflow's body instead of
+  restoring the template body, and warns that it did. A preserved body must be
+  self-contained or reference its shared module by fully qualified name, because
+  the generator adds no imports for it. Naming a helper the generator does not
+  emit is an error rather than a silent no-op.
+- Routing fields that validate but render nothing are rejected: a declared
+  `cycle_limit.constraint_key` must exist in `runtime_defaults`, a
+  `cycle_limit` may only sit on a `main` stage, and every declared
+  `missing_verifier_route` must reach the generated policy.
+- By default a `cycle_limit` guard is emitted after blocked/partial/failed
+  routing and fires only when the stage's `output_key` is true, so it bounds
+  runs whose stage verifier passes. Set
+  `cycle_limit.check_before_failure_routes: true` when the budget must be a hard
+  bound: the guard then runs before the failure routes and fires on the attempt
+  count alone, whatever the stage reported. Below the limit it is inert, so it
+  can never preempt an attempt that still has budget remaining (a user-supplied
+  limit of 1 makes the first attempt the last one). `blocked` is always exempt:
+  that status means an external input is missing, so it still escalates through
+  the shared repair path, where the repair attempt cap bounds it — or `max_steps`
+  when repair itself keeps succeeding while the stage keeps blocking. A
+  preempting guard also stamps `degraded: true` and
+  `terminal_reason: cycle_budget_exhausted`, which the deferred form does not.
 - Complete the generated `references/agent-review.md` review pass with review
   subagents before calling the workflow complete. That review should start from
   `spec.json`: verify the workflow boundary, stages, prompts, outputs, state

@@ -4302,12 +4302,16 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             )
             verifier_path.write_text(edited_text, encoding="utf-8")
 
+            # Only the verifier CONTRACT changes here. Rewording `description`
+            # alone must not discard a hand-written body, so the change that
+            # invalidates has to touch signals/python_imports/output_schema.
             changed_spec = self._custom_verifier_workflow_spec(
                 workflow_id="changed_verifier_flow",
                 requirements=[
                     {
                         "id": "design_doc_matches_contract",
                         "description": "Require a non-empty design doc path and matching readiness summary.",
+                        "signals": ["design_doc_path", "design_ready", "readiness_summary"],
                     }
                 ],
             )
@@ -4322,6 +4326,101 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
             self.assertIn(
                 "TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.",
                 regenerated_text,
+            )
+            payload = json.loads(second_result.stdout)
+            self.assertTrue(
+                any(
+                    "REPLACED the hand-written implementation" in warning
+                    for warning in payload["warnings"]
+                ),
+                payload["warnings"],
+            )
+
+    def test_workflow_creator_keeps_custom_verifier_body_when_only_prose_changes(self) -> None:
+        """Rewording a requirement must never silently discard its implementation.
+
+        The fingerprint used to cover authoring prose, so editing a hint
+        replaced the hand-written body with an empty scaffold and lost real
+        work without a single warning.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            runtime_root = Path(tmpdir) / "durable-workflow-runtime"
+            self._write_test_creator_runtime(runtime_root)
+            create_result = self._create_creator_workflow_scaffold(
+                runtime_root,
+                workflow_id="prose_verifier_flow",
+                flow_description="Exercise preservation across prose edits.",
+            )
+            self.assertEqual(create_result.returncode, 0, msg=create_result.stderr)
+
+            base_spec = self._custom_verifier_workflow_spec(
+                workflow_id="prose_verifier_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Require a design doc path whenever the design is marked ready.",
+                        "signals": ["design_doc_path", "design_ready"],
+                    }
+                ],
+            )
+            first_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="prose_verifier_flow",
+                spec_payload=base_spec,
+            )
+            self.assertEqual(first_result.returncode, 0, msg=first_result.stderr)
+
+            verifier_path = (
+                runtime_root
+                / "workflow-runtime"
+                / "workflows"
+                / "prose_verifier_flow"
+                / "verifiers.py"
+            )
+            verifier_path.write_text(
+                verifier_path.read_text(encoding="utf-8").replace(
+                    "    _ = output, state, repo_root\n"
+                    "    # TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.\n",
+                    "    _ = output, state, repo_root\n"
+                    "    return \"hand-written body that prose edits must not discard\"\n",
+                    1,
+                ),
+                encoding="utf-8",
+            )
+
+            reworded_spec = self._custom_verifier_workflow_spec(
+                workflow_id="prose_verifier_flow",
+                requirements=[
+                    {
+                        "id": "design_doc_matches_contract",
+                        "description": "Reworded: require a design doc path and a readiness summary.",
+                        "signals": ["design_doc_path", "design_ready"],
+                        "hint_pseudocode": ["reworded hint that must not invalidate the body"],
+                    }
+                ],
+            )
+            second_result = self._regenerate_creator_workflow_from_spec(
+                runtime_root,
+                workflow_id="prose_verifier_flow",
+                spec_payload=reworded_spec,
+            )
+            self.assertEqual(second_result.returncode, 0, msg=second_result.stderr)
+            preserved_text = verifier_path.read_text(encoding="utf-8")
+            self.assertIn(
+                "hand-written body that prose edits must not discard",
+                preserved_text,
+            )
+            self.assertNotIn(
+                "TODO(custom_verifier_requirement): Implement `design_doc_matches_contract`.",
+                preserved_text,
+            )
+            payload = json.loads(second_result.stdout)
+            self.assertTrue(
+                any(
+                    "only its specification prose changed" in warning
+                    for warning in payload["warnings"]
+                ),
+                payload["warnings"],
             )
 
     def test_workflow_creator_regenerates_custom_verifier_body_when_implementation_version_changes(self) -> None:
@@ -4578,6 +4677,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 if not line.startswith("# custom_verifier_")
                 and not line.startswith("# template_version:")
                 and not line.startswith("# spec_fingerprint:")
+                and not line.startswith("# contract_fingerprint:")
                 and not line.startswith("# implementation_version:")
             ]
             legacy_text = "\n".join(legacy_lines) + "\n"
@@ -4650,6 +4750,7 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
                 if not line.startswith("# custom_verifier_")
                 and not line.startswith("# template_version:")
                 and not line.startswith("# spec_fingerprint:")
+                and not line.startswith("# contract_fingerprint:")
                 and not line.startswith("# implementation_version:")
             ]
             verifier_path.write_text("\n".join(legacy_lines) + "\n", encoding="utf-8")
@@ -5228,6 +5329,343 @@ class DurableWorkflowRuntimeTests(unittest.TestCase):
 
         self.assertFalse(result["passed"])
         self.assertNotEqual(result["details"]["returncode"], 0)
+
+
+class GeneratedWorkflowReadmeTests(unittest.TestCase):
+    """The generated workflow README must describe the real workflow.
+
+    It used to be the skeleton's README copied verbatim, so every generated
+    workflow shipped text telling the reader to rename the directory and naming
+    placeholder nodes (`run_primary_stage`, `finalize_summary`) that do not
+    exist in the generated graph.
+    """
+
+    def _generator_module(self):
+        module_path = SKILL_ROOT / "workflow-creator" / "scripts" / "create_workflow.py"
+        spec = importlib.util.spec_from_file_location("_cw_readme_review", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def _minimal_spec(self, **overrides):
+        spec = {
+            "workflow_id": "readme-probe",
+            "flow_description": "Probe workflow used to pin README rendering.",
+            "stages": [
+                {
+                    "step_id": "do_work",
+                    "stage_kind": "main",
+                    "skill_routing": [{"skill": "code-nex"}, {"skill": "code-nex"}],
+                }
+            ],
+            "final_step_id": "finalize_summary",
+            "dependencies": [
+                {
+                    "id": "code-nex",
+                    "type": "skill",
+                    "required": True,
+                    "purpose": "Own the implementation work.",
+                }
+            ],
+            "runtime_defaults": {"max_steps": 12},
+            "state_mode": "generated",
+            "regression_tests": [],
+        }
+        spec.update(overrides)
+        return spec
+
+    def test_readme_describes_the_real_workflow(self):
+        rendered = self._generator_module()._render_workflow_readme_md(self._minimal_spec())
+        self.assertTrue(rendered.startswith("# readme-probe\n"), rendered[:60])
+        self.assertNotIn("Workflow Skeleton", rendered)
+        self.assertNotIn("run_primary_stage", rendered)
+        self.assertNotIn("your_workflow_id", rendered)
+        self.assertIn("- `do_work` (main) - routes to `code-nex`", rendered)
+        self.assertIn("- `finalize_summary` (final)", rendered)
+
+    def test_readme_does_not_duplicate_a_repeated_route(self):
+        rendered = self._generator_module()._render_workflow_readme_md(self._minimal_spec())
+        self.assertNotIn("`code-nex`, `code-nex`", rendered)
+
+    def test_readme_only_lists_tests_when_regression_tests_exist(self):
+        module = self._generator_module()
+        without = module._render_workflow_readme_md(self._minimal_spec())
+        self.assertNotIn("`tests/`", without)
+        with_tests = module._render_workflow_readme_md(
+            self._minimal_spec(regression_tests=[{"name": "x", "type": "transition"}])
+        )
+        self.assertIn("`tests/`", with_tests)
+
+    def test_readme_handles_the_blank_scaffold(self):
+        rendered = self._generator_module()._render_workflow_readme_md(
+            self._minimal_spec(stages=[], dependencies=[], runtime_defaults={})
+        )
+        self.assertNotIn("\n\n\n", rendered)
+        self.assertIn("No business stages were supplied yet", rendered)
+        self.assertIn("skeleton", rendered)
+
+    def test_readme_collapses_multiline_free_text(self):
+        rendered = self._generator_module()._render_workflow_readme_md(
+            self._minimal_spec(
+                flow_description="# Not a second H1\n\n- injected bullet",
+                dependencies=[
+                    {
+                        "id": "code-nex",
+                        "type": "skill",
+                        "required": True,
+                        "purpose": "line one\n- injected",
+                    }
+                ],
+            )
+        )
+        self.assertEqual(rendered.count("\n# "), 0)
+        self.assertNotIn("\n- injected", rendered)
+
+    def test_regenerated_workflow_readme_is_not_skeleton_boilerplate(self):
+        """co_storm has been regenerated; pin that its README is real.
+
+        `ios_ai_assisted_development_flow` and `performance_optimization_cycle`
+        still ship the skeleton README on purpose: refreshing them means a full
+        reviewed regeneration, because their checked-in generated surfaces have
+        drifted from the current generator.
+        """
+        readme = (
+            SKILL_ROOT
+            / "workflow-runtime"
+            / "workflows"
+            / "co_storm_autonomous_research"
+            / "README.md"
+        )
+        text = readme.read_text(encoding="utf-8")
+        self.assertNotIn("Workflow Skeleton", text)
+        self.assertNotIn("run_primary_stage", text)
+        self.assertTrue(text.startswith("# co-storm-autonomous-research\n"))
+
+    def test_stale_skeleton_readmes_are_a_known_deferred_set(self):
+        workflows_root = SKILL_ROOT / "workflow-runtime" / "workflows"
+        stale = {
+            readme.parent.name
+            for readme in workflows_root.glob("*/README.md")
+            if "Workflow Skeleton" in readme.read_text(encoding="utf-8")
+        }
+        self.assertEqual(
+            stale,
+            {"ios_ai_assisted_development_flow", "performance_optimization_cycle"},
+            "an unexpected workflow ships the skeleton README; regenerate it or "
+            "update this known-deferred set deliberately",
+        )
+
+
+class WorkflowCreatorHardeningGuardTests(unittest.TestCase):
+    """Generator guards against silently losing declared behaviour.
+
+    Two failure modes motivated these: regeneration restored the template body
+    of a built-in verifier helper the workflow had hardened (so the hardening
+    had to be re-applied by hand after every `--force`), and a declared routing
+    field could validate cleanly yet produce no policy code at all.
+    """
+
+    GENERATED = (
+        "import os\n"
+        "\n"
+        "\n"
+        "def _safe_repo_path(repo_root: str, raw_path: str) -> str | None:\n"
+        "    return None\n"
+        "\n"
+        "\n"
+        "def _other_helper(value):\n"
+        "    return value\n"
+    )
+    HARDENED = (
+        "import os\n"
+        "\n"
+        "\n"
+        "def _safe_repo_path(repo_root: str, raw_path: str) -> str | None:\n"
+        "    return hardened_lookup(repo_root, raw_path)\n"
+        "\n"
+        "\n"
+        "def _other_helper(value):\n"
+        "    return value\n"
+    )
+
+    def _generator_module(self):
+        module_path = SKILL_ROOT / "workflow-creator" / "scripts" / "create_workflow.py"
+        spec = importlib.util.spec_from_file_location("_cw_hardening_review", module_path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+
+    def test_declared_helper_is_carried_forward(self):
+        module = self._generator_module()
+        rendered, warnings = module._apply_preserved_verifier_helpers(
+            self.GENERATED, self.HARDENED, ["_safe_repo_path"]
+        )
+        self.assertIn("hardened_lookup", rendered)
+        self.assertEqual(len(warnings), 1)
+        self.assertIn("_safe_repo_path", warnings[0])
+        self.assertIn("workflow-hardened", warnings[0])
+
+    def test_identical_helper_produces_no_warning(self):
+        module = self._generator_module()
+        rendered, warnings = module._apply_preserved_verifier_helpers(
+            self.GENERATED, self.GENERATED, ["_safe_repo_path"]
+        )
+        self.assertEqual(rendered, self.GENERATED)
+        self.assertEqual(warnings, [])
+
+    def test_multiple_helpers_keep_their_spans(self):
+        module = self._generator_module()
+        hardened = self.GENERATED.replace(
+            "def _other_helper(value):\n    return value\n",
+            "def _other_helper(value):\n    return value * 2\n",
+        )
+        rendered, warnings = module._apply_preserved_verifier_helpers(
+            self.GENERATED, hardened, ["_safe_repo_path", "_other_helper"]
+        )
+        self.assertIn("return value * 2", rendered)
+        self.assertEqual(len(warnings), 1)
+
+    def test_unknown_helper_name_is_rejected(self):
+        module = self._generator_module()
+        with self.assertRaises(module.WorkflowCreatorError) as ctx:
+            module._apply_preserved_verifier_helpers(
+                self.GENERATED, self.HARDENED, ["_does_not_exist"]
+            )
+        self.assertIn("_does_not_exist", str(ctx.exception))
+
+    def test_preserve_verifier_helpers_validation(self):
+        module = self._generator_module()
+        self.assertEqual(module._validate_preserve_verifier_helpers(None), [])
+        self.assertEqual(
+            module._validate_preserve_verifier_helpers(["_safe_repo_path"]),
+            ["_safe_repo_path"],
+        )
+        for bad in (
+            "_safe_repo_path",
+            ["safe_repo_path"],
+            ["_safe_repo_path", "_safe_repo_path"],
+        ):
+            with self.subTest(value=bad):
+                with self.assertRaises(module.WorkflowCreatorError):
+                    module._validate_preserve_verifier_helpers(bad)
+
+    def test_declared_routing_must_reach_the_policy(self):
+        module = self._generator_module()
+        spec = {
+            "stages": [
+                {
+                    "step_id": "alpha",
+                    "cycle_limit": {"constraint_key": "max_alpha_cycles"},
+                    "missing_verifier_route": {"next_node": "beta"},
+                }
+            ]
+        }
+        module._assert_declared_routing_rendered(spec, "max_alpha_cycles ... beta")
+        with self.assertRaises(module.WorkflowCreatorError) as ctx:
+            module._assert_declared_routing_rendered(spec, "nothing declared here")
+        message = str(ctx.exception)
+        self.assertIn("max_alpha_cycles", message)
+        self.assertIn("beta", message)
+
+    def test_declared_routing_without_declarations_passes(self):
+        module = self._generator_module()
+        module._assert_declared_routing_rendered(
+            {"stages": [{"step_id": "alpha", "cycle_limit": None}]}, ""
+        )
+
+    def _minimal_verifier_spec(self):
+        return {
+            "workflow_id": "dedupe-probe",
+            "preserve_verifier_helpers": [],
+            "stages": [
+                {
+                    "step_id": "do_work",
+                    "stage_kind": "main",
+                    "output_schema": {"result": "string"},
+                    "verifier_rules": [],
+                    "verifier_templates": [],
+                    "custom_verifier_requirements": [
+                        {"id": "first_check", "description": "First check."},
+                        {"id": "second_check", "description": "Second check."},
+                    ],
+                }
+            ],
+        }
+
+    def test_generated_runner_dedupes_identical_requirement_messages(self):
+        """Removing the runner's dedupe used to break no test at all."""
+        module = self._generator_module()
+        rendered, _ = module._render_verifiers_py(self._minimal_verifier_spec())
+        namespace: dict = {}
+        exec(compile(rendered, "<generated-verifiers>", "exec"), namespace)
+        runner = namespace["_run_custom_verifier_requirements_do_work"]
+        for requirement_id in ("first_check", "second_check"):
+            namespace[
+                f"_custom_verifier_requirement_do_work_{requirement_id}"
+            ] = lambda **_kwargs: "identical finding"
+        self.assertEqual(
+            runner(output={}, state=None, repo_root="."),
+            "identical finding",
+        )
+        namespace[
+            "_custom_verifier_requirement_do_work_first_check"
+        ] = lambda **_kwargs: "alpha"
+        namespace[
+            "_custom_verifier_requirement_do_work_second_check"
+        ] = lambda **_kwargs: "beta"
+        self.assertEqual(runner(output={}, state=None, repo_root="."), "alpha; beta")
+
+    def test_cycle_limit_emission_honours_the_preempt_flag(self):
+        module = self._generator_module()
+        cycle_limit = {
+            "output_key": "ready",
+            "constraint_key": "max_cycles",
+            "next_node": "finalize_summary",
+            "branch_kind": "partial",
+            "reason": "budget exhausted",
+            "counter_state_key": None,
+        }
+        preempt = "\n".join(
+            module._policy_cycle_limit_lines(
+                cycle_limit, {"max_cycles": 4}, preempts_failure_routes=True
+            )
+        )
+        # A preempting budget is output-key independent and exempts `blocked`.
+        self.assertIn('if observation.get("status") != "blocked":', preempt)
+        self.assertNotIn("condition_matches", preempt)
+        self.assertIn('"terminal_reason": "cycle_budget_exhausted"', preempt)
+
+        deferred = "\n".join(
+            module._policy_cycle_limit_lines(
+                cycle_limit, {"max_cycles": 4}, preempts_failure_routes=False
+            )
+        )
+        self.assertNotIn('!= "blocked"', deferred)
+        self.assertIn("condition_matches", deferred)
+        self.assertNotIn("terminal_reason", deferred)
+
+    def test_cycle_limit_boolean_validation(self):
+        module = self._generator_module()
+        base = {
+            "output_key": "ready",
+            "constraint_key": "max_cycles",
+            "next_node": "finalize_summary",
+            "reason": "budget exhausted",
+        }
+        self.assertFalse(
+            module._validate_cycle_limit(dict(base), "x")["check_before_failure_routes"]
+        )
+        self.assertTrue(
+            module._validate_cycle_limit(
+                {**base, "check_before_failure_routes": True}, "x"
+            )["check_before_failure_routes"]
+        )
+        for bad in (0, 1, "true", "false", [], {}):
+            with self.subTest(value=bad):
+                with self.assertRaises(module.WorkflowCreatorError):
+                    module._validate_cycle_limit(
+                        {**base, "check_before_failure_routes": bad}, "x"
+                    )
 
 
 if __name__ == "__main__":

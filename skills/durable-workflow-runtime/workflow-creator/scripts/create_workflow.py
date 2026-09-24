@@ -296,6 +296,7 @@ def create_workflow_scaffold(
         )
     _write_spec_blueprint(temp_workflow_dir, workflow_spec)
     _write_agent_review_file(temp_workflow_dir, workflow_spec)
+    _write_workflow_readme(temp_workflow_dir, workflow_spec)
     _write_manifest(
         temp_workflow_dir / "manifest.json",
         workflow_id=resolved_workflow_id,
@@ -306,7 +307,10 @@ def create_workflow_scaffold(
     _write_workflow_lockfile(
         temp_workflow_dir / ".workflow-lock.json",
         workflow_id=resolved_workflow_id,
-        installed=workflow_spec["installed"],
+        installed=_merge_installed_provenance(
+            workflow_spec["installed"],
+            existing_workflow_dir=target_workflow_dir if target_exists else None,
+        ),
     )
     created_files = sum(1 for path in temp_workflow_dir.rglob("*") if path.is_file())
     replaced_existing = target_exists or existing_binding_index is not None
@@ -531,7 +535,7 @@ def _load_workflow_spec(
     state_mode = _validate_state_mode(raw_spec.get("state_mode"))
     final_step_id = _validate_step_id(str(raw_spec.get("final_step_id") or "finalize_summary"))
     stages = _validate_stages(raw_spec.get("stages") or [])
-    _validate_stage_transition_targets(stages, final_step_id)
+    _validate_stage_transition_targets(stages, final_step_id, runtime_defaults)
     valid_repair_targets = {
         stage["step_id"] for stage in stages
     } | {final_step_id} | _REPAIR_STAGE_IDS
@@ -573,7 +577,30 @@ def _load_workflow_spec(
         "dependencies": dependencies,
         "installed": installed,
         "regression_tests": regression_tests,
+        "preserve_verifier_helpers": _validate_preserve_verifier_helpers(
+            raw_spec.get("preserve_verifier_helpers")
+        ),
     }
+
+
+def _validate_preserve_verifier_helpers(value: Any) -> list[str]:
+    """Names of built-in `verifiers.py` helpers this workflow has hardened."""
+    if value in (None, []):
+        return []
+    if not isinstance(value, list):
+        raise WorkflowCreatorError("preserve_verifier_helpers must be a JSON array")
+    names: list[str] = []
+    for index, item in enumerate(value):
+        label = f"preserve_verifier_helpers[{index}]"
+        name = _validate_text(item, label)
+        if not re.fullmatch(r"_[A-Za-z_][A-Za-z0-9_]*", name):
+            raise WorkflowCreatorError(
+                f"{label} must name a private helper such as '_safe_repo_path': {name!r}"
+            )
+        if name in names:
+            raise WorkflowCreatorError(f"{label} is duplicated: {name}")
+        names.append(name)
+    return names
 
 
 def _normalize_internal_skill_references(
@@ -886,6 +913,9 @@ def _validate_cycle_limit(value: Any, label: str) -> dict[str, Any] | None:
     counter_state_key = value.get("counter_state_key")
     if counter_state_key is not None:
         counter_state_key = _validate_step_id(str(counter_state_key))
+    check_before_failure_routes = value.get("check_before_failure_routes", False)
+    if not isinstance(check_before_failure_routes, bool):
+        raise WorkflowCreatorError(f"{label}.check_before_failure_routes must be a boolean")
     return {
         "output_key": _validate_text(value.get("output_key"), f"{label}.output_key"),
         "constraint_key": _validate_text(
@@ -899,6 +929,7 @@ def _validate_cycle_limit(value: Any, label: str) -> dict[str, Any] | None:
         ),
         "reason": _validate_text(value.get("reason"), f"{label}.reason"),
         "counter_state_key": counter_state_key,
+        "check_before_failure_routes": check_before_failure_routes,
     }
 
 
@@ -1666,7 +1697,11 @@ def _validate_implementation_version(value: Any, label: str) -> int:
     return value
 
 
-def _validate_stage_transition_targets(stages: list[dict[str, Any]], final_step_id: str) -> None:
+def _validate_stage_transition_targets(
+    stages: list[dict[str, Any]],
+    final_step_id: str,
+    runtime_defaults: dict[str, int] | None = None,
+) -> None:
     valid_node_ids = {stage["step_id"] for stage in stages} | {final_step_id} | _REPAIR_STAGE_IDS
     declared_state_keys = {
         update["state_key"]
@@ -1732,10 +1767,23 @@ def _validate_stage_transition_targets(stages: list[dict[str, Any]], final_step_
             )
         cycle_limit = stage.get("cycle_limit")
         if cycle_limit is not None:
+            if stage["stage_kind"] != "main":
+                raise WorkflowCreatorError(
+                    f"{stage['step_id']}.cycle_limit is only rendered for stage_kind "
+                    "'main'; a recovery stage would validate cleanly and then emit no "
+                    "cycle guard at all"
+                )
             if cycle_limit["next_node"] not in valid_node_ids:
                 raise WorkflowCreatorError(
                     f"{stage['step_id']}.cycle_limit next_node is unknown: "
                     f"{cycle_limit['next_node']}"
+                )
+            declared_defaults = runtime_defaults or {}
+            if cycle_limit["constraint_key"] not in declared_defaults:
+                raise WorkflowCreatorError(
+                    f"{stage['step_id']}.cycle_limit constraint_key is not declared in "
+                    f"runtime_defaults: {cycle_limit['constraint_key']} (a typo would "
+                    "silently fall back to the generator default)"
                 )
             counter_state_key = cycle_limit.get("counter_state_key")
             if counter_state_key is not None and counter_state_key not in declared_state_keys:
@@ -1979,6 +2027,108 @@ def _write_agent_review_file(workflow_dir: Path, workflow_spec: dict[str, Any]) 
 
 def _write_spec_blueprint(workflow_dir: Path, workflow_spec: dict[str, Any]) -> None:
     _write_json_atomic(workflow_dir / "spec.json", workflow_spec)
+
+
+def _readme_prose(value: Any) -> str:
+    """Collapse a free-text spec field onto one markdown-safe line.
+
+    ``flow_description`` and dependency ``purpose`` are validated only as
+    non-empty strings, so an embedded newline would break out of the bullet
+    list and a leading '#' would inject a second H1. Collapse all whitespace
+    and drop leading heading markers.
+    """
+    text = " ".join(str(value).split())
+    stripped = text.lstrip("#").strip()
+    return stripped or text
+
+
+def _render_workflow_readme_md(workflow_spec: dict[str, Any]) -> str:
+    """Describe the real workflow instead of shipping the skeleton's README.
+
+    The skeleton README explains how to copy the skeleton into a new workflow
+    and names placeholder nodes such as ``run_primary_stage``; carried into a
+    generated workflow it is simply wrong. Derive an accurate README from the
+    same blueprint that produces every other generated surface, and stay honest
+    about the blank-scaffold case where no business stages were supplied yet.
+    """
+    stages = workflow_spec["stages"]
+    final_step_id = workflow_spec["final_step_id"]
+    lines = [
+        f"# {workflow_spec['workflow_id']}",
+        "",
+        _readme_prose(workflow_spec["flow_description"]),
+        "",
+        "Generated from `spec.json` by `workflow-creator`. Treat `spec.json` as the",
+        "source of truth; edit it and rerun the creator rather than editing the",
+        "generated surfaces by hand.",
+        "",
+        "## Stage path",
+        "",
+    ]
+    if stages:
+        for stage in stages:
+            routed: list[str] = []
+            for route in stage.get("skill_routing") or []:
+                skill = route.get("skill")
+                if isinstance(skill, str) and skill.strip() and skill not in routed:
+                    routed.append(skill)
+            skills = ", ".join(f"`{skill}`" for skill in routed)
+            suffix = f" - routes to {skills}" if skills else ""
+            lines.append(f"- `{stage['step_id']}` ({stage['stage_kind']}){suffix}")
+    else:
+        lines.append(
+            "- No business stages were supplied yet; this scaffold routes straight "
+            "to the final step."
+        )
+    lines.extend([f"- `{final_step_id}` (final)", ""])
+    dependencies = workflow_spec.get("dependencies") or []
+    if dependencies:
+        lines.extend(["## Dependencies", ""])
+        for dependency in dependencies:
+            required = "required" if dependency.get("required") else "optional"
+            lines.append(
+                f"- `{dependency['id']}` ({dependency['type']}, {required}) - "
+                f"{_readme_prose(dependency['purpose'])}"
+            )
+        lines.append("")
+    defaults = workflow_spec.get("runtime_defaults") or {}
+    if defaults:
+        lines.extend(["## Runtime defaults", ""])
+        lines.extend(f"- `{key}`: {value}" for key, value in defaults.items())
+        lines.append("")
+    lines.extend(
+        [
+            "## Durable state",
+            "",
+            f"- `state_mode`: `{workflow_spec['state_mode']}`",
+            "",
+            "## Related files",
+            "",
+        ]
+    )
+    lines.append(
+        "- `references/flowchart.md` - rendered graph documentation"
+        if stages
+        else "- `references/flowchart.md` - still the skeleton flowchart until "
+        "business stages are added"
+    )
+    lines.append("- `references/agent-review.md` - review checklist for this workflow")
+    lines.append(
+        "- `prompts/` - one prompt asset per step"
+        if stages
+        else "- `prompts/` - still the skeleton prompt asset until business stages are added"
+    )
+    if workflow_spec.get("regression_tests"):
+        lines.append("- `tests/` - workflow-local regression coverage")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _write_workflow_readme(workflow_dir: Path, workflow_spec: dict[str, Any]) -> None:
+    (workflow_dir / "README.md").write_text(
+        _render_workflow_readme_md(workflow_spec),
+        encoding="utf-8",
+    )
 
 
 def _write_generated_regression_tests(path: Path, workflow_spec: dict[str, Any]) -> None:
@@ -2980,6 +3130,8 @@ def _policy_outcome_route_lines(stage: dict[str, Any]) -> list[str]:
 def _policy_cycle_limit_lines(
     cycle_limit: dict[str, Any],
     runtime_defaults: dict[str, int],
+    *,
+    preempts_failure_routes: bool = False,
 ) -> list[str]:
     default_max_cycles = runtime_defaults.get(cycle_limit["constraint_key"], 3)
     counter_state_key = cycle_limit.get("counter_state_key")
@@ -2988,6 +3140,37 @@ def _policy_cycle_limit_lines(
         if counter_state_key
         else '(state.get("attempt_counts") or {}).get(current_step_id)'
     )
+    counter_lines = [
+        f"raw_completed_cycles = {completed_cycles_expression}",
+        "completed_cycles = raw_completed_cycles if isinstance(raw_completed_cycles, int) and not isinstance(raw_completed_cycles, bool) else 0",
+        'constraints = state.get("constraints") if isinstance(state, dict) else {}',
+        f'raw_max_cycles = constraints.get({cycle_limit["constraint_key"]!r}) if isinstance(constraints, dict) else None',
+        f'max_cycles = raw_max_cycles if isinstance(raw_max_cycles, int) and not isinstance(raw_max_cycles, bool) and raw_max_cycles > 0 else {default_max_cycles}',
+        "if completed_cycles >= max_cycles:",
+    ]
+    decision_lines = [
+        "return TransitionDecision(",
+        f"    next_node={cycle_limit['next_node']!r},",
+        f"    branch_kind={cycle_limit['branch_kind']!r},",
+        f"    reason={cycle_limit['reason']!r},",
+    ]
+    if preempts_failure_routes:
+        # A preempting budget is a HARD bound: it must stop the loop however the
+        # stage reported itself. Gating it on the stage's own output key left the
+        # loop unbounded whenever the stage honestly reported "not ready" while
+        # its verifier failed — the exact loop this option exists to bound.
+        # `blocked` stays exempt: its remedy is external input, and the shared
+        # repair path is the only thing that names it.
+        decision_lines.append(
+            '    metadata={"degraded": True, "terminal_reason": "cycle_budget_exhausted"},'
+        )
+        decision_lines.append(")")
+        return [
+            '        if observation.get("status") != "blocked":',
+            *[f"            {line}" for line in counter_lines],
+            *[f"                {line}" for line in decision_lines],
+        ]
+    decision_lines.append(")")
     return [
         '        structured_output = observation.get("structured_output") or {}',
         "        if isinstance(structured_output, dict):",
@@ -2996,17 +3179,8 @@ def _policy_cycle_limit_lines(
         "                'is_true',",
         "                None,",
         "            ):",
-        f"                raw_completed_cycles = {completed_cycles_expression}",
-        '                completed_cycles = raw_completed_cycles if isinstance(raw_completed_cycles, int) and not isinstance(raw_completed_cycles, bool) else 0',
-        '                constraints = state.get("constraints") if isinstance(state, dict) else {}',
-        f'                raw_max_cycles = constraints.get({cycle_limit["constraint_key"]!r}) if isinstance(constraints, dict) else None',
-        f'                max_cycles = raw_max_cycles if isinstance(raw_max_cycles, int) and not isinstance(raw_max_cycles, bool) and raw_max_cycles > 0 else {default_max_cycles}',
-        '                if completed_cycles >= max_cycles:',
-        "                    return TransitionDecision(",
-        f"                        next_node={cycle_limit['next_node']!r},",
-        f"                        branch_kind={cycle_limit['branch_kind']!r},",
-        f"                        reason={cycle_limit['reason']!r},",
-        "                    )",
+        *[f"                {line}" for line in counter_lines],
+        *[f"                    {line}" for line in decision_lines],
     ]
 
 
@@ -3059,6 +3233,36 @@ def _graph_template_context_update_lines(workflow_spec: dict[str, Any]) -> list[
     return lines
 
 
+def _assert_declared_routing_rendered(workflow_spec: dict[str, Any], policy_text: str) -> None:
+    """Fail loudly when a declared routing field produced no policy code.
+
+    The recurring authoring trap is a field that validates cleanly and then has
+    no effect: a typo'd `cycle_limit.constraint_key` silently falls back to the
+    generator default, and a `missing_verifier_route` on a stage the renderer
+    skips disappears without a trace. Both are invisible until a run behaves
+    oddly, so assert the rendered policy actually references what was declared.
+    """
+    problems: list[str] = []
+    for stage in workflow_spec["stages"]:
+        step_id = stage["step_id"]
+        cycle_limit = stage.get("cycle_limit")
+        if cycle_limit is not None and cycle_limit["constraint_key"] not in policy_text:
+            problems.append(
+                f"{step_id}.cycle_limit.constraint_key {cycle_limit['constraint_key']!r} "
+                "is absent from the rendered policy"
+            )
+        missing_route = stage.get("missing_verifier_route")
+        if missing_route is not None and missing_route["next_node"] not in policy_text:
+            problems.append(
+                f"{step_id}.missing_verifier_route.next_node {missing_route['next_node']!r} "
+                "is absent from the rendered policy"
+            )
+    if problems:
+        raise WorkflowCreatorError(
+            "declared routing did not reach the generated policy: " + "; ".join(problems)
+        )
+
+
 def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
     stages = workflow_spec["stages"]
     main_stages = [stage for stage in stages if stage["stage_kind"] == "main"]
@@ -3066,10 +3270,22 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
     first_main_stage_id = main_stages[0]["step_id"] if main_stages else final_step_id
     runtime_defaults = dict(workflow_spec.get("runtime_defaults") or {})
     repair_policy = workflow_spec.get("repair_policy") or _validate_repair_policy({})
+    # A main stage that requires a passing verifier always fails closed. A
+    # recovery stage is normally retried instead, but when it explicitly
+    # declares `missing_verifier_route` the author is asking for fail-closed
+    # behaviour, so honour the declared route rather than silently dropping it.
+    fail_closed_verifier_stages = [
+        stage
+        for stage in stages
+        if stage.get("require_passing_verifier", False)
+        and (
+            stage["stage_kind"] == "main"
+            or stage.get("missing_verifier_route") is not None
+        )
+    ]
     required_verifier_stage_ids = tuple(
         stage["step_id"]
-        for stage in main_stages
-        if stage.get("require_passing_verifier", False)
+        for stage in fail_closed_verifier_stages
     )
     missing_verifier_routes = {
         stage["step_id"]: stage.get("missing_verifier_route") or {
@@ -3080,8 +3296,7 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                 "fail closed before continuing."
             ),
         }
-        for stage in main_stages
-        if stage.get("require_passing_verifier", False)
+        for stage in fail_closed_verifier_stages
     }
     recovery_output_validation_block = _render_recovery_output_validation_block(workflow_spec)
     lines = [
@@ -3163,9 +3378,26 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                 default_next_node = unmatched_transition["next_node"]
                 default_branch_kind = unmatched_transition["branch_kind"]
                 default_reason = unmatched_transition["reason"]
+            # One derived boolean drives the guard's shape, its position, and the
+            # flowchart label. Deriving it separately in each place let a partial
+            # edit emit a preempting guard WITHOUT the blocked carve-out, which
+            # swallows a stage that is asking for external input.
+            cycle_limit_preempts = bool(
+                (stage.get("cycle_limit") or {}).get("check_before_failure_routes")
+            )
+            cycle_limit_lines = (
+                _policy_cycle_limit_lines(
+                    stage["cycle_limit"],
+                    runtime_defaults,
+                    preempts_failure_routes=cycle_limit_preempts,
+                )
+                if stage.get("cycle_limit") is not None
+                else []
+            )
             lines.extend(
                 [
                     f'    if current_step_id == "{stage["step_id"]}":',
+                    *(cycle_limit_lines if cycle_limit_preempts else []),
                     *(_policy_outcome_route_lines(stage) if stage["outcome_routes"] else []),
                     "        status_decision = _route_common_failure(",
                     "            current_step_id=current_step_id,",
@@ -3174,11 +3406,7 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
                     "        )",
                     "        if status_decision is not None:",
                     "            return status_decision",
-                    *(
-                        _policy_cycle_limit_lines(stage["cycle_limit"], runtime_defaults)
-                        if stage.get("cycle_limit") is not None
-                        else []
-                    ),
+                    *(cycle_limit_lines if not cycle_limit_preempts else []),
                     *(_policy_repair_condition_lines(stage) if stage["repair_conditions"] else []),
                     *(_policy_transition_lines(stage) if stage["transitions"] else []),
                     "        return TransitionDecision(",
@@ -3393,7 +3621,9 @@ def _render_policy_py(workflow_spec: dict[str, Any]) -> str:
             "",
         ]
     )
-    return "\n".join(lines)
+    policy_text = "\n".join(lines)
+    _assert_declared_routing_rendered(workflow_spec, policy_text)
+    return policy_text
 
 
 def _render_graphbuilder_runtime_py(workflow_spec: dict[str, Any]) -> str:
@@ -3766,6 +3996,75 @@ def run_start_preview(
         )
     )
 '''
+
+
+def _top_level_function_spans(source: str) -> dict[str, tuple[int, int]]:
+    """Map top-level function name -> 1-based inclusive (start, end) line span."""
+    tree = ast.parse(source)
+    spans: dict[str, tuple[int, int]] = {}
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            start = node.lineno
+            for decorator in getattr(node, "decorator_list", []):
+                start = min(start, decorator.lineno)
+            spans[node.name] = (start, node.end_lineno or node.lineno)
+    return spans
+
+
+def _apply_preserved_verifier_helpers(
+    generated_text: str,
+    existing_text: str | None,
+    helper_names: list[str],
+) -> tuple[str, list[str]]:
+    """Keep workflow-hardened built-in helpers instead of the template bodies.
+
+    `verifiers.py` is generated, but a workflow may legitimately harden one of
+    the built-in helpers (path safety, for example). Regeneration used to
+    silently restore the template body, so that hardening had to be re-applied
+    by hand after every `--force`. Helpers named in `preserve_verifier_helpers`
+    are carried forward instead, and every body actually replaced is reported as
+    a generation warning so the carry-forward is never silent.
+
+    A preserved body must be self-contained or reference its shared module by
+    fully qualified name, because the generator does not add imports for it.
+    """
+    if not helper_names or not existing_text:
+        return generated_text, []
+    try:
+        generated_spans = _top_level_function_spans(generated_text)
+        existing_spans = _top_level_function_spans(existing_text)
+    except SyntaxError as exc:
+        return generated_text, [
+            "skipped preserve_verifier_helpers because a verifiers.py source did not "
+            f"parse: {exc}"
+        ]
+    unknown = sorted(name for name in helper_names if name not in generated_spans)
+    if unknown:
+        raise WorkflowCreatorError(
+            "preserve_verifier_helpers names helpers the generator does not emit: "
+            f"{unknown}"
+        )
+    generated_lines = generated_text.splitlines(keepends=True)
+    existing_lines = existing_text.splitlines(keepends=True)
+    replacements: list[tuple[int, int, str, list[str]]] = []
+    for name in helper_names:
+        if name not in existing_spans:
+            continue
+        generated_start, generated_end = generated_spans[name]
+        existing_start, existing_end = existing_spans[name]
+        generated_body = generated_lines[generated_start - 1:generated_end]
+        existing_body = existing_lines[existing_start - 1:existing_end]
+        if generated_body != existing_body:
+            replacements.append((generated_start, generated_end, name, existing_body))
+    warnings: list[str] = []
+    # Splice bottom-up so the spans collected above stay valid.
+    for generated_start, generated_end, name, existing_body in sorted(replacements, reverse=True):
+        generated_lines[generated_start - 1:generated_end] = existing_body
+        warnings.append(
+            f"kept the workflow-hardened {name}() from the existing verifiers.py "
+            "instead of the generated template body"
+        )
+    return "".join(generated_lines), warnings
 
 
 def _render_verifiers_py(
@@ -4317,7 +4616,12 @@ def _render_verifiers_py(
             "",
         ]
     )
-    return "\n".join(lines), preservation_warnings + custom_warnings
+    rendered, helper_warnings = _apply_preserved_verifier_helpers(
+        "\n".join(lines),
+        existing_verifiers_text,
+        workflow_spec.get("preserve_verifier_helpers") or [],
+    )
+    return rendered, preservation_warnings + custom_warnings + helper_warnings
 
 
 def _render_custom_verifier_requirement_helpers(
@@ -4383,7 +4687,7 @@ def _render_custom_verifier_requirement_helpers(
             lines.extend(requirement_call)
         lines.extend(
             [
-                '    return "; ".join(errors) if errors else None',
+                '    return "; ".join(dict.fromkeys(errors)) if errors else None',
                 "",
             ]
         )
@@ -4397,12 +4701,38 @@ def _render_custom_verifier_requirement_helpers(
             if (
                 preserved is not None
                 and preserved["template_version"] == metadata["template_version"]
-                and preserved["spec_fingerprint"] == metadata["spec_fingerprint"]
                 and preserved["implementation_version"] == metadata["implementation_version"]
             ):
-                lines.extend(preserved["source_lines"])
-                lines.append("")
-                continue
+                if preserved.get("contract_fingerprint") is None:
+                    # Written before contract fingerprints existed. The wider
+                    # fingerprint moved, but prose cannot be told apart from the
+                    # contract here, so keep the work and ask for a human check.
+                    lines.extend(_custom_verifier_metadata_comment_lines(metadata))
+                    lines.extend(preserved["body_lines"])
+                    lines.append("")
+                    warnings.append(
+                        "kept the hand-written implementation of "
+                        f"{stage['step_id']}.{requirement['id']} while upgrading its "
+                        "preservation metadata; re-check it against the current requirement text"
+                    )
+                    continue
+                if preserved["contract_fingerprint"] == metadata["contract_fingerprint"]:
+                    lines.extend(_custom_verifier_metadata_comment_lines(metadata))
+                    lines.extend(preserved["body_lines"])
+                    lines.append("")
+                    if preserved["spec_fingerprint"] != metadata["spec_fingerprint"]:
+                        warnings.append(
+                            "kept the hand-written implementation of "
+                            f"{stage['step_id']}.{requirement['id']} because only its "
+                            "specification prose changed"
+                        )
+                    continue
+                warnings.append(
+                    "REPLACED the hand-written implementation of "
+                    f"{stage['step_id']}.{requirement['id']} with an empty scaffold because its "
+                    "verifier contract changed (signals, python_imports, or the stage output "
+                    "schema); re-implement it before shipping"
+                )
             lines.extend(_render_custom_requirement_scaffold(stage, requirement, metadata))
     for stale_key in sorted(set(preserved_blocks) - current_requirement_keys):
         warnings.append(
@@ -4467,6 +4797,7 @@ def _render_custom_requirement_scaffold(
         f"# custom_verifier_requirement_id: {metadata['requirement_id']}",
         f"# template_version: {metadata['template_version']}",
         f"# spec_fingerprint: {metadata['spec_fingerprint']}",
+        f"# contract_fingerprint: {metadata['contract_fingerprint']}",
         f"# implementation_version: {_implementation_version_marker(metadata['implementation_version'])}",
         f"def {function_name}(",
         "    *,",
@@ -4527,6 +4858,7 @@ def _custom_verifier_requirement_metadata(
         "requirement_id": requirement["id"],
         "template_version": _CUSTOM_VERIFIER_TEMPLATE_VERSION,
         "spec_fingerprint": _custom_requirement_spec_fingerprint(stage, requirement),
+        "contract_fingerprint": _custom_requirement_contract_fingerprint(stage, requirement),
         "implementation_version": requirement.get("implementation_version"),
     }
 
@@ -4541,6 +4873,38 @@ def _custom_requirement_spec_fingerprint(stage: dict[str, Any], requirement: dic
         "implementation_notes": requirement.get("implementation_notes"),
         "hint_pseudocode": requirement.get("hint_pseudocode"),
         "test_intent": requirement.get("test_intent"),
+        "stage_contract_context": {
+            "step_id": stage["step_id"],
+            "output_schema": stage["output_schema"],
+            "custom_verifier_helper_signature": {
+                "parameters": ["output", "state", "repo_root"],
+                "return_type": "str | None",
+            },
+            "custom_verifier_runner_contract": {
+                "passes": ["output", "state", "repo_root"],
+                "aggregates": "join_non_empty_error_messages",
+            },
+        },
+    }
+    normalized = _normalize_for_custom_verifier_fingerprint(payload)
+    encoded = json.dumps(normalized, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _custom_requirement_contract_fingerprint(stage: dict[str, Any], requirement: dict[str, Any]) -> str:
+    """Fingerprint only the fields that can break a preserved implementation.
+
+    `_custom_requirement_spec_fingerprint` also covers authoring prose
+    (`description`, `implementation_notes`, `hint_pseudocode`, `test_intent`,
+    `implementation_surface`). Rewording a hint used to invalidate the
+    hand-written body and silently replace it with an empty scaffold, which lost
+    real work. Only the signature/import surface can actually break a preserved
+    function, so preservation keys off that narrower contract instead.
+    """
+    payload = {
+        "id": requirement["id"],
+        "signals": requirement.get("signals"),
+        "python_imports": requirement.get("python_imports"),
         "stage_contract_context": {
             "step_id": stage["step_id"],
             "output_schema": stage["output_schema"],
@@ -4606,7 +4970,12 @@ def _extract_preservable_custom_verifier_blocks(
             continue
         leading_comment_lines, _ = _leading_comment_lines_for_node(lines, node)
         metadata = _parse_custom_verifier_metadata(lines, node)
-        source_lines = lines[metadata["start_lineno"] - 1 : node.end_lineno] if metadata is not None else None
+        body_lines = lines[node.lineno - 1 : node.end_lineno]
+        source_lines = (
+            lines[metadata["start_lineno"] - 1 : node.end_lineno]
+            if metadata is not None
+            else None
+        )
         if metadata is None:
             if leading_comment_lines:
                 warnings.append(
@@ -4639,6 +5008,7 @@ def _extract_preservable_custom_verifier_blocks(
         blocks[block_key] = {
             **metadata,
             "source_lines": source_lines,
+            "body_lines": body_lines,
         }
     return blocks, warnings
 
@@ -4666,6 +5036,7 @@ def _custom_verifier_metadata_comment_lines(metadata: dict[str, Any]) -> list[st
         f"# custom_verifier_requirement_id: {metadata['requirement_id']}",
         f"# template_version: {metadata['template_version']}",
         f"# spec_fingerprint: {metadata['spec_fingerprint']}",
+        f"# contract_fingerprint: {metadata['contract_fingerprint']}",
         f"# implementation_version: {_implementation_version_marker(metadata['implementation_version'])}",
     ]
 
@@ -4688,7 +5059,9 @@ def _parse_custom_verifier_metadata(lines: list[str], node: ast.FunctionDef) -> 
         "spec_fingerprint",
         "implementation_version",
     }
-    if set(metadata) != required_keys:
+    # `contract_fingerprint` was added later; blocks written before it existed
+    # still parse, and preservation falls back to the wider fingerprint then.
+    if not required_keys <= set(metadata) <= required_keys | {"contract_fingerprint"}:
         return None
     try:
         template_version = int(metadata["template_version"])
@@ -4705,6 +5078,7 @@ def _parse_custom_verifier_metadata(lines: list[str], node: ast.FunctionDef) -> 
         "requirement_id": metadata["custom_verifier_requirement_id"],
         "template_version": template_version,
         "spec_fingerprint": metadata["spec_fingerprint"],
+        "contract_fingerprint": metadata.get("contract_fingerprint"),
         "implementation_version": implementation_version,
     }
 
@@ -4874,9 +5248,18 @@ def _render_flowchart_md(workflow_spec: dict[str, Any]) -> str:
         cycle_limit = stage.get("cycle_limit")
         if cycle_limit is not None:
             target = _render_transition_target(cycle_limit["next_node"], workflow_spec)
+            # A preempting budget is evaluated before failure routing, so the
+            # label has to say so; otherwise the diagram reads as if repair
+            # routing won. `repair_conditions` and `transitions` run after the
+            # guard in BOTH modes, so only the failure routes are at stake.
+            precedence = (
+                "checked before failure routing"
+                if cycle_limit.get("check_before_failure_routes")
+                else "checked after failure routing"
+            )
             lines.append(
                 f"    {stage['step_id']} -->|{cycle_limit['output_key']} is_true and "
-                f"{cycle_limit['constraint_key']} limit reached| {target}"
+                f"{cycle_limit['constraint_key']} limit reached ({precedence})| {target}"
             )
         if stage["stage_kind"] == "recovery":
             target = _render_transition_target(stage["recovery_return_node"], workflow_spec)
@@ -5121,6 +5504,20 @@ the right workflow.
    separate `Stage Goal:` heading; review the action line and prompt body
    against `prompt_sections.stage_goal` in `spec.json` instead of expecting that
    heading to appear verbatim in `prompts/*.md`.
+5b. For every stage with `skill_routing`, verify the routed skill's declared
+   contract against that stage's prompt boundaries and blocked conditions:
+   - its operation level (`op_level` / `modifies_files`): the stage must
+     explicitly sanction any write the skill forbids, or the routed agent can
+     self-classify as read-only and return a chat-only answer;
+   - its interaction gates (confirmation prompts, mode-selection questions):
+     an autonomous stage must override them, or the run stalls mid-step;
+   - its mode vocabulary: pin a mode the skill actually declares, rather than a
+     mode name the workflow invented;
+   - its required inputs: map the workflow's own artifacts onto them, and say
+     what to do when an input the skill expects does not exist here.
+   Read the installed skill's `SKILL.md` (and the reference file it cites) to
+   confirm each of these; a boundary that names a non-existent mode, or that
+   promises a write the skill forbids, is a defect in `spec.json`.
 6. Verify output semantics in the spec: boolean fields must be booleans,
    enum-like fields should have `verifier_rules`, path fields should use
    `path_exists` when existence matters, common DSL-expressible invariants
@@ -5464,6 +5861,54 @@ def _write_manifest(
         "dependencies": dependencies,
     }
     _write_json_atomic(path, payload)
+
+
+def _merge_installed_provenance(
+    installed: list[Any],
+    *,
+    existing_workflow_dir: Path | None,
+) -> list[Any]:
+    """Keep previously observed lockfile provenance for unchanged dependencies.
+
+    `.workflow-lock.json` records what dependency preflight actually observed
+    (`recorded_by: bridge.py preflight`, resolved scope). The spec's `installed`
+    block carries creation-time seeds instead, so writing it verbatim on every
+    regeneration discards real observations for dependencies this run did not
+    change. Reuse the observed entry whenever id and source still match; a
+    genuinely new or re-sourced dependency keeps the seed and is resolved by the
+    next preflight.
+    """
+    if existing_workflow_dir is None:
+        return installed
+    lock_path = existing_workflow_dir / ".workflow-lock.json"
+    if not lock_path.is_file():
+        return installed
+    try:
+        existing_payload = json.loads(lock_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return installed
+    if not isinstance(existing_payload, dict):
+        return installed
+    previous: dict[tuple[Any, Any], dict[str, Any]] = {}
+    for entry in existing_payload.get("installed") or []:
+        if isinstance(entry, dict):
+            previous[(entry.get("id"), entry.get("source"))] = entry
+
+    merged: list[Any] = []
+    for entry in installed:
+        if not isinstance(entry, dict):
+            merged.append(entry)
+            continue
+        observed = previous.get((entry.get("id"), entry.get("source")))
+        if observed is None or not observed.get("recorded_by"):
+            merged.append(entry)
+            continue
+        updated = dict(entry)
+        for key in ("scope", "recorded_at", "recorded_by"):
+            if key in observed:
+                updated[key] = observed[key]
+        merged.append(updated)
+    return merged
 
 
 def _write_workflow_lockfile(
