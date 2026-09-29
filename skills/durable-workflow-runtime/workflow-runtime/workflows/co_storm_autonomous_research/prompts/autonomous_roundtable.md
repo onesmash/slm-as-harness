@@ -26,7 +26,7 @@ Stage Boundaries:
 - When coverage_sufficient is false, return next_round_validation_plan as the exact set of `topic_id — metric` strings derived from every missing topic and every bounded_gap topic. For report with complete scope, coverage_sufficient must be true and that plan must be empty.
 - When max_rounds is reached with unresolved coverage, report is allowed only as report_scope_status=partial with coverage_sufficient=false and an explicit non-empty next_round_validation_plan; never present forced stopping as complete coverage.
 - Cite only the already merged {{evidence_registry}}; do not assign new global citation numbers, rewrite persisted rows, or drop merged ids. Send new source retrieval back through another expert-result round.
-- Keep the returned coverage_assessment compact so graph_state serialization stays within runtime limits: cite the core evidence ids needed to establish the conclusion (at least two) and keep open_gaps and next_validation_metrics entries under 200 characters each.
+- Preserve the complete coverage_assessment during state serialization, including every evidence reference, open gap, and validation metric.
 - Return round_index equal to the persisted round_index plus one, and do not exceed constraints.max_rounds.
 - Do not declare coverage_sufficient while any planned topic is missing, remains a bounded_gap with unresolved open gaps or validation metrics, or has fewer than two distinct evidence_refs (a covered topic therefore carries at least two distinct core evidence ids); depth beats topic count.
 - Prefer continue when the last expert round produced no new evidence or when any planned topic remains thin; meeting coverage_threshold is never by itself a reason to route to report.

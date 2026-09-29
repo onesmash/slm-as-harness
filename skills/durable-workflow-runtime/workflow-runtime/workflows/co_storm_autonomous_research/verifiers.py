@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import re
-import json
 import pathlib
 import workflows.co_storm_autonomous_research.citation_locators
 
@@ -486,19 +485,12 @@ def _run_custom_verifier_requirements_launch_expert_subagents(
     )
     if message:
         errors.append(message)
-    message = _custom_verifier_requirement_launch_expert_subagents_evidence_registry_byte_budget(
-        output=output,
-        state=state,
-        repo_root=repo_root,
-    )
-    if message:
-        errors.append(message)
     return "; ".join(dict.fromkeys(errors)) if errors else None
 
 # custom_verifier_stage_id: launch_expert_subagents
 # custom_verifier_requirement_id: expert_results_match_roster
 # template_version: 1
-# spec_fingerprint: f8e07030c6e0d4c3c64bae353a5a8e8c65096f6ccb65a53e0cd34e058d61ff54
+# spec_fingerprint: 8354730b9b74719a1c9f1b4006ee8b33121587526b79490a9ccb12fb59c1c2c7
 # contract_fingerprint: 9b6de50ca2907361231562bdf3c897e4eb30ba6ffe210ba606e0e27f75f2efa7
 # implementation_version: 7
 def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_roster(
@@ -510,7 +502,6 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
     """Require roster-matching expert results and an append-only merged evidence_registry."""
     persisted_state = state if isinstance(state, dict) else {}
     errors: list[str] = []
-    max_registry_entries = 128
     max_safe_artifact_bytes = 512 * 1024
 
     if output.get("expert_results_complete") is not True:
@@ -694,8 +685,6 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
     if not isinstance(returned_registry, list):
         errors.append("evidence_registry must be a list")
     else:
-        if len(returned_registry) > max_registry_entries or len(expected_registry) > max_registry_entries:
-            errors.append(f"evidence_registry must contain at most {max_registry_entries} entries")
         if persisted_prefix and (
             len(returned_registry) < len(persisted_prefix)
             or returned_registry[: len(persisted_prefix)] != persisted_prefix
@@ -755,46 +744,6 @@ def _custom_verifier_requirement_launch_expert_subagents_expert_results_match_ro
             if not cited_ids.intersection(merged_ids):
                 errors.append(f"expert_results[{index}] must cite at least one merged evidence entry")
     return "; ".join(dict.fromkeys(errors)) if errors else None
-
-# custom_verifier_stage_id: launch_expert_subagents
-# custom_verifier_requirement_id: evidence_registry_byte_budget
-# template_version: 1
-# spec_fingerprint: 9cf27f3130fa631319849a8873ba9942252240ac3267b8b4b4fbce828abc0b11
-# contract_fingerprint: 8eef0e5f27018ae9852ece837f3780e28de84c9f3a62be90287fac132b0fd7b2
-# implementation_version: none
-def _custom_verifier_requirement_launch_expert_subagents_evidence_registry_byte_budget(
-    *,
-    output: dict,
-    state: dict | None,
-    repo_root: str,
-) -> str | None:
-    """Custom verifier scaffold generated from stages[].custom_verifier_requirements.
-Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
-If reuse is needed, import stable helpers from shared modules outside verifiers.py.
-Do not add same-file helper layers in verifiers.py and depend on them from the preserved requirement function.
-
-Requirement: The merged evidence_registry must stay within a serialization-safe byte budget: the full list serialized as UTF-8 must not exceed 192 KiB even when the 128-entry count cap is met, so the workflow state never approaches the runtime MAX_WORKFLOW_LIST_BYTES limit.
-Signals: evidence_registry
-Implementation surfaces: verifier, workflow-specific regression tests
-Hint pseudocode:
-- Read the merged evidence_registry from the observation output; if it is not a list of strings, return None (shape is enforced elsewhere).
-- Serialize the list with json.dumps(registry, ensure_ascii=False) and compute the UTF-8 byte length.
-- If the byte length exceeds 192 * 1024, return an error naming the actual size and the budget.
-Test intent:
-- Accept a merged registry whose UTF-8 serialization stays under the byte budget.
-- Reject a merged registry whose UTF-8 serialization exceeds 192 KiB even when the entry count is at or under 128."""
-    _ = state, repo_root
-    registry = output.get("evidence_registry")
-    if not isinstance(registry, list) or not all(isinstance(entry, str) for entry in registry):
-        return None  # shape is enforced by expert_results_match_roster
-    budget_bytes = 192 * 1024
-    size = len(json.dumps(registry, ensure_ascii=False).encode("utf-8"))
-    if size > budget_bytes:
-        return (
-            f"merged evidence_registry serializes to {size} bytes, exceeding the "
-            f"{budget_bytes}-byte serialization budget; reduce claim length or entry count"
-        )
-    return None
 
 def _run_custom_verifier_requirements_autonomous_roundtable(
     *,

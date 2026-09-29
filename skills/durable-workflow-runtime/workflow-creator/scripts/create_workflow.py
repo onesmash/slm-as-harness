@@ -2569,7 +2569,6 @@ def _render_state_py(workflow_spec: dict[str, Any]) -> str:
     final_step_id = workflow_spec["final_step_id"]
     return f'''from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 
@@ -2586,12 +2585,6 @@ REPAIR_STAGE_IDS = (
 DECLARED_RECOVERY_STAGE_IDS = {_python_literal(recovery_stage_ids)}
 FINAL_STAGE_ID = {final_step_id!r}
 RUNTIME_DEFAULTS = {_python_literal(runtime_defaults)}
-MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE = 32
-MAX_ARTIFACT_JOURNAL_BYTES = 64 * 1024
-MAX_ARTIFACT_PATH_BYTES = 2048
-MAX_WORKFLOW_TEXT_BYTES = 16 * 1024
-MAX_WORKFLOW_LIST_ITEM_BYTES = 8 * 1024
-MAX_WORKFLOW_LIST_BYTES = 64 * 1024
 
 {recovery_output_validation_block}
 
@@ -2634,13 +2627,8 @@ def _select_workflow_goal(task_input: dict) -> str | None:
 
 
 def serialize_state(state: {class_name}) -> dict:
-    payload = _compact_value(asdict(state))
-    if not isinstance(payload, dict):
-        payload = {{}}
-    payload["artifacts_by_stage"] = _normalize_artifact_journal(
-        payload.get("artifacts_by_stage")
-    )
-    return payload
+    raw = asdict(state)
+    return json.loads(json.dumps(raw, ensure_ascii=False, allow_nan=False))
 
 
 def _normalize_constraints(value: dict) -> dict:
@@ -2774,7 +2762,7 @@ def record_observation(
             or (current_step_id in REPAIR_STAGE_IDS and recovery_output_error is None)
         ):
             state.artifacts_by_stage.setdefault(current_step_id, []).append(
-                _compact_artifact_snapshot(structured_output)
+                structured_output
             )
             state.artifacts_by_stage = _normalize_artifact_journal(state.artifacts_by_stage)
 {chr(10).join(verified_counter_lines + record_update_lines) if verified_counter_lines or record_update_lines else "            pass"}
@@ -2914,127 +2902,21 @@ def _repair_context_source_stage_id(state: {class_name}, current_step_id: str) -
 
 
 def _list_value(value) -> list:
-    compact = _compact_value(value)
-    return compact if isinstance(compact, list) else []
+    return value if isinstance(value, list) else []
 
 
 def _dict_value(value) -> dict:
-    compact = _compact_value(value)
-    return compact if isinstance(compact, dict) else {{}}
+    return value if isinstance(value, dict) else {{}}
 
 
 def _scalar_value(value):
-    return _compact_value(value)
-
-
-def _bounded_text(value: object, *, max_bytes: int = MAX_WORKFLOW_TEXT_BYTES):
-    if not isinstance(value, str):
-        return value
-    encoded = value.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return value
-    suffix = f"\\n...[truncated sha256:{{hashlib.sha256(encoded).hexdigest()}}]"
-    prefix_budget = max(1, max_bytes - len(suffix.encode("utf-8")))
-    prefix = encoded[:prefix_budget].decode("utf-8", "ignore")
-    return prefix + suffix
-
-
-def _json_size(value: object) -> int:
-    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-
-
-def _compact_value(value: object, *, depth: int = 0):
-    if depth > 4:
-        return None
-    if isinstance(value, str):
-        return _bounded_text(value)
-    if value is None or isinstance(value, (bool, int, float)):
-        return value
-    if isinstance(value, list):
-        compact_list = []
-        for item in value[:128]:
-            compact_list.append(_compact_value(item, depth=depth + 1))
-            if _json_size(compact_list) > MAX_WORKFLOW_LIST_BYTES:
-                compact_list.pop()
-                break
-        return compact_list
-    if isinstance(value, dict):
-        compact_dict = {{}}
-        for key in sorted(value, key=lambda item: str(item))[:128]:
-            if not isinstance(key, str):
-                continue
-            compact_dict[key] = _compact_value(value[key], depth=depth + 1)
-            if _json_size(compact_dict) > MAX_WORKFLOW_LIST_BYTES:
-                compact_dict.pop(key, None)
-                break
-        return compact_dict
-    return None
-
-
-def _compact_artifact_path(value: str) -> str:
-    text = value.strip()
-    encoded = text.encode("utf-8")
-    if len(encoded) <= MAX_ARTIFACT_PATH_BYTES:
-        return text
-    digest = hashlib.sha256(encoded).hexdigest()
-    prefix = encoded[: MAX_ARTIFACT_PATH_BYTES - 80].decode("utf-8", "ignore")
-    return f"{{prefix}}...[sha256:{{digest}}]"
-
-
-def _compact_artifact_snapshot(value: dict) -> dict:
-    compact = {{
-        "output_keys": sorted(key for key in value if isinstance(key, str))[:128],
-    }}
-    for key, raw_value in value.items():
-        if not isinstance(key, str):
-            continue
-        if key.endswith("_path") or key.endswith("_paths") or key == "artifact_path":
-            if isinstance(raw_value, str):
-                compact[key] = _compact_artifact_path(raw_value)
-            elif isinstance(raw_value, list):
-                compact[key] = [
-                    _compact_artifact_path(item)
-                    for item in raw_value[:128]
-                    if isinstance(item, str) and item.strip()
-                ]
-        elif (
-            key.endswith("_index")
-            or key.endswith("_count")
-            or key.startswith("ready_")
-            or key.endswith("_ready")
-            or key.endswith("_complete")
-            or key.startswith("continue_")
-            or key.startswith("should_")
-            or key.endswith("_passed")
-        ) and isinstance(raw_value, (bool, int)):
-            compact[key] = raw_value
-    return compact
+    return value
 
 
 def _normalize_artifact_journal(value: object) -> dict[str, list[dict]]:
     if not isinstance(value, dict):
         return {{}}
-    normalized = {{}}
-    for stage_id, entries in value.items():
-        if not isinstance(stage_id, str) or not isinstance(entries, list):
-            continue
-        compact_entries = [
-            _compact_artifact_snapshot(item)
-            for item in entries[-MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE:]
-            if isinstance(item, dict)
-        ]
-        if compact_entries:
-            normalized[stage_id] = compact_entries
-    while _json_size(normalized) > MAX_ARTIFACT_JOURNAL_BYTES:
-        oldest_stage = next(iter(normalized), None)
-        if oldest_stage is None:
-            break
-        entries = normalized[oldest_stage]
-        if len(entries) > 1:
-            entries.pop(0)
-        else:
-            normalized.pop(oldest_stage)
-    return normalized
+    return value
 
 
 def _string_list(value) -> list[str]:

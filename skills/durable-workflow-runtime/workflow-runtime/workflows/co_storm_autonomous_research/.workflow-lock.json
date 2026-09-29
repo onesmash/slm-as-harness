@@ -7,7 +7,7 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:research-nex",
-      "recorded_at": "2026-09-17T05:43:10Z",
+      "recorded_at": "2026-09-24T09:53:45Z",
       "recorded_by": "bridge.py preflight"
     },
     {
@@ -15,16 +15,16 @@
       "type": "skill",
       "scope": "global",
       "source": "skill-catalog:search-nex",
-      "recorded_at": "2026-09-17T05:43:10Z",
+      "recorded_at": "2026-09-24T09:53:45Z",
       "recorded_by": "bridge.py preflight"
     },
     {
       "id": "report-nex",
       "type": "skill",
-      "scope": "either",
+      "scope": "global",
       "source": "skill-catalog:report-nex",
-      "recorded_at": "2026-08-06T00:00:00Z",
-      "recorded_by": "workflow-creator"
+      "recorded_at": "2026-09-24T09:53:45Z",
+      "recorded_by": "bridge.py preflight"
     }
   ]
 }

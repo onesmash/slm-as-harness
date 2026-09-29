@@ -16,7 +16,6 @@ from runtime.models import RunState
 
 
 _RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
-MAX_PERSISTED_STATE_BYTES = 8 * 1024 * 1024
 
 
 class FileRunStateStore:
@@ -121,17 +120,6 @@ class FileRunStateStore:
                     f"expected {expected_revision}, found {current_revision}"
                 )
 
-        payload = json.dumps(
-            run_state.to_dict(),
-            ensure_ascii=False,
-            indent=2,
-            allow_nan=False,
-        )
-        payload_bytes = payload.encode("utf-8")
-        if len(payload_bytes) > MAX_PERSISTED_STATE_BYTES:
-            raise ValueError(
-                f"run state exceeds persisted size limit of {MAX_PERSISTED_STATE_BYTES} bytes"
-            )
         descriptor, temporary_name = tempfile.mkstemp(
             prefix=f".{target.name}.",
             suffix=".tmp",
@@ -140,7 +128,13 @@ class FileRunStateStore:
         temporary_path = Path(temporary_name)
         try:
             with os.fdopen(descriptor, "w", encoding="utf-8") as temporary_file:
-                temporary_file.write(payload)
+                json.dump(
+                    run_state.to_dict(),
+                    temporary_file,
+                    ensure_ascii=False,
+                    indent=2,
+                    allow_nan=False,
+                )
                 temporary_file.flush()
                 os.fsync(temporary_file.fileno())
             os.replace(temporary_path, target)
@@ -158,15 +152,11 @@ class FileRunStateStore:
             return None
         if target.is_symlink() or not target.is_file():
             raise ValueError("run state path must be a regular file")
-        if target.stat().st_size > MAX_PERSISTED_STATE_BYTES:
-            raise ValueError(
-                f"run state exceeds persisted size limit of {MAX_PERSISTED_STATE_BYTES} bytes"
-            )
-        payload = json.loads(target.read_text(encoding="utf-8"))
+        with target.open("r", encoding="utf-8") as state_file:
+            payload = json.load(state_file)
         validate_json_limits(
             payload,
             path="run_state",
-            max_bytes=MAX_PERSISTED_STATE_BYTES,
         )
         return RunState.from_dict(payload)
 

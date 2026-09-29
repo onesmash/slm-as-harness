@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from dataclasses import asdict, dataclass, field
 
@@ -27,11 +26,6 @@ RUNTIME_DEFAULTS = {'max_steps': 36,
  'coverage_threshold': 2,
  'max_reorganizations': 3,
  'max_report_synthesis_attempts': 4}
-MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE = 32
-MAX_ARTIFACT_JOURNAL_BYTES = 64 * 1024
-MAX_ARTIFACT_PATH_BYTES = 2048
-MAX_WORKFLOW_TEXT_BYTES = 16 * 1024
-MAX_WORKFLOW_LIST_BYTES = 512 * 1024
 
 _RECOVERY_OUTPUT_SCHEMAS = {'repair_report': {'report_repair_summary': 'string',
                    'repair_actions': 'string[]',
@@ -128,6 +122,7 @@ class CoStormAutonomousResearchWorkflowState:
     round_index: int = 0
     expert_round_index: int = 0
     expert_results: list = field(default_factory=list)
+    expert_reports: list = field(default_factory=list)
     expert_results_complete: bool | None = None
     last_turn_summary: str | None = None
     coverage_assessment: list = field(default_factory=list)
@@ -178,27 +173,8 @@ def _select_workflow_goal(task_input: dict) -> str | None:
 
 def serialize_state(state: CoStormAutonomousResearchWorkflowState) -> dict:
     raw = asdict(state)
-    payload = _compact_value(raw)
-    if not isinstance(payload, dict):
-        payload = {}
-    payload["artifacts_by_stage"] = _normalize_artifact_journal(
-        payload.get("artifacts_by_stage")
-    )
-    # Serialization diagnostics: if a top-level field vanished during compaction,
-    # record which one so verifiers and hosts can distinguish a real state loss
-    # from a schema mismatch instead of guessing across repair rounds.
-    dropped = [key for key in raw if key not in payload]
-    if dropped:
-        payload["serialization_diagnostics"] = {
-            "dropped_fields": dropped,
-            "dropped_at": "graph_state_serialize",
-            "hint": (
-                "fields exceeded graph_state compaction budget "
-                f"({MAX_WORKFLOW_LIST_BYTES} bytes); reduce observation payload "
-                "size or raise MAX_WORKFLOW_LIST_BYTES"
-            ),
-        }
-    return payload
+    # Validate and detach JSON state without truncating fields, text, lists, or history.
+    return json.loads(json.dumps(raw, ensure_ascii=False, allow_nan=False))
 
 
 def _normalize_constraints(value: dict) -> dict:
@@ -236,6 +212,31 @@ def _non_negative_integer(value, label: str) -> int:
     return value
 
 
+def _expert_reports_from_artifact_journal(artifacts_by_stage: dict) -> list[dict]:
+    outputs = artifacts_by_stage.get("launch_expert_subagents", [])
+    if not isinstance(outputs, list):
+        return []
+    reports = []
+    for output in outputs:
+        if not isinstance(output, dict):
+            continue
+        results = output.get("expert_results", [])
+        if not isinstance(results, list):
+            continue
+        for result in results:
+            if not isinstance(result, dict):
+                continue
+            report = {
+                "expert_round_index": output.get("expert_round_index"),
+                "expert_id": result.get("expert_id"),
+                "summary": result.get("summary"),
+                "artifact_path": result.get("artifact_path"),
+            }
+            if report["expert_id"] or report["summary"] or report["artifact_path"]:
+                reports.append(report)
+    return reports
+
+
 def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflowState:
     if payload is None:
         payload = {}
@@ -270,6 +271,10 @@ def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflow
         payload.get("current_stage_id", MAIN_STAGE_IDS[0])
     )
     return_stage_id = _validate_return_stage_id(payload.get("return_stage_id"))
+    artifacts_by_stage = _normalize_artifact_journal(payload.get("artifacts_by_stage"))
+    expert_reports = _list_value(payload.get("expert_reports"))
+    if not expert_reports:
+        expert_reports = _expert_reports_from_artifact_journal(artifacts_by_stage)
     raw_completed_stages = payload.get("completed_stages")
     completed_stages = raw_completed_stages if raw_completed_stages is not None else []
     allowed_completed = set(MAIN_STAGE_IDS) | {FINAL_STAGE_ID}
@@ -302,6 +307,7 @@ def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflow
         round_index=_non_negative_integer(payload.get('round_index', 0), 'persisted round_index'),
         expert_round_index=_non_negative_integer(payload.get('expert_round_index', 0), 'persisted expert_round_index'),
         expert_results=_list_value(payload.get('expert_results')),
+        expert_reports=expert_reports,
         expert_results_complete=_scalar_value(payload.get('expert_results_complete')),
         last_turn_summary=_scalar_value(payload.get('last_turn_summary')),
         coverage_assessment=_list_value(payload.get('coverage_assessment')),
@@ -327,7 +333,7 @@ def deserialize_state(payload: dict | None) -> CoStormAutonomousResearchWorkflow
         unblocking_blocking_reason=_scalar_value(payload.get('unblocking_blocking_reason')),
         unblocking_user_action_needed=_scalar_value(payload.get('unblocking_user_action_needed')),
         unblocking_suggested_next_input=_scalar_value(payload.get('unblocking_suggested_next_input')),
-        artifacts_by_stage=_normalize_artifact_journal(payload.get("artifacts_by_stage")),
+        artifacts_by_stage=artifacts_by_stage,
         repair_context=dict(payload.get("repair_context") or {}),
     )
 
@@ -419,7 +425,7 @@ def record_observation(
             or (current_step_id in REPAIR_STAGE_IDS and recovery_output_error is None)
         ):
             state.artifacts_by_stage.setdefault(current_step_id, []).append(
-                _compact_artifact_snapshot(structured_output)
+                structured_output
             )
             state.artifacts_by_stage = _normalize_artifact_journal(state.artifacts_by_stage)
             if current_step_id == 'warm_start_shared_space':
@@ -432,6 +438,7 @@ def record_observation(
             elif current_step_id == 'launch_expert_subagents':
                 state.expert_round_index = _scalar_value(structured_output.get('expert_round_index'))
                 state.expert_results = _list_value(structured_output.get('expert_results'))
+                state.expert_reports = _expert_reports_from_artifact_journal(state.artifacts_by_stage)
                 state.expert_results_complete = _scalar_value(structured_output.get('expert_results_complete'))
                 state.evidence_registry = _list_value(structured_output.get('evidence_registry'))
             elif current_step_id == 'autonomous_roundtable':
@@ -618,131 +625,21 @@ def _repair_context_source_stage_id(state: CoStormAutonomousResearchWorkflowStat
 
 
 def _list_value(value) -> list:
-    compact = _compact_value(value)
-    return compact if isinstance(compact, list) else []
+    return value if isinstance(value, list) else []
 
 
 def _dict_value(value) -> dict:
-    compact = _compact_value(value)
-    return compact if isinstance(compact, dict) else {}
+    return value if isinstance(value, dict) else {}
 
 
 def _scalar_value(value):
-    return _compact_value(value)
-
-
-def _bounded_text(value: object, *, max_bytes: int = MAX_WORKFLOW_TEXT_BYTES):
-    if not isinstance(value, str):
-        return value
-    encoded = value.encode("utf-8")
-    if len(encoded) <= max_bytes:
-        return value
-    suffix = f"\n...[truncated sha256:{hashlib.sha256(encoded).hexdigest()}]"
-    prefix_budget = max(1, max_bytes - len(suffix.encode("utf-8")))
-    prefix = encoded[:prefix_budget].decode("utf-8", "ignore")
-    return prefix + suffix
-
-
-def _json_size(value: object) -> int:
-    return len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-
-
-def _compact_value(value: object, *, depth: int = 0):
-    if depth > 4:
-        return None
-    if isinstance(value, str):
-        return _bounded_text(value)
-    if value is None or isinstance(value, (bool, int, float)):
-        return value
-    if isinstance(value, list):
-        compact_list = []
-        for item in value:
-            compact_list.append(_compact_value(item, depth=depth + 1))
-            if _json_size(compact_list) > MAX_WORKFLOW_LIST_BYTES:
-                compact_list.pop()
-                break
-        return compact_list
-    if isinstance(value, dict):
-        compact_dict = {}
-        for key in sorted(value, key=lambda item: str(item)):
-            if not isinstance(key, str):
-                continue
-            compact_dict[key] = _compact_value(value[key], depth=depth + 1)
-            if _json_size(compact_dict) > MAX_WORKFLOW_LIST_BYTES:
-                # Drop only the oversized field and keep later keys; a hard break
-                # here silently discards every subsequent field (including small
-                # int fields like round_index) once one large field exceeds the
-                # cumulative budget.
-                compact_dict.pop(key, None)
-                continue
-        return compact_dict
-    return None
-
-
-def _compact_artifact_path(value: str) -> str:
-    text = value.strip()
-    encoded = text.encode("utf-8")
-    if len(encoded) <= MAX_ARTIFACT_PATH_BYTES:
-        return text
-    digest = hashlib.sha256(encoded).hexdigest()
-    prefix = encoded[: MAX_ARTIFACT_PATH_BYTES - 80].decode("utf-8", "ignore")
-    return f"{prefix}...[sha256:{digest}]"
-
-
-def _compact_artifact_snapshot(value: dict) -> dict:
-    compact = {
-        "output_keys": sorted(key for key in value if isinstance(key, str))[:128],
-    }
-    for key, raw_value in value.items():
-        if not isinstance(key, str):
-            continue
-        if key.endswith("_path") or key.endswith("_paths") or key == "artifact_path":
-            if isinstance(raw_value, str):
-                compact[key] = _compact_artifact_path(raw_value)
-            elif isinstance(raw_value, list):
-                compact[key] = [
-                    _compact_artifact_path(item)
-                    for item in raw_value[:128]
-                    if isinstance(item, str) and item.strip()
-                ]
-        elif (
-            key.endswith("_index")
-            or key.endswith("_count")
-            or key.startswith("ready_")
-            or key.endswith("_ready")
-            or key.endswith("_complete")
-            or key.startswith("continue_")
-            or key.startswith("should_")
-            or key.endswith("_passed")
-        ) and isinstance(raw_value, (bool, int)):
-            compact[key] = raw_value
-    return compact
+    return value
 
 
 def _normalize_artifact_journal(value: object) -> dict[str, list[dict]]:
     if not isinstance(value, dict):
         return {}
-    normalized = {}
-    for stage_id, entries in value.items():
-        if not isinstance(stage_id, str) or not isinstance(entries, list):
-            continue
-        compact_entries = [
-            _compact_artifact_snapshot(item)
-            for item in entries[-MAX_ARTIFACT_JOURNAL_ENTRIES_PER_STAGE:]
-            if isinstance(item, dict)
-        ]
-        if compact_entries:
-            normalized[stage_id] = compact_entries
-    while _json_size(normalized) > MAX_ARTIFACT_JOURNAL_BYTES:
-        oldest_stage = next(iter(normalized), None)
-        if oldest_stage is None:
-            break
-        entries = normalized[oldest_stage]
-        if len(entries) > 1:
-            entries.pop(0)
-        else:
-            normalized.pop(oldest_stage)
-    return normalized
+    return value
 
 
 def _string_list(value) -> list[str]:

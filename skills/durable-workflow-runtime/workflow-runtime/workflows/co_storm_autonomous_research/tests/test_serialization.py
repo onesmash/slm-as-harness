@@ -1,19 +1,4 @@
-"""Regression tests for graph_state serialization capacity behavior.
-
-Covers the failure mode observed in run_892c80896e: a large launch
-observation (84-entry registry + 88-topic assessment + expert results)
-exceeded the old 64 KiB dict compaction budget, and `_compact_value`'s
-`break` silently dropped every field after the oversized one — including
-small int fields such as `round_index` — which dead-locked the
-autonomous_roundtable verifier's "persisted expert_results must contain
-completed results" check.
-
-These tests pin the fixes:
-1. oversized fields are dropped individually, later fields survive;
-2. the compaction budget is large enough for a full expert round;
-3. serialize_state records `serialization_diagnostics` when a top-level
-   field is dropped, so verifiers can surface a root cause.
-"""
+"""Regression tests for lossless Co-STORM graph-state serialization."""
 
 import json
 import os
@@ -44,7 +29,6 @@ if RUNTIME_ROOT not in sys.path:
     sys.path.insert(0, RUNTIME_ROOT)
 
 from workflows.co_storm_autonomous_research import state as wf_state  # noqa: E402
-from workflows.co_storm_autonomous_research.state import _compact_value  # noqa: E402
 
 
 def _roundtrip(payload: dict) -> dict:
@@ -96,9 +80,70 @@ class SerializationCapacityTests(unittest.TestCase):
         self.assertEqual(len(payload["evidence_registry"]), 84)
         self.assertNotIn("serialization_diagnostics", payload)
 
+    def test_expert_reports_accumulate_across_rounds_and_round_trip(self):
+        state = wf_state.make_initial_state({"task_input": {"goal": "research"}})
+        for round_index in (1, 2):
+            wf_state.record_observation(
+                state,
+                current_step_id="launch_expert_subagents",
+                observation={
+                    "status": "succeeded",
+                    "structured_output": {
+                        "expert_round_index": round_index,
+                        "expert_results": [
+                            {
+                                "expert_id": f"expert-{i}",
+                                "summary": f"round {round_index} summary {i}",
+                                "artifact_path": f"artifacts/round-{round_index}-expert-{i}.md",
+                            }
+                            for i in range(2)
+                        ],
+                        "expert_results_complete": True,
+                    },
+                },
+                verifier_result={"passed": True},
+            )
+
+        reports = _roundtrip(wf_state.serialize_state(state))["expert_reports"]
+        self.assertEqual(len(reports), 4)
+        self.assertEqual({item["expert_round_index"] for item in reports}, {1, 2})
+        self.assertEqual(
+            {item["artifact_path"] for item in reports},
+            {
+                f"artifacts/round-{round_index}-expert-{expert_index}.md"
+                for round_index in (1, 2)
+                for expert_index in range(2)
+            },
+        )
+
+    def test_legacy_artifact_journal_reconstructs_expert_reports(self):
+        payload = _roundtrip({
+            "artifacts_by_stage": {
+                "launch_expert_subagents": [
+                    {
+                        "expert_round_index": 1,
+                        "expert_results": [
+                            {"expert_id": "e1", "summary": "s1", "artifact_path": "r1.md"}
+                        ],
+                    },
+                    {
+                        "expert_round_index": 2,
+                        "expert_results": [
+                            {"expert_id": "e2", "summary": "s2", "artifact_path": "r2.md"}
+                        ],
+                    },
+                ]
+            }
+        })
+        self.assertEqual(
+            [row["artifact_path"] for row in payload["expert_reports"]],
+            ["r1.md", "r2.md"],
+        )
+
     def test_expert_and_topic_lists_are_not_capped_at_128_items(self):
         expert_count = 140
         topic_count = 140
+        registry_count = 300
         payload = _roundtrip({
             "expert_roster": [
                 {"id": f"e{i}", "role": f"role{i}", "brief": "brief"}
@@ -115,34 +160,28 @@ class SerializationCapacityTests(unittest.TestCase):
                 }
                 for i in range(topic_count)
             ],
+            "evidence_registry": [f"[{i}] source-{i} — claim {i}" for i in range(1, registry_count + 1)],
         })
         self.assertEqual(len(payload["expert_roster"]), expert_count)
         self.assertEqual(len(payload["coverage_map"]), topic_count)
         self.assertEqual(len(payload["coverage_assessment"]), topic_count)
+        self.assertEqual(len(payload["evidence_registry"]), registry_count)
         self.assertNotIn("serialization_diagnostics", payload)
 
-    def test_oversized_single_field_drops_only_itself(self):
-        """A field that pushes the cumulative dict budget over the limit is
-        dropped individually; later fields (including a small one that fits
-        after the oversized one) survive because compaction continues."""
-        big = "x" * (15 * 1024)  # bounded_text keeps strings under 16 KiB
-        # 34 big fields (~522 KiB) fit; the 35th pushes over the 512 KiB budget
-        # and is dropped; the small field after it fits again and survives.
-        fields = {f"f_{i:02d}": big for i in range(35)}
-        fields["f_35"] = "kept-after-overflow"
-        fields["round_index"] = 7
-        payload = _compact_value(fields)
-        self.assertNotIn("f_34", payload, "overflowing field must be dropped")
-        self.assertEqual(payload.get("f_35"), "kept-after-overflow",
-                         "fields after the dropped one must survive (no hard break)")
-        self.assertEqual(payload.get("round_index"), 7)
+    def test_large_state_fields_are_not_truncated_or_dropped(self):
+        big = "x" * (15 * 1024)
+        payload = _roundtrip({
+            "evidence_registry": [f"[{i}] {big}" for i in range(35)],
+            "coverage_map": [f"topic {i}" for i in range(140)],
+            "round_index": 7,
+        })
+        self.assertEqual(len(payload["evidence_registry"]), 35)
+        self.assertTrue(all(big in entry for entry in payload["evidence_registry"]))
+        self.assertEqual(len(payload["coverage_map"]), 140)
+        self.assertEqual(payload["round_index"], 7)
 
-    def test_serialization_diagnostics_recorded_on_drop(self):
-        """serialize_state records which top-level field was dropped."""
-        # A large coverage_assessment fills most of the budget; expert_results
-        # then pushes the cumulative dict over the limit and is dropped, while
-        # the small round_index field later in key order survives.
-        big_gap = "g" * (14 * 1024)  # 14 KiB strings; 18 topics fill ~505 KiB
+    def test_large_coverage_and_results_roundtrip_without_truncation(self):
+        big_gap = "g" * (14 * 1024)
         payload = _roundtrip({
             "round_index": 3,
             "expert_results_complete": True,
@@ -162,13 +201,16 @@ class SerializationCapacityTests(unittest.TestCase):
                  "new_evidence": ["n" * (15 * 1024)]}
             ],
         })
-        diag = payload.get("serialization_diagnostics")
-        self.assertIsInstance(diag, dict, "diagnostics must be recorded on drop")
-        self.assertIn("expert_results", diag.get("dropped_fields", []))
-        self.assertEqual(payload.get("round_index"), 3,
-                         "fields after the dropped one must survive")
+        self.assertEqual(len(payload["coverage_assessment"]), 18)
+        self.assertTrue(all(
+            item["open_gaps"] == [big_gap]
+            and item["next_validation_metrics"] == [big_gap]
+            for item in payload["coverage_assessment"]
+        ))
+        self.assertEqual(payload["expert_results"][0]["new_evidence"][0], "n" * (15 * 1024))
+        self.assertEqual(payload["round_index"], 3)
 
-    def test_diagnostics_absent_when_nothing_dropped(self):
+    def test_no_synthetic_serialization_diagnostics_are_added(self):
         payload = _roundtrip({"round_index": 1, "small": "ok"})
         self.assertNotIn("serialization_diagnostics", payload)
 

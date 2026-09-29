@@ -116,21 +116,6 @@ class SemanticCoverageReviewTests(unittest.TestCase):
         self.assertIs(result["passed"], False)
         self.assertIn("violates deterministic semantic guardrails", result["message"])
 
-    def test_registry_byte_budget_rejects_oversized_merged_registry(self):
-        """The merged evidence_registry must stay within the 192 KiB
-        serialization budget even when the entry count cap is met."""
-        requirement = (
-            verifiers._custom_verifier_requirement_launch_expert_subagents_evidence_registry_byte_budget
-        )
-        under = ["[1] source-a — claim one", "[2] source-b — claim two"] * 40
-        self.assertIsNone(requirement(output={"evidence_registry": under}, state=None, repo_root="."))
-        big_entry = "[1] " + ("x" * 4000) + " — claim"
-        over = [big_entry] * 60  # ~240 KiB serialized
-        message = requirement(output={"evidence_registry": over}, state=None, repo_root=".")
-        self.assertIsNotNone(message)
-        self.assertIn("exceeding the", message)
-        self.assertIsNone(requirement(output={"evidence_registry": "not-a-list"}, state=None, repo_root="."))
-
     def test_covered_topic_cannot_retain_gap_or_metric(self):
         output = self._bounded_gap_continue_output()
         output["coverage_assessment"][1]["status"] = "covered"

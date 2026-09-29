@@ -21,11 +21,11 @@ Stage Boundaries:
 - Return expert_round_index equal to the persisted {{round_index}} plus one, and do not exceed constraints.max_rounds.
 - Return expert_results as objects with exactly expert_id, summary, artifact_path, and new_evidence fields.
 - Every expert summary or artifact must cite at least one persisted or newly merged citation number, and no expert may cite unknown numbers or invent registry rows the merge did not produce. IMPORTANT: reference new_evidence items in the summary with their ASSIGNED numeric ids in the form [n] (e.g. '新证据引用：[25][26][27]'); bare locator strings are NOT recognized as citations.
-- Preserve every well-formed new_evidence item through the deterministic merge, subject to the merged registry's limit of 128 entries.
+- Preserve every well-formed new_evidence item through the deterministic merge, without a registry entry or byte ceiling.
 - Keep expert results focused on the assigned perspective; the later Moderator stage makes the round decision.
 - Do not request user participation, approval, or checkpoints.
 - Do not build or persist a hierarchical knowledge graph in this stage.
-- Compress expert payloads so graph_state serialization stays within runtime limits: keep every new_evidence claim (the part after the locator, never the locator itself) to at most 300 characters and never abbreviate or truncate the source locator, keep expert summaries under 2000 characters, and keep per-expert artifacts focused on the assigned perspective.
+- Preserve all evidence and state fields exactly through serialization; do not impose item-count or byte ceilings. Keep source locators intact and expert artifacts focused on the assigned perspective.
 - artifact_path must identify a real, non-empty, non-symlink regular file. It may be a repository-relative POSIX path or an absolute POSIX path; reject backslashes, control characters, and '.' or '..' path segments.
 - Write each expert summary as substantive prose: the perspective's core findings with [n] citations, the strongest counter-evidence or caveats, and 1 to 3 open questions the next round should target; telegraphic fragments and bare claim lists are not acceptable.
 - Retrieve new sources when they materially address the assigned perspective's questions or close an identified evidence gap; stop when the available evidence is sufficient, and ensure every new_evidence item carries a claim specific enough to be quoted in the final report.
@@ -34,5 +34,5 @@ Blocked Conditions:
 
 - Block when any expert result or artifact is missing.
 - Block when results are duplicated, empty, or not grounded in the merged evidence registry.
-- Block when newly retrieved evidence cannot be merged without rewriting the persisted registry prefix, skipping citation ids, duplicating locators, or exceeding the registry budget.
+- Block when newly retrieved evidence cannot be merged without rewriting the persisted registry prefix, skipping citation ids, duplicating locators.
 - Block when the next expert round would exceed the configured autonomous round budget.

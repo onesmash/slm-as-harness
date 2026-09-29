@@ -95,8 +95,8 @@ NODE_DEFINITIONS = {
     "synthesize_report": NodeDefinition(
         step_id="synthesize_report",
         prompt_asset_path=PROMPTS_DIR / "synthesize_report.md",
-        intent="synthesize_the_cited_report",
-        expected_artifact="structured report artifact with sections, compact numeric [n] citations, one consolidated Evidence index mapping each used citation to its exact source locator, and a report summary",
+        intent="synthesize_the_expert_research_report",
+        expected_artifact="research report synthesizing the expert reports around the requested topic",
         resume_instructions="Return an Observation preserving run_id and step_id.",
     ),
     "verify_report": NodeDefinition(
@@ -335,6 +335,7 @@ def _template_context_from_state(state: workflow_state.CoStormAutonomousResearch
         "round_index": _format_prompt_value(getattr(state, 'round_index', None)),
         "expert_round_index": _format_prompt_value(getattr(state, 'expert_round_index', None)),
         "expert_results": _format_prompt_value(getattr(state, 'expert_results', None)),
+        "expert_reports": _format_prompt_value(getattr(state, 'expert_reports', None)),
         "expert_results_complete": _format_prompt_value(getattr(state, 'expert_results_complete', None)),
         "last_turn_summary": _format_prompt_value(getattr(state, 'last_turn_summary', None)),
         "coverage_assessment": _format_prompt_value(getattr(state, 'coverage_assessment', None)),

@@ -165,9 +165,17 @@ class ReportStageOwnershipTests(unittest.TestCase):
         self.assertIn("sanctioned write", joined)
         self.assertIn("read-only", joined)
 
-    def test_report_stages_map_evidence_registry_to_claim_ledger(self):
-        """The routed skill's hard gates need a ledger the workflow lacks."""
-        for step_id in REPORT_STAGES:
+    def test_synthesis_prompt_supplies_expert_reports_and_delegates_writing(self):
+        prompt = (WORKFLOW_DIR / "prompts" / "synthesize_report.md").read_text(encoding="utf-8")
+        self.assertIn("{{expert_reports}}", prompt)
+        self.assertIn("all completed rounds", prompt)
+        self.assertIn("read the artifacts for detail", prompt)
+        self.assertIn("{{report_path}}", prompt)
+        self.assertNotIn("claim_evidence_map", prompt)
+        self.assertNotIn("claim-ledger", prompt)
+
+    def test_audit_and_repair_keep_their_claim_ledger_context(self):
+        for step_id in ("verify_report", "repair_report"):
             with self.subTest(step_id=step_id):
                 joined = " ".join(_report_stage_boundaries(step_id))
                 self.assertIn("claim-ledger", joined)

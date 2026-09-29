@@ -172,26 +172,16 @@ REORGANIZE_KNOWLEDGE_SPACE = StepContract(
 SYNTHESIZE_REPORT_ROUTE_1 = SkillRoute(
     skill='report-nex',
     use_when=SkillUseWhen(
-        operations=['evidence-grounded report synthesis',
- 'section organization',
- 'compact citation and Evidence index formatting'],
+        operations=['research report synthesis from expert findings'],
         file_patterns=[],
     ),
-    usage_notes=['Primary owner for turning the shared knowledge map into the report artifact.',
- 'Use number-only [n] markers in the body and a final Evidence index with exact locator-only rows; '
- 'do not repeat long locators in prose.'],
+    usage_notes=['Primary owner for integrating the expert reports into a report on the requested topic.'],
 )
 
 SYNTHESIZE_REPORT = StepContract(
-    done_when=['A report artifact exists.',
- 'The report has a clear outline with at least four substantive sections.',
- 'Inline numeric citations refer to the carried-forward evidence registry.',
- 'The report has exactly one consolidated Evidence index with one exact locator row for every '
- 'citation id used in the report body.',
- 'Long source locators are not repeated beside body claims.',
- "The report faithfully communicates the Moderator's complete or partial scope decision and "
- 'unresolved validation work.',
- 'The report is ready for an independent quality and citation gate.'],
+    done_when=['A report artifact exists and addresses the requested topic using the expert research.',
+ "The report accurately reflects the Moderator's scope decision and unresolved validation work.",
+ 'The report is handed to the independent verifier.'],
     output_schema={'outline': 'string',
  'report_path': 'string',
  'report_summary': 'string',

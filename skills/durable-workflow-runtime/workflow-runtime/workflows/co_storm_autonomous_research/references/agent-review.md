@@ -20,7 +20,8 @@ the right workflow.
 - `state_mode`: `custom`.
 - When `state_mode` is `custom`, review the existing workflow `state.py` as a
   domain-owned implementation and verify strict persisted-state validation,
-  bounded serialization, and fail-closed verifier promotion before sign-off.
+  complete JSON serialization without truncation, and fail-closed verifier
+  promotion before sign-off.
 
 ## Declared Custom Verifier Requirements
 
@@ -63,32 +64,18 @@ the right workflow.
     - Require each new_evidence item to be an unnumbered non-empty string with at least one ' — ' separator (split on the FIRST occurrence; the claim may itself contain ' — '), a non-empty locator, and a non-empty claim; reject entries that contain [n] citation markers.
     - Treat returned evidence_registry as the exact persisted list (same strings and order) plus newly numbered entries; do not normalize whitespace in the persisted prefix.
     - Merge new_evidence in roster order, skip locators already present in the persisted prefix or earlier experts, and require new citation ids to start at max(persisted id)+1 with no gaps.
-    - Reject a rewritten persisted prefix, duplicate locators, or a merged registry longer than 128 entries.
+    - Reject a rewritten persisted prefix or duplicate locators, without imposing a registry length ceiling.
     - Require every citation identifier in a summary or artifact to exist in the merged registry, and require the union of each expert's summary and artifact citations to include at least one merged registry identifier.
     - Resolve each artifact_path as a repository-relative path under repo_root or as an absolute POSIX path; reject traversal, backslashes, control characters, symlinks, missing or non-regular files, empty files, and invalid UTF-8.
     - Read each artifact through a bounded UTF-8 check so an oversized artifact cannot exhaust verifier memory.
   Test intent:
     - Accept two roster-matching results with distinct readable artifacts that cite only persisted evidence and return the persisted registry unchanged.
     - Accept a merge that preserves the persisted prefix and appends contiguous new citation ids from unnumbered new_evidence.
-    - Accept multiple well-formed new_evidence items even when some are not cited by the expert's summary or artifact, subject to the merged registry limit.
+    - Accept multiple well-formed new_evidence items even when some are not cited by the expert's summary or artifact, without a merged registry limit.
     - Reject an unknown, missing, duplicate, or out-of-order expert id.
     - Reject a rewritten persisted registry prefix, a skipped citation id, a duplicated locator, or a new_evidence item that is not locator — claim.
     - Reject a malformed persisted roster, skipped round, malformed result fields, duplicate artifact paths, an ungrounded result, an unknown citation, or an unsafe or missing artifact.
     - Accept a roster-matching result whose artifact_path is an absolute POSIX path to a readable regular file.
-- `evidence_registry_byte_budget`: The merged evidence_registry must stay within a serialization-safe byte budget: the full list serialized as UTF-8 must not exceed 192 KiB even when the 128-entry count cap is met, so the workflow state never approaches the runtime MAX_WORKFLOW_LIST_BYTES limit.
-  Signals: `evidence_registry`
-  Implementation surfaces: `verifier`, `workflow-specific regression tests`
-  Python imports: `json`
-  Self-contained contract: keep this requirement-scoped verifier self-contained when practical.
-  If reuse is needed, import stable helpers from shared modules outside verifiers.py.
-  same-file helper dependencies as a blocking review issue.
-  Hint pseudocode:
-    - Read the merged evidence_registry from the observation output; if it is not a list of strings, return None (shape is enforced elsewhere).
-    - Serialize the list with json.dumps(registry, ensure_ascii=False) and compute the UTF-8 byte length.
-    - If the byte length exceeds 192 * 1024, return an error naming the actual size and the budget.
-  Test intent:
-    - Accept a merged registry whose UTF-8 serialization stays under the byte budget.
-    - Reject a merged registry whose UTF-8 serialization exceeds 192 KiB even when the entry count is at or under 128.
 
 ### `autonomous_roundtable`
 

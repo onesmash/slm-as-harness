@@ -26,6 +26,7 @@ _SAFE_VERIFIER_EXECUTABLES = {
     "true",
 }
 _FORBIDDEN_ARG_TOKENS = {";", "&&", "||", "|", "&", ">", ">>", "<", "<<"}
+_MAX_SHELL_VERIFIER_STREAM_BYTES = 64 * 1024
 _TRUSTED_EXECUTABLE_DIRS = tuple(
     Path(path)
     for path in (
@@ -135,8 +136,8 @@ def _run_argv_verifier(verifier, repo_path: Path) -> dict:
         raise VerifierExecutionError(
             f"failed to start allowlisted verifier executable {Path(argv[0]).name}"
         ) from exc
-    stdout_buffer = _LimitedBuffer(DEFAULT_RUNTIME_LIMITS.max_verifier_output_bytes)
-    stderr_buffer = _LimitedBuffer(DEFAULT_RUNTIME_LIMITS.max_verifier_output_bytes)
+    stdout_buffer = _LimitedBuffer(_MAX_SHELL_VERIFIER_STREAM_BYTES)
+    stderr_buffer = _LimitedBuffer(_MAX_SHELL_VERIFIER_STREAM_BYTES)
     readers = [
         threading.Thread(target=_drain_pipe, args=(process.stdout, stdout_buffer), daemon=True),
         threading.Thread(target=_drain_pipe, args=(process.stderr, stderr_buffer), daemon=True),

@@ -22,7 +22,9 @@ class RuntimeLimits:
     max_artifact_bytes: int = 256 * 1024
     max_tool_trace_entries: int = 256
     max_trace_metadata_bytes: int = 64 * 1024
-    max_verifier_output_bytes: int = 64 * 1024
+    # Python verifier results are structured workflow data and may be larger
+    # than the bounded diagnostic streams used by shell verifiers.
+    max_verifier_output_bytes: int | None = None
     max_history_entries: int = 256
     max_history_bytes: int = 256 * 1024
 
