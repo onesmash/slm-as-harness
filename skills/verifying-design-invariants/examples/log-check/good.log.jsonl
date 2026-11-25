@@ -1,0 +1,4 @@
+{"step":1,"action":"AppendLine","count":1,"viewCount":1,"traceId":"t-1","pc":"appended"}
+{"step":2,"action":"Rebuild","count":1,"viewCount":1,"traceId":"t-2","pc":"ready"}
+{"step":3,"action":"AppendLine","count":2,"viewCount":1,"traceId":"t-3","pc":"appended"}
+{"step":4,"action":"Rebuild","count":2,"viewCount":1,"traceId":"t-4","pc":"ready"}
