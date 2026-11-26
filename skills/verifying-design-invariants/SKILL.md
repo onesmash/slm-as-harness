@@ -7,7 +7,7 @@ description: "把一条设计不变量押送到线上代码：S0 选点 + 五站
 
 模型检查只能证明「模型里没有反例」。这条流程管的另一件事：**保证模型里的那句话就是代码里的那句话**，并且在代码改动后继续被守住。
 
-要回答的就是 AWS 服务团队反复提的那句：「Design validation is super valuable… but **it's the implementation that gets shipped** (and not design), how do we connect our design-level specifications to implementation?」
+要回答的就是那句老问题：设计验证很有价值，可**被发出去的是实现，不是设计**——设计级规格怎么接到实现上？（这句话在 AWS 的形式化实践材料里被反复引用，具体出处未核到原文，此处只当问题用，不当引文。）
 
 ## 什么时候用
 
@@ -87,8 +87,8 @@ node <skill>/scripts/check-register.mjs <property-register.md> --root <仓库根
 
 ## 三个坑（都有出处）
 
-- **trace validation 会假通过。** 日志不全时可能被错误接受，极端情形「只记录执行长度」也能通过 ⟹ S4 第一件事是证明**日志够细**，不是看它通过。
-- **trace validation 失败时没有反例。** 没有单条行为能解释失败，TLC 只能给一条最大有限行为 ⟹ S4 的报告要写「在哪一步对不上」，不能写「反例见附件」。
+- **trace validation 会假通过。** 日志不全时可能被错误接受，极端情形「只记录执行长度」也能通过 ⟹ S4 第一件事是证明**日志够细**，不是看它通过。（文献同一结论：埋点不足的 trace 太容易被接受，见 [viaduct: connecting formal models to production implementations](https://github.com/airbnb/viaduct/blob/main/core/engine/runtime2/lean/impldocs/old/connecting-formal-models-and-proofs-to-production-implementations.md)；线上系统里 trace validation 的假阳性主要来自记错值和不可靠剪枝，见 [USENIX ATC'25 CONVEROS](https://www.usenix.org/system/files/atc25_full_proceedings_interior.pdf)。）
+- **trace validation 失败时没有反例。** 没有单条行为能解释失败，TLC 只能给一条最大有限行为 ⟹ S4 的报告要写「在哪一步对不上」，不能写「反例见附件」。（[arXiv:2404.16075](https://arxiv.org/abs/2404.16075) 把这条写进了 `TraceAccepted` 的定义里：失败时不存在能解释它的单条行为。）
 - **CI 里的 TLC 要钉版本。** 钉 JRE 与 tla2tools 的 checksum，不依赖 runner 自带的 Java，否则换个 runner 就静默换解释器。
   传参时注意**变量名必须用工具真正读的那两个**：`statechart` 只认 `JAVA` 与 `TLA2TOOLS`（源码 `run.ts:194-195`）。如果你的 CI 里习惯叫 `JAVA_BIN` / `TLA2TOOLS_JAR`，加一行映射再调：`JAVA="$JAVA_BIN" TLA2TOOLS="$TLA2TOOLS_JAR" ...statechart`。设错名字不会报错，它会回落到 `mise install`——正是这一节要防的那种静默。
 
