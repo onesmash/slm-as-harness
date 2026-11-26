@@ -19,10 +19,10 @@ S0 是前置筛选，不算一站；S1–S5 是五站。每站只有一个出口
 
 ## S1 建模
 
-**顺序不能倒：先画图让人确认转移对不对，再写 PlusCal → TLA+。**
+**顺序不能倒：先画图让人确认转移对不对，再写模型（PlusCal 或手写 TLA+）。**
 
 1. 图（Mermaid / `statechart`）先给评审看——状态名字用读者的话，不用变量名
-2. PlusCal 写算法，翻译成 TLA+；或直接 TLA+
+2. 两条路都行：PlusCal 写算法再翻译（多实例进程用 `process P \in {1,2}`，**不写括号**，见 `examples/param-process/`），或直接手写 TLA+ 加显式 `pc`（`examples/liveness/`）
 3. `Next` 写成各动作的析取，否则 TLC 把每一步都叫 `Next`
 4. 终态要有动作（`Done == pc \in {...} /\ UNCHANGED vars`），否则终态被判成死锁
 

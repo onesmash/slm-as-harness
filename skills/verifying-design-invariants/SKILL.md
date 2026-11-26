@@ -24,7 +24,7 @@ description: "把一条设计不变量押送到线上代码：S0 选点 + 五站
 | 站 | 动作 | 出口判据（不满足不许进下一站） | 产物 |
 |---|---|---|---|
 | **S0 选点** | 只挑「坏了最贵 × 测试最摸不到」的性质 | 每条性质一句话、一个 owner、覆盖的文件/函数、sync commit | 性质登记表（`templates/property-register.md`） |
-| **S1 建模** | 先画图让人确认转移对不对，再 PlusCal → TLA+ | ①**见过它失败**（每条性质一个破坏变体，且报红）②反例能读成人话的步骤序列 ③bounds 写清 | `.tla` / `.cfg` / `chart.mmd` / 反例轨迹 |
+| **S1 建模** | 先画图让人确认转移对不对，再写模型：默认手写 TLA+ 加显式 `pc`，也可用 PlusCal（多实例进程写 `process P \in {1,2}`，**不写括号**；见 `examples/param-process/`） | ①**见过它失败**（每条性质一个破坏变体，且报红）②反例能读成人话的步骤序列 ③bounds 写清 | `.tla` / `.cfg` / `chart.mmd` / 反例轨迹 |
 | **S2 桥接** | 把 TLC 反例**逐步**映射成真实调用 | 同一条违规在真实代码上有**可重放**的失败用例；复现不出 → 先疑模型，不是先疑代码 | 失败用例（先红） |
 | **S3 守门** | ub-mode：先写会失败的测试，亲眼看它按预期理由失败 | ①红是**预期那个**理由 ②变绿 ③「全函数返回空时这条测试仍然失败」 | 提交 + why / what / how proved |
 | **S4 上线** | 用规格校验真实日志（不需额外埋点），或断言常开 | 能报出**模型未覆盖**的行为；报出即回 S1 改模型 | 日志对规格的报告 / 线上断言 |
@@ -166,6 +166,8 @@ PATH=${NODE_BIN:-/usr/local/bin}:$PATH node scripts/check-portability.mjs
 - `scripts/check-register.mjs` — 登记表机器核对器（exit 0/1/2；表格中断/证据指空 = 1）
 - `scripts/check-paths.mjs` — 交叉引用核对器（exit 0/1/2；候选 0 = 未校验）
 - `scripts/check-portability.mjs` — 本机信息核对器（身份路径/命令里的宿主路径 = ERROR；未标记段落里的本机事实 = WARN）
+- `scripts/check-examples.mjs` — 示例核对器：跑遍每个示例目录下的 `run.sh`，三态聚合（任一 FAIL = 1；任一未判定或零示例 = 2；全 PASS = 0）；**缺 runner 的示例报未判定并指名**，不静默跳过
 - `examples/view-window/` — 可跑的冒烟测试（正确版 / 破坏变体）
 - `examples/liveness/` — 活性性质的破坏变体：抽掉公平性
+- `examples/param-process/` — 参数化进程（一个算法 N 个实例）：`process P \in {1,2}` 不写括号；抽掉 `await` 守卫即破
 - `examples/log-check/` — S4 的最小可用日志校验器（Node，无依赖）

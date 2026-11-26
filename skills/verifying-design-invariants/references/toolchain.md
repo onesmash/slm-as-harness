@@ -64,6 +64,15 @@ export SC=${SC:-$HOME/.agents/skills/statechart/scripts/statechart}
 - `-deadlock` 的语义是「**不要**检查死锁」，不是「检查死锁」
 - 报错时会给状态序列与一条 `*_TTrace_*.tla` 轨迹文件，可直接喂回 TLC 复跑
 
+## PlusCal → TLA+（S1 的默认入口）
+
+- 版本：`pcal.trans Version 1.12 of 01 July 2024`，随本机 tla2tools 2026.11.19 一起
+- 命令：`java -cp "$TLA2TOOLS" pcal.trans M.tla`
+- **它是就地改写**：`M.tla` 被替换成翻译后的 TLA+，原文件另存 `M.old`，同时生成 `M.cfg`（算法默认配置）。所以**必须在临时目录里跑**，别在仓库里跑（同下面「别在仓库里跑」那条）。
+- **语法坑（踩过两次）**：进程要写 `process P \in {1,2}`，**加括号的 `process (P \in {1,2})` 会被拒**，报 `Expected "=" or "\in" but found "P"`。本机 1.12 版如此；换版本先跑 `examples/param-process/run.sh` 验证，别照抄记忆。
+- 翻译后 `pc` 是**按 `self` 索引的向量**（`pc = [self \in ProcSet |-> "Try"]`），性质要写成对向量的判断，不是对单个 `pc`。
+- 完整可跑样例：`examples/param-process/`——守住版 + 只抽掉一行 `await` 的破坏变体，`bash examples/param-process/run.sh` 一条命令验完（三态退出码）。
+
 ## statechart 的五条硬约束（踩过就知道）
 
 1. **状态变量必须是枚举型。** 放 `ledger \in Seq(...)` 会让它崩在 `Cannot read properties of undefined (reading 'tag')`（二分实测：同构的枚举版 3 状态通过，序列版必崩）。它的 33 个语料样例里 `Seq(` 出现 0 次——这条路径从来没被测过。要画图就把状态抽象成枚举，序列只留在 TLC 侧的不变量里。
