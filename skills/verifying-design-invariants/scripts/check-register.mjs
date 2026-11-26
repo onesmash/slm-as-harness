@@ -76,12 +76,35 @@ function coveredFiles(text) {
   return [...out];
 }
 
-// 一段文字里的证据引用：带前缀的路径 + 不带前缀的文件名
-function evidenceRefs(text) {
+// 一段文字里的引用，两种分开收：带目录前缀的路径 / 不带前缀的文件名。
+// 为什么不合成一个：带前缀的路径整行都该存在（覆盖列写错也要报），
+// 而不带前缀的文件名只该在「守住」行的证据列里硬判——未判定 行的命令可能还没落地。
+function slashedRefs(text) {
   const out = new Set();
   for (const m of text.matchAll(SLASHED_REF)) out.add(m[1]);
+  return [...out];
+}
+
+function bareRefs(text) {
+  const out = new Set();
   for (const m of text.matchAll(BARE_REF)) out.add(m[1]);
   return [...out];
+}
+
+// 承诺变更证据列要认「commit 或文件」两种抬头，所以这里仍要合并
+function evidenceRefs(text) {
+  return [...new Set([...slashedRefs(text), ...bareRefs(text)])];
+}
+
+// 一行里「可判定的引用」：整行的带前缀路径 + 守住 行证据列里的文件名。
+// 证据候选数就用它统计——统计的是「真核过的」，不是「写了的」。
+function rowRefs(header, row) {
+  const statusAt = column(header, "状态");
+  const withoutStatus = row.cells.filter((_, i) => i !== statusAt).join(" ");
+  const refs = slashedRefs(withoutStatus);
+  const status = statusAt >= 0 ? (row.cells[statusAt] || "").trim() : "";
+  if (/^守住/.test(status)) refs.push(...bareRefs(evidenceText(header, row)));
+  return [...new Set(refs)];
 }
 
 // 「有证据义务的列」：表头里带 破坏变体/证据/S4/日志/命令 的列（承诺变更证据有它自己的核对，
@@ -363,16 +386,16 @@ function checkRow(header, row, root) {
     hardWarns.push(`${id}: ${base} 没有目录前缀，无法核对存在性（写成 repo 相对路径）`);
   }
 
-  // 证据列里引用的文件必须指得到东西。
-  // 带目录前缀的路径：任何状态都核——写出来的仓库路径就该存在。
-  // 不带前缀的文件名：只在「守住」行核。未判定 行的证据命令常常还没落地（「将来跑 node x.mjs」），
-  // 那不是漏；而 守住 行的每个文件名都必须翻得到，否则下一个人按表去翻就扑空。
-  const claimingGreen = /^守住/.test(bare);
-  for (const ref of evidenceRefs(evidenceText(header, row))) {
-    if (ref.includes("/")) {
-      if (!resolveRef(root, ref)) hardWarns.push(`${id}: 引用的文件不存在 -> ${ref}`);
-    } else if (claimingGreen && !resolveRef(root, ref)) {
-      hardWarns.push(`${id}: 守住 引用的文件名翻不到（无目录前缀、仓库里也没有同名文件）-> ${ref}`);
+  // ① 带目录前缀的路径：整行（除状态列）任何位置都要核——覆盖列写的源码、证据列写的脚本，
+  //    写出来就该存在。收紧「证据列」时曾把这一腿一起关掉：真实表上 32 条硬告警掉到 4 条。
+  for (const ref of slashedRefs(withoutStatus)) {
+    if (!resolveRef(root, ref)) hardWarns.push(`${id}: 引用的文件不存在 -> ${ref}`);
+  }
+  // ② 不带前缀的文件名：只在「守住」行的证据列核。未判定 行的证据命令常常还没落地
+  //    （「将来跑 node x.mjs」），那不是漏；而 守住 行的每个文件名都必须翻得到，否则下一个人按表去翻就扑空。
+  if (/^守住/.test(bare)) {
+    for (const ref of bareRefs(evidenceText(header, row))) {
+      if (!resolveRef(root, ref)) hardWarns.push(`${id}: 守住 引用的文件名翻不到（无目录前缀、仓库里也没有同名文件）-> ${ref}`);
     }
   }
   return { errors, warns, hardWarns };
@@ -438,7 +461,7 @@ function main(argv) {
     warns.push(...r.warns);
     hardWarns.push(...r.hardWarns);
     errors.push(...promiseEvidenceCheck(row, table.header, root));
-    for (const ref of evidenceRefs(evidenceText(table.header, row))) evidenceCandidates.add(ref);
+    for (const ref of rowRefs(table.header, row)) evidenceCandidates.add(ref);
     const d = driftCheck(row, table.header, filesForRow(row, table.header, byId));
     errors.push(...d.errors);
     warns.push(...d.warns);

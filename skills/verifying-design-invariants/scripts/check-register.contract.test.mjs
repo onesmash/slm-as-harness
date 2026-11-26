@@ -189,3 +189,25 @@ test("契约：某行列数与表头不一致 → exit 1", () => {
   assert.match(r.out, /列数/);
   rmSync(dir, { recursive: true, force: true });
 });
+
+// 契约 8：覆盖列里写的源码路径不存在 = 这条「守住」覆盖的是一份不存在的代码。
+// （收紧证据列时曾把这一腿一起关掉：真实表上 32 条硬告警掉到 4 条，没有任何测试喊。）
+test("契约：覆盖的文件/函数 列引用的源码不存在 → exit 1", () => {
+  const { dir, base } = makeRepo();
+  const reg = writeRegister(dir, [row({ sync: `基线 ${base}`, covered: "`sources/gone.ts:1`" })]);
+  const r = runAt(reg, dir);
+  assert.equal(r.code, 1, `期望 exit 1，得到 ${r.code}；输出 ${r.out}`);
+  assert.match(r.out, /gone\.ts/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// 契约 9：未判定 行里还没落地的命令不算「引用的文件不存在」（它不是漏，是还没跑到）。
+test("契约：未判定 行的证据命令写了不存在的文件 → 不报硬告警", () => {
+  const { dir, base } = makeRepo();
+  const reg = writeRegister(dir, [
+    row({ sync: `基线 ${base}`, status: "未判定", evidence: "将来跑 node pending-only.mjs（还没写）" }),
+  ]);
+  const r = runAt(reg, dir);
+  assert.doesNotMatch(r.out, /pending-only\.mjs/);
+  rmSync(dir, { recursive: true, force: true });
+});
