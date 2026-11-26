@@ -113,8 +113,8 @@ cd <模型目录>
 ```sh
 # 改过这个技能本身之后（先 cd 到技能目录），四件事全跑：
 PATH=${NODE_BIN:-/usr/local/bin}:$PATH node --test scripts/check-register.test.mjs \
-  scripts/check-register.contract.test.mjs scripts/check-examples.test.mjs
-# 0 = 全绿。注意 `node --test scripts/` 这种目录写法在 Node 23 上会 MODULE_NOT_FOUND，
+  scripts/check-register.contract.test.mjs scripts/check-guards.test.mjs scripts/check-examples.test.mjs
+# 0 = 全绿（44 条）。注意 `node --test scripts/` 这种目录写法在 Node 23 上会 MODULE_NOT_FOUND，
 # 必须逐个点名——所以下面这些命令是唯一入口，别在别处再手敲一版。
 
 # 交叉引用：反引号里的技能自有路径还指得到吗
@@ -179,6 +179,7 @@ PATH=${NODE_BIN:-/usr/local/bin}:$PATH node scripts/check-examples.mjs
 - `references/pilot-findings.md` — 一次真实多主体试点的十条摩擦，以及每条改成了什么结构
 - `scripts/check-register.mjs` — 登记表机器核对器（exit 0/1/2；表格中断/证据指空 = 1；零候选 = 2）
 - `scripts/check-register.contract.test.mjs` — 把上面那张退出码表变成可执行断言：文档说 exit 几，测试就要求 exit 几（零样本、裸文件名、参数顺序都在内）
+- `scripts/check-guards.test.mjs` — 两个守卫核对器的行为锁：`check-paths` 的断链/孤儿/零候选/悬空指路，`check-portability` 的四类本机信息与 `${VAR:-…}` 豁免
 - `scripts/check-paths.mjs` — 交叉引用核对器（exit 0/1/2；候选 0 = 未校验）
 - `scripts/check-portability.mjs` — 本机信息核对器（身份路径/命令里的宿主路径 = ERROR；未标记段落里的本机事实 = WARN）
 - `scripts/check-examples.mjs` — 示例核对器：跑遍每个示例目录下的 `run.sh`，三态聚合（任一 FAIL = 1；任一未判定或零示例 = 2；全 PASS = 0）；**缺 runner 的示例报未判定并指名**，不静默跳过
