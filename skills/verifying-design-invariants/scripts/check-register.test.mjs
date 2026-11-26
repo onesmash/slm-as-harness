@@ -29,13 +29,15 @@ function makeRepo() {
   sh(dir, ["git", "config", "user.name", "t"]);
   mkdirSync(join(dir, "sources"), { recursive: true });
   writeFileSync(join(dir, "sources", "a.ts"), "export const a = 1;\n");
+  writeFileSync(join(dir, "sources", "destruct.mjs"), "// 破坏变体入口\n");
   sh(dir, ["git", "add", "-A"]);
   sh(dir, ["git", "commit", "-q", "-m", "base"]);
   return { dir, base: sh(dir, ["git", "rev-parse", "HEAD"]) };
 }
 
-function row({ sync, covered = "`sources/a.ts:1`", status = "守住", promise = "" } = {}) {
-  return `| P1 | 同一笔钱只扣一次 | me | ${covered} | 单实例 | L2 | 删掉校验，跑 node x.mjs | 0 | — | ${status} | ${sync} | ${promise} |`;
+function row({ sync, covered = "`sources/a.ts:1`", status = "守住", promise = "", evidence = "见 `sources/destruct.mjs:1`" } = {}) {
+  // 证据命令必须指得到真文件：守住 行写 `node x.mjs` 这种翻不到的名字，机器核对会报红
+  return `| P1 | 同一笔钱只扣一次 | me | ${covered} | 单实例 | L2 | ${evidence} | 0 | — | ${status} | ${sync} | ${promise} |`;
 }
 
 const HEAD = [
@@ -92,14 +94,17 @@ test("工作区有未提交的覆盖代码改动 → 报错", () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("不是 git 仓库 → 明说未核，不静默通过", () => {
+test("不是 git 仓库 → 明说未核，不静默通过（守住 行 exit 1）", () => {
   const dir = mkdtempSync(join(tmpdir(), "reg-nogit-"));
   mkdirSync(join(dir, "sources"), { recursive: true });
   writeFileSync(join(dir, "sources", "a.ts"), "x\n");
+  writeFileSync(join(dir, "sources", "destruct.mjs"), "// x\n");
   const reg = writeRegister(dir, [row({ sync: "基线 abc1234" })]);
   const r = run(reg, dir);
-  assert.equal(r.code, 0, `非 git 目录不该失败，得到 ${r.code}`);
-  assert.match(r.out, /git|未核/);
+  // 这条测试的名字从第一版起就写着「不静默通过」，但断言一直要求 exit 0——
+  // 名字对、断言错。零样本 git 门收紧后，两者才一致。
+  assert.equal(r.code, 1, `守住 行零样本未核应 exit 1，得到 ${r.code}；输出 ${r.out}`);
+  assert.match(r.out, /git|未核|零样本/);
   rmSync(dir, { recursive: true, force: true });
 });
 

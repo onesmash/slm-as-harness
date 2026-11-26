@@ -1,25 +1,30 @@
 #!/usr/bin/env node
 // 性质登记表的机器核对器：把「逐行核对」从人眼变成退出码。
 //
-// 用法：node check-register.mjs <property-register.md> [--root DIR] [--strict]
-//   --root    解析表内证据路径的基准目录（默认登记表所在目录）
-//   --strict  把「风格类」WARN 也当失败（默认只提示）
+// 用法：node check-register.mjs <property-register.md> [--root DIR] [--strict] [--allow-unverified-git]
+//   --root                  解析表内证据路径的基准目录（默认登记表所在目录）
+//   --strict                把「风格类」WARN 也当失败（默认只提示）
+//   --allow-unverified-git  允许「守住 行的 sync commit 一条都没核到」——没有 git 的环境
+//                           必须显式写出来才放行；默认是失败，不是默认通过
 //
-// 退出码：0 = 没有 ERROR 且没有硬告警；1 = 至少一个 ERROR 或硬告警（含表格中断）；2 = 文件读不到或没有表格
+// 退出码：0 = 没有 ERROR、没有硬告警、且至少核到一条证据引用；
+//         1 = 至少一个 ERROR 或硬告警（含表格中断、守住 行 git 零样本）；
+//         2 = 文件读不到、没有表格，或表里没有任何可判定的证据引用（零样本 = 未校验）
 //
-// 它检查两件事：① 登记表能不能被机器读（单值状态、列数、等级词汇、一张表不中断）；
-// ② 证据指得到东西（引用的文件在不在、有没有目录前缀）。**它不执行任何命令**——
+// 它检查三件事：① 登记表能不能被机器读（单值状态、列数、等级词汇、一张表不中断）；
+// ② 证据指得到东西（证据列里引用的文件在不在、代码文件名有没有目录前缀）；
+// ③ 覆盖文件在 sync commit 之后动过没有（拿 git 核）。**它不执行任何命令**——
 // 「退出码 0」是自述，不是它跑出来的。性质对不对只能靠破坏变体与反例，静态检查替代不了。
 //
-// 硬告警（默认就算失败）：引用的文件不存在、引用是 URL、代码文件名没有目录前缀。
-// 这三类都会让下一个人「按表去翻却扑空」。
+// 硬告警（默认就算失败）：引用的文件不存在、引用是 URL、代码文件名没有目录前缀、
+// 守住 行的 sync commit 零样本未核。这几类都会让下一个人「按表去翻却扑空」。
 //
 // 第三件事（漂移门）：拿「覆盖的文件」与 sync commit 对 git 事实核一遍——
 // 覆盖文件在 sync commit 之后被改过（已提交或未提交），这条「守住」描述的就是过去。
 // 它只读 git，不执行验证命令；git 不可用时明说「未核」，不许静默当通过。
 
-import { readFileSync, existsSync, statSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
+import { dirname, resolve, join } from "node:path";
 import { execFileSync } from "node:child_process";
 
 const OK = 0;
@@ -39,7 +44,16 @@ const BARE_CODE = /(?:^|[\s(（`])([\w-]+\.(?:mjs|js|ts|py|go|rs|java):\d+(?:-\d
 const DRIFT = /(\d[\d,]*\s*(步|行|条|字节)|步数|行数|条数)/;
 // 明示为观察值
 const OBSERVED = /(观察值|观察|snapshot|快照|随日志增长|非不变量)/i;
-const PATH_LIKE = /(?:^|[\s(（`])((?:[\w.-]+\/)+[\w.-]+\.(?:jsonl|json|mjs|md|tla|cfg|sh|js|ts))/g;
+// 证据引用：带目录前缀的路径，以及**不带前缀的文件名**。
+// 旧版只认带斜杠的路径，于是「见 ghost.md 第 3 节」这种根本不存在的证据照样 exit 0——
+// 而同一张表的「承诺变更证据」列写 README.md 又被误判成「指不到文件」。同一个抽取器管两处。
+const KNOWN_EXT = "md|markdown|jsonl|json|mjs|cjs|js|ts|tsx|jsx|py|go|rs|java|kt|swift|rb|php|sql|vue|svelte|tla|cfg|sh|bash|log|txt|csv|ya?ml";
+const SLASHED_REF = new RegExp(`((?:[\\w.-]+/)+[\\w.-]+\\.(?:${KNOWN_EXT}))\\b`, "gi");
+// 前面紧跟 词字符、/ 或 . 的不算独立文件名（那是长路径的尾巴，已由 SLASHED_REF 收走）
+const BARE_REF = new RegExp(`(?<![\\w/.-])([\\w][\\w.-]*\\.(?:${KNOWN_EXT}))\\b`, "gi");
+const SKIP_DIRS = new Set([".git", "node_modules", "out", "outbug", "states"]);
+// 有证据义务的列：只在这些列里核「文件在不在」，避免把散文里的 `npm` 之类当路径。
+const EVIDENCE_COL = /(破坏变体|证据|S4|日志|命令)/;
 // 「覆盖的文件/函数」里的源码路径：允许不带目录前缀（`store.ts:557` 也是有效指认），
 // 行号后缀在匹配时自然被丢掉。
 const COVERED_FILE = /([A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*\.(?:mjs|cjs|js|ts|tsx|jsx|py|go|rs|java|kt|swift|rb|php|sql|vue|svelte))/g;
@@ -60,6 +74,58 @@ function coveredFiles(text) {
   const out = new Set();
   for (const m of text.matchAll(COVERED_FILE)) out.add(m[1]);
   return [...out];
+}
+
+// 一段文字里的证据引用：带前缀的路径 + 不带前缀的文件名
+function evidenceRefs(text) {
+  const out = new Set();
+  for (const m of text.matchAll(SLASHED_REF)) out.add(m[1]);
+  for (const m of text.matchAll(BARE_REF)) out.add(m[1]);
+  return [...out];
+}
+
+// 「有证据义务的列」：表头里带 破坏变体/证据/S4/日志/命令 的列（承诺变更证据有它自己的核对，
+// 这里跳过，免得同一处报两遍）。一列都认不出来时退回「除编号与状态外的所有列」——
+// 宁可多查，不肯零样本通过。
+function evidenceText(header, row) {
+  const statusAt = column(header, "状态");
+  const picked = [];
+  header.forEach((name, i) => {
+    if (i === 0 || i === statusAt) return;
+    if (/承诺变更/.test(name)) return;
+    if (EVIDENCE_COL.test(name)) picked.push(row.cells[i] || "");
+  });
+  if (picked.length > 0) return picked.join(" ");
+  return row.cells.filter((_, i) => i !== 0 && i !== statusAt).join(" ");
+}
+
+// 按 basename 在仓库里找一遍：证据写 `README.md`（不带目录）也要能核到东西。
+// 有上界，且跳过依赖目录——不许因为一个大仓库把核对器拖死。
+const BASENAME_CACHE = new Map();
+function findBasename(root, base) {
+  if (BASENAME_CACHE.has(base)) return BASENAME_CACHE.get(base);
+  const stack = [root];
+  let seen = 0;
+  let hit = false;
+  while (stack.length > 0 && !hit && seen < 20000) {
+    const dir = stack.pop();
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      if (++seen > 20000) break;
+      if (e.name.startsWith(".") || SKIP_DIRS.has(e.name)) continue;
+      if (e.isDirectory()) { stack.push(join(dir, e.name)); continue; }
+      if (e.name === base) { hit = true; break; }
+    }
+  }
+  BASENAME_CACHE.set(base, hit);
+  return hit;
+}
+
+function resolveRef(root, ref) {
+  if (existsSync(resolve(root, ref))) return true;
+  if (ref.includes("/")) return false;
+  return findBasename(root, ref);
 }
 
 // 「覆盖同 P1」是合法写法：跟着引用走，别逼人把同一串文件抄两遍（抄两遍就会有一遍过期）。
@@ -126,6 +192,12 @@ function promiseEvidenceCheck(row, header, root) {
   const raw = (row.cells[i] || "").trim();
   if (!raw || EMPTY_CELL.test(raw)) return errors;
   const id = row.cells[0] || `(第 ${row.line} 行)`;
+  // 先认文件：根目录的 `README.md` 是合法证据，旧版按「必须有目录前缀」判，把它误报成指不到。
+  const paths = evidenceRefs(raw);
+  if (paths.length > 0) {
+    if (!paths.some((p) => resolveRef(root, p))) errors.push(`${id}: 承诺变更证据指不到文件 -> ${paths[0]}`);
+    return errors;
+  }
   const sha = (raw.match(COMMIT) || [])[0];
   if (sha) {
     if (REPO_ROOT) {
@@ -134,12 +206,7 @@ function promiseEvidenceCheck(row, header, root) {
     }
     return errors;
   }
-  const paths = raw.match(/(?:[\w.-]+\/)+[\w.-]+\.[a-z0-9]{1,6}/gi) || [];
-  if (paths.length === 0) {
-    errors.push(`${id}: 承诺变更证据既不是 commit 也指不到文件（读到「${raw.slice(0, 40)}」）`);
-  } else if (!paths.some((p) => existsSync(resolve(root, p)))) {
-    errors.push(`${id}: 承诺变更证据指不到文件 -> ${paths[0]}`);
-  }
+  errors.push(`${id}: 承诺变更证据既不是 commit 也指不到文件（读到「${raw.slice(0, 40)}」）`);
   return errors;
 }
 
@@ -296,18 +363,41 @@ function checkRow(header, row, root) {
     hardWarns.push(`${id}: ${base} 没有目录前缀，无法核对存在性（写成 repo 相对路径）`);
   }
 
-  // 注意：带 g 的 match() 返回整段匹配（含前缀空格/反引号），不是捕获组——必须用 matchAll
-  for (const pm of withoutStatus.matchAll(PATH_LIKE)) {
-    const path = pm[1];
-    if (!existsSync(resolve(root, path))) hardWarns.push(`${id}: 引用的文件不存在 -> ${path}`);
+  // 证据列里引用的文件必须指得到东西。
+  // 带目录前缀的路径：任何状态都核——写出来的仓库路径就该存在。
+  // 不带前缀的文件名：只在「守住」行核。未判定 行的证据命令常常还没落地（「将来跑 node x.mjs」），
+  // 那不是漏；而 守住 行的每个文件名都必须翻得到，否则下一个人按表去翻就扑空。
+  const claimingGreen = /^守住/.test(bare);
+  for (const ref of evidenceRefs(evidenceText(header, row))) {
+    if (ref.includes("/")) {
+      if (!resolveRef(root, ref)) hardWarns.push(`${id}: 引用的文件不存在 -> ${ref}`);
+    } else if (claimingGreen && !resolveRef(root, ref)) {
+      hardWarns.push(`${id}: 守住 引用的文件名翻不到（无目录前缀、仓库里也没有同名文件）-> ${ref}`);
+    }
   }
   return { errors, warns, hardWarns };
 }
 
+// 参数解析：顺序无关。旧版用 argv.find(不以 -- 开头)，于是
+// `--root DIR FILE` 会把 DIR 当成登记表读，exit 2 —— 同一个用法换个顺序就报错。
+function parseArgs(argv) {
+  const opts = { file: null, root: null, strict: false, allowUnverifiedGit: false };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--root") { opts.root = argv[++i] ?? null; continue; }
+    if (a === "--strict") { opts.strict = true; continue; }
+    if (a === "--allow-unverified-git") { opts.allowUnverifiedGit = true; continue; }
+    if (a.startsWith("--")) continue; // 不认识的开关：忽略，别吞掉后面的位置参数
+    if (opts.file === null) opts.file = a;
+  }
+  return opts;
+}
+
 function main(argv) {
-  const file = argv.find((a) => !a.startsWith("--"));
+  const opts = parseArgs(argv);
+  const file = opts.file;
   if (!file) {
-    console.error("用法：node check-register.mjs <property-register.md> [--root DIR] [--strict]");
+    console.error("用法：node check-register.mjs <property-register.md> [--root DIR] [--strict] [--allow-unverified-git]");
     return UNUSABLE;
   }
   let text;
@@ -322,9 +412,8 @@ function main(argv) {
     console.log(JSON.stringify({ error: table.error }, null, 2));
     return UNUSABLE;
   }
-  const rootFlag = argv.indexOf("--root");
-  const root = rootFlag >= 0 ? resolve(argv[rootFlag + 1]) : dirname(resolve(file));
-  const strict = argv.includes("--strict");
+  const root = opts.root ? resolve(opts.root) : dirname(resolve(file));
+  const strict = opts.strict;
 
   // git 门：只在「登记表所在目录在某个工作区里」时可用；不可用必须说出来（零样本不等于通过）。
   const top = tryGit(root, ["rev-parse", "--show-toplevel"]);
@@ -335,6 +424,8 @@ function main(argv) {
   const hardWarns = [];
   const seen = new Set();
   const skipped = [];
+  const evidenceCandidates = new Set();
+  const statusAt = column(table.header, "状态");
   const byId = new Map(table.rows.map((r) => [(r.cells[0] || "").trim(), r]));
   let gitChecked = 0;
   if (!REPO_ROOT) warns.push(`git 门未核：${root} 不在 git 工作区里（或没装 git），sync commit 是否过期无法判定`);
@@ -347,9 +438,17 @@ function main(argv) {
     warns.push(...r.warns);
     hardWarns.push(...r.hardWarns);
     errors.push(...promiseEvidenceCheck(row, table.header, root));
+    for (const ref of evidenceRefs(evidenceText(table.header, row))) evidenceCandidates.add(ref);
     const d = driftCheck(row, table.header, filesForRow(row, table.header, byId));
     errors.push(...d.errors);
     warns.push(...d.warns);
+    // 一条「守住」没核到 sync commit = 零样本。旧版只记 WARN，于是非 git 目录里
+    // 整张表都「守住」也能 exit 0，和 SKILL.md 写的「零样本不算通过」正好相反。
+    const status = statusAt >= 0 ? (row.cells[statusAt] || "").trim() : "";
+    if (/^守住/.test(status) && !d.checked && (d.reason === "no-repo" || d.reason === "no-files") && !opts.allowUnverifiedGit) {
+      const why = d.reason === "no-repo" ? "不在 git 工作区里" : "覆盖列没有可解析的源码文件";
+      hardWarns.push(`${id}: 守住 但 sync commit 零样本未核（${why}）——零样本不算通过；确无 git 时显式加 --allow-unverified-git`);
+    }
     if (d.checked) gitChecked++;
     else skipped.push({ id: id || `第 ${row.line} 行`, reason: d.reason });
   }
@@ -371,20 +470,30 @@ function main(argv) {
   if (!hasLevel) warns.push("表头缺「证据等级」列：读者分不清这条守住覆盖到 L1/L2/L3 哪一层");
 
   // 硬告警默认算失败：证据指不到东西时，「表能读」不是通过。
+  const evidenceCandidatesCount = evidenceCandidates.size;
+  if (table.rows.length > 0 && evidenceCandidatesCount === 0) {
+    warns.push("证据腿零样本：表里没有任何可判定的证据引用（文件路径 / 文件名），这一腿未校验");
+  }
   const failed = errors.length > 0 || hardWarns.length > 0 || (strict && warns.length > 0);
+  // 输入集为空 = 未校验：表读得进来、也没有错，但一条证据都没核过，不许报 OK
+  const unverified = !failed && table.rows.length > 0 && evidenceCandidatesCount === 0;
   const stat = statSync(file);
   console.log(JSON.stringify({
     file,
     mtime: stat.mtime.toISOString(),
     columns: table.header,
     rows: table.rows.length,
-    verdict: failed ? "FAIL" : "OK",
+    verdict: failed ? "FAIL" : unverified ? "UNVERIFIED" : "OK",
+    evidence_candidates: evidenceCandidatesCount,
     git_check: { repo: REPO_ROOT, checked: gitChecked, skipped },
     errors,
     hard_warnings: hardWarns,
     warnings: warns,
+    reason: unverified
+      ? "没有任何可判定的证据引用：本次校验的证据腿输入集为空，结论只能是未校验（零样本不是通过）"
+      : undefined,
   }, null, 2));
-  return failed ? BAD : OK;
+  return failed ? BAD : unverified ? UNUSABLE : OK;
 }
 
 process.exit(main(process.argv.slice(2)));

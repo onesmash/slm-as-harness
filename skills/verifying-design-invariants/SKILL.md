@@ -72,12 +72,16 @@ node <skill>/scripts/check-register.mjs <property-register.md> --root <仓库根
 # exit 0 = 表读得进来，且证据都指得到东西，且覆盖文件在 sync commit 之后没动过
 # exit 1 = 有 ERROR 或硬告警：状态多值 / 表格中间中断（第二张表也不行）/ 等级词汇不对 /
 #          编号重复 / 守住缺证据或 commit / 未判定没写理由 / 引用的文件不存在 / 代码文件名没有目录前缀 /
-#          覆盖文件在 sync commit 之后有改动（含未提交）/ 承诺变更证据指不到东西
-# exit 2 = 文件读不到、找不到表头
-# 它不执行命令：「退出码」列是自述。--strict 再把风格类 WARN（没写范围等、git 门未核）也算失败。
+#          覆盖文件在 sync commit 之后有改动（含未提交）/ 承诺变更证据指不到东西 /
+#          守住 行的 sync commit 零样本未核（不在 git 工作区，或覆盖列解析不出源码文件）
+# exit 2 = 文件读不到、找不到表头，或表里没有任何可判定的证据引用（零样本 = 未校验，不是通过）
+# 它不执行命令：「退出码」列是自述。--strict 再把风格类 WARN（没写范围等）也算失败；
+# --allow-unverified-git 显式放行「确无 git」的环境——默认不放行，放行得是写出来的选择。
+# 证据引用带不带目录前缀都核：带前缀按路径解析，不带前缀按文件名在仓库里找一遍
+#（守住 行的每个文件名都必须翻得到；未判定 行还没落地的命令不报）。
 ```
 
-它检查三件事：「表能不能被机器读」「证据指不指得到东西」「**覆盖文件在 sync commit 之后动过没有**」（拿 git 核，未提交也算；不是 git 工作区就明说未核，零样本不算通过）。**不检查性质对不对、也不替你跑命令**——那两件事只能靠破坏变体与 CI。把 `exit 0` 读成「证据跑过」是过度解读；它能保证的是下一个人按表去翻不会扑空。
+它检查三件事：「表能不能被机器读」「证据指不指得到东西」「**覆盖文件在 sync commit 之后动过没有**」（拿 git 核，未提交也算；不是 git 工作区就明说未核，**零样本不算通过**）。它会**先打印证据候选数**（`evidence_candidates`）：候选为 0 时结论是「未校验」而不是「通过」——空模板、全是占位行的表，都在这一档。**不检查性质对不对、也不替你跑命令**——那两件事只能靠破坏变体与 CI。把 `exit 0` 读成「证据跑过」是过度解读；它能保证的是下一个人按表去翻不会扑空。
 
 人眼核对不算核对：试点里状态列塞了整句、备注与表内互相打架、19 行的表被空行截成 9 行却仍报 OK，都是跑这一步（或它的下一版）才暴露的。
 
@@ -107,13 +111,23 @@ cd <模型目录>
 ```
 
 ```sh
-# 改过这个技能本身之后（先 cd 到技能目录）
+# 改过这个技能本身之后（先 cd 到技能目录），四件事全跑：
+PATH=${NODE_BIN:-/usr/local/bin}:$PATH node --test scripts/check-register.test.mjs \
+  scripts/check-register.contract.test.mjs scripts/check-examples.test.mjs
+# 0 = 全绿。注意 `node --test scripts/` 这种目录写法在 Node 23 上会 MODULE_NOT_FOUND，
+# 必须逐个点名——所以下面这些命令是唯一入口，别在别处再手敲一版。
+
+# 交叉引用：反引号里的技能自有路径还指得到吗
 PATH=${NODE_BIN:-/usr/local/bin}:$PATH node scripts/check-paths.mjs
 # 0 = 有候选且引用全部解析；1 = 断链或有没人引用的文档；2 = 候选数为 0（未校验，不是通过）
 
 # 可移植性：本机信息有没有被写进文档（身份路径 / 命令里的宿主路径 / 未标记段落里的本机事实）
 PATH=${NODE_BIN:-/usr/local/bin}:$PATH node scripts/check-portability.mjs
 # 0 = 干净；1 = 命令里写死宿主路径或出现身份路径（--strict 时 WARN 也算失败）；2 = 没扫到文档
+
+# 示例还能不能跑（会真的起 TLC；任一未判定也是 2）
+PATH=${NODE_BIN:-/usr/local/bin}:$PATH node scripts/check-examples.mjs
+# 0 = 全 PASS；1 = 有示例不符预期；2 = 未判定/零示例
 ```
 
 版本、`statechart` 不吃序列变量（会把模型跑崩）、TLC 的 `-workers` 与「状态数不是可复现量」——全部只在 `references/toolchain.md` 里维护，正文不再复述（同一件事写两遍，迟早一处改一处漏）。
@@ -163,7 +177,8 @@ PATH=${NODE_BIN:-/usr/local/bin}:$PATH node scripts/check-portability.mjs
 - `templates/property-register.md` — 性质登记表模板（状态单值 + 范围 + 证据等级 + 退出码）
 - `templates/verification-record.md` — 多主体分工的签名表与分区格式
 - `references/pilot-findings.md` — 一次真实多主体试点的十条摩擦，以及每条改成了什么结构
-- `scripts/check-register.mjs` — 登记表机器核对器（exit 0/1/2；表格中断/证据指空 = 1）
+- `scripts/check-register.mjs` — 登记表机器核对器（exit 0/1/2；表格中断/证据指空 = 1；零候选 = 2）
+- `scripts/check-register.contract.test.mjs` — 把上面那张退出码表变成可执行断言：文档说 exit 几，测试就要求 exit 几（零样本、裸文件名、参数顺序都在内）
 - `scripts/check-paths.mjs` — 交叉引用核对器（exit 0/1/2；候选 0 = 未校验）
 - `scripts/check-portability.mjs` — 本机信息核对器（身份路径/命令里的宿主路径 = ERROR；未标记段落里的本机事实 = WARN）
 - `scripts/check-examples.mjs` — 示例核对器：跑遍每个示例目录下的 `run.sh`，三态聚合（任一 FAIL = 1；任一未判定或零示例 = 2；全 PASS = 0）；**缺 runner 的示例报未判定并指名**，不静默跳过
