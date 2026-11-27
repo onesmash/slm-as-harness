@@ -1,0 +1,23 @@
+{
+  "skill_name": "code-kb-workflow",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "I just inherited this repository and need a durable `knowledge-base/` instead of a one-off summary. Run the full workflow: first understand the code, then plan the wiki structure, then write the first architecture and onboarding pages, and finally QA the result with real repo questions.",
+      "expected_output": "The response should route through the four-stage workflow in order, use code reading before page generation, produce durable artifacts for each stage, and end with a QA feedback loop instead of stopping after writing pages.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "We already have a partial `knowledge-base/`, but the repo changed a lot in auth and billing over the last two weeks. Only refresh the planning stage: use recent changes to rebuild the catalogue and page backlog without rewriting every page yet.",
+      "expected_output": "The response should choose Stage 2 only, use `wiki-architect` as the main planning skill, bring in changelog evidence to scope the refresh, and update the catalogue plus backlog rather than jumping straight into page writing.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "QA the current knowledge base for me. I want to know whether it can answer how login works, what files a new engineer should read first, and which pages are already stale after recent commits. If the KB is weak, tell me which stage to rerun.",
+      "expected_output": "The response should choose Stage 4 only, test the knowledge base with grounded questions, use recent changes to detect stale areas, and produce explicit loop-back recommendations to Stage 1, 2, or 3.",
+      "files": []
+    }
+  ]
+}

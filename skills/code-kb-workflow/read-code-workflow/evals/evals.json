@@ -1,0 +1,29 @@
+{
+  "skill_name": "read-code-workflow",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Help me read this repository. I need a high-level architecture map, the main request path, and the first files I should study.",
+      "expected_output": "The response should choose an architecture-oriented reading mode, avoid diving into random helpers first, and produce a structured reading plan with a high-level map, one main path, and prioritized starting points.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I am taking over this module next week. Trace the execution path for user login, identify the important side branches I can ignore for now, and summarize the core data structures.",
+      "expected_output": "The response should choose execution-path or module mode, separate main plot from side plots, trace one concrete flow, and summarize the most important data structures rather than giving a generic repo overview.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "How should I read this codebase without getting lost? Start by figuring out what can run locally, then use tests and one concrete scenario to explain how the scheduler works.",
+      "expected_output": "The response should prefer making the code runnable, use tests as executable documentation, propose one scenario-driven trace, and finish with a structured reading artifact instead of only general advice.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "I inherited this worker service and need to be productive fast. Which files matter first, what path should I trace for retries, and what state objects do I need to understand?",
+      "expected_output": "The response should still trigger this skill even though the user did not explicitly ask to 'read code'. It should frame the task as an onboarding and execution-path reading workflow, prioritize files, identify one retry storyline, and call out the key state objects.",
+      "files": []
+    }
+  ]
+}

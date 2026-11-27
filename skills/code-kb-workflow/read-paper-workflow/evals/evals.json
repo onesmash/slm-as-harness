@@ -1,0 +1,29 @@
+{
+  "skill_name": "read-paper-workflow",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Help me read this paper. I need the main contribution, the section map, and the one argument path that matters most.",
+      "expected_output": "The response should choose a contribution-oriented reading mode, avoid vague summarization, map the paper structure, and trace one main contribution or argument path end to end.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I am turning this whitepaper into knowledge-base notes. Separate the core claims from the marketing language, trace one evidence chain, and summarize the open questions.",
+      "expected_output": "The response should distinguish author claims from interpretation, identify one concrete evidence path, and produce a durable reading artifact suitable for a knowledge base.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "How should I read this technical report without getting lost? Start with the structure, then explain the method, the strongest evidence, and the stated limitations.",
+      "expected_output": "The response should use a horizontal-first pass, then a method or evidence mode, and finish with a structured note covering document map, evidence, and limitations.",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "Compare these two papers on agent memory. I care about what each one actually claims, what evidence supports it, and where their limitations differ.",
+      "expected_output": "The response should choose comparison mode, keep the shared question in view, contrast claims and evidence quality, and avoid collapsing both papers into one generic summary.",
+      "files": []
+    }
+  ]
+}
